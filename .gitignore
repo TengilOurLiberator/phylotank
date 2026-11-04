@@ -1,0 +1,8 @@
+node_modules/
+dist/
+tests/artifacts/
+packaging/screensaver/target/
+bench/local/
+*.log
+.DS_Store
+Thumbs.db

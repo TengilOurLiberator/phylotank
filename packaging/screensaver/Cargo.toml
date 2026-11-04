@@ -1,0 +1,13 @@
+[package]
+name = "phylotank-scr"
+version = "0.0.1"
+edition = "2021"
+license = "Unlicense"
+description = "Windows screensaver wrapper for Phylotank (opens screensaver.html in a WebView2 window)"
+
+[[bin]]
+name = "phylotank"
+path = "src/main.rs"
+
+# wry and tao arrive with the real window; this skeleton has no dependencies so it builds anywhere.
+[dependencies]
