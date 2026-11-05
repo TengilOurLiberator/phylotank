@@ -11,6 +11,7 @@ import {
   type Codec, type CodecTable, type PtkHeader, type SectionIn, type World, type WorldConfig,
 } from '../core/index.js';
 import type { JournalEntry } from '../sim/index.js';
+import { hashChunks, worldChunks } from './hasher.js';
 import { migrateSections } from './migrations.js';
 
 /** Bumped whenever the sim build changes in a way that breaks bit-exact replay (header simHash). */
@@ -62,7 +63,8 @@ export interface SnapshotMeta {
 /** Field grids in the column-section layout (CONTRACT 14.1), one column per field. */
 export function encodeFields(world: World): Uint8Array {
   const f = world.fields as unknown as Record<string, AnyTypedArray>;
-  const w = new ByteWriter(4096);
+  const total = FIELD_COLUMNS.reduce((a, spec) => a + f[spec.name]!.byteLength + 96, 8);
+  const w = new ByteWriter(total);
   w.u32(FIELD_COLUMNS.length);
   for (const spec of FIELD_COLUMNS) {
     const arr = f[spec.name]!;
@@ -97,28 +99,46 @@ export interface EncodeOptions {
   wallIso?: string;
 }
 
-export function encodeWorld(world: World, o: EncodeOptions): Uint8Array {
-  const compress = o.compress !== false;
-  const meta: SnapshotMeta = {
-    config: { ...world.config }, appVersion: APP_VERSION, stateHash: hashWorld(world).toString(16),
-    journalSeq: o.journalSeq, kind: o.kind, ...(o.label !== undefined ? { label: o.label } : {}),
-    ...(o.wallIso !== undefined ? { wallIso: o.wallIso } : {}),
+/** Everything a snapshot needs, copied out of the world, so it can be finished on another thread. */
+export interface PreparedSnapshot {
+  header: PtkHeader;
+  meta: Omit<SnapshotMeta, 'stateHash'>;
+  raw: { fourcc: string; data: Uint8Array }[];
+  /** The bytes of the state hash (hasher.ts), in hashWorld order. */
+  hashInput: Uint8Array[];
+  compress: boolean;
+}
+
+export function prepareSnapshot(world: World, o: EncodeOptions): PreparedSnapshot {
+  const meta: Omit<SnapshotMeta, 'stateHash'> = {
+    config: { ...world.config }, appVersion: APP_VERSION, journalSeq: o.journalSeq, kind: o.kind,
+    ...(o.label !== undefined ? { label: o.label } : {}), ...(o.wallIso !== undefined ? { wallIso: o.wallIso } : {}),
   };
-  const sec = (fourcc: string, data: Uint8Array): SectionIn => ({ fourcc, data, required: true, codec: codecFor(data, compress) });
-  const sections: SectionIn[] = [
-    sec('META', cborEncode(meta as unknown as CborValue)),
-    sec('GLOB', encodeCanonicalGlobals(world.g)),
-    sec('CREA', encodeColumns(world.cr)),
-    sec('SEGS', encodeColumns(world.seg)),
-    ...world.brains.map((b, i) => sec(`BRN${i}`, encodeColumns(b))),
-    sec('FLDS', encodeFields(world)),
-    sec('EVTQ', cborEncode(o.pending as unknown as CborValue)),
+  const raw = [
+    { fourcc: 'GLOB', data: encodeCanonicalGlobals(world.g) },
+    { fourcc: 'CREA', data: encodeColumns(world.cr) },
+    { fourcc: 'SEGS', data: encodeColumns(world.seg) },
+    ...world.brains.map((b, i) => ({ fourcc: `BRN${i}`, data: encodeColumns(b) })),
+    { fourcc: 'FLDS', data: encodeFields(world) },
+    { fourcc: 'EVTQ', data: cborEncode(o.pending as unknown as CborValue) },
   ];
   const header: PtkHeader = {
     container: PTK_CONTAINER_VERSION, schema: PTK_SCHEMA_VERSION, flags: PTK_FLAG.FULL, tick: world.g.tick,
     simHash: SIM_BUILD_HASH, epoch: world.g.epoch,
   };
-  return writePtk(header, sections, HOST_CODECS);
+  return { header, meta, raw, hashInput: worldChunks(world), compress: o.compress !== false };
+}
+
+/** Hash, compress and lay out a prepared snapshot (the slow part; safe on a worker thread). */
+export function finishSnapshot(p: PreparedSnapshot): Uint8Array {
+  const meta: SnapshotMeta = { ...p.meta, stateHash: hashChunks(p.hashInput) };
+  const sec = (fourcc: string, data: Uint8Array): SectionIn => ({ fourcc, data, required: true, codec: codecFor(data, p.compress) });
+  const sections: SectionIn[] = [sec('META', cborEncode(meta as unknown as CborValue)), ...p.raw.map((r) => sec(r.fourcc, r.data))];
+  return writePtk(p.header, sections, HOST_CODECS);
+}
+
+export function encodeWorld(world: World, o: EncodeOptions): Uint8Array {
+  return finishSnapshot(prepareSnapshot(world, o));
 }
 
 export interface DecodedWorld { world: World; meta: SnapshotMeta; pending: JournalEntry[]; header: PtkHeader; skipped: string[]; migratedFrom: number }
@@ -165,7 +185,7 @@ function decodeWorldUnchecked(bytes: Uint8Array): DecodedWorld {
   const pendingRaw = sections.get('EVTQ');
   const pending = pendingRaw ? (cborDecode(pendingRaw, { maxDepth: 16 }) as unknown as JournalEntry[]) : [];
   if (!Array.isArray(pending)) throw new FormatError('EVTQ is not a list');
-  if (meta.stateHash !== undefined && migratedFrom === PTK_SCHEMA_VERSION && hashWorld(world).toString(16) !== meta.stateHash) {
+  if (typeof meta.stateHash === 'string' && migratedFrom === PTK_SCHEMA_VERSION && BigInt(`0x${meta.stateHash}`) !== hashWorld(world)) {
     throw new FormatError('world state hash mismatch after load');
   }
   return { world, meta: { ...meta, config }, pending, header: file.header, skipped: file.skipped, migratedFrom };

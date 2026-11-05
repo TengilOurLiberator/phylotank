@@ -8,8 +8,8 @@ import {
   HASH_EVERY, hashWorld, toHex64, type CborValue, type GodEventScheduled, type SimEvent, type World, type WorldConfig,
 } from '../core/index.js';
 import { drainEvents, schedule as simSchedule, sim, type JournalEntry } from '../sim/index.js';
-import { AsyncHasher } from './hasher.js';
-import { decodeWorld, encodeWorld, SIM_BUILD_HASH, type DecodedWorld } from './snapshot.js';
+import { decodeWorld, encodeWorld, prepareSnapshot, SIM_BUILD_HASH, type DecodedWorld } from './snapshot.js';
+import { HostWorker } from './worker.js';
 import { WorldStore, type JournalRecord, type Retention, type SnapshotInfo, type SnapshotKind } from './store.js';
 
 export interface RecoveryReport {
@@ -53,7 +53,9 @@ export class HostWorld {
   lastStepError = '';
   private readonly listeners = new Set<(ev: SimEvent[]) => void>();
   private readonly wallIso: () => string;
-  private hasher: AsyncHasher | null = null;
+  private worker: HostWorker | null = null;
+  /** Background snapshot writes that failed (disk full and the like); the journal still covers them. */
+  saveErrors: string[] = [];
   /** Bumped when the world object is replaced (rewind), so late hashes of the old one are dropped. */
   private worldGen = 0;
   /** Snapshot bytes of the newest save, kept in RAM for device-loss style resets. */
@@ -136,13 +138,13 @@ export class HostWorld {
     drainEvents(this.world);
   }
 
-  /** Hash checkpoints in a worker thread running `bundlePath` (dist/host.mjs); inline without one. */
-  useHashWorker(bundlePath: string | undefined): boolean {
+  /** Hash checkpoints and background saves on a worker thread running `bundlePath` (dist/host.mjs). */
+  useWorker(bundlePath: string | undefined): boolean {
     if (!this.store) return false;
-    this.hasher = new AsyncHasher((tick, h, gen) => {
+    this.worker = new HostWorker((tick, h, gen) => {
       if (gen === this.worldGen && this.store) this.store.append({ kind: 'hash', tick, h });
     }, bundlePath);
-    return this.hasher.threaded;
+    return this.worker.threaded;
   }
 
   get tick(): number { return this.world.g.tick; }
@@ -200,7 +202,7 @@ export class HostWorld {
       fails = 0;
       done++;
       if (this.store && this.world.g.tick % HASH_EVERY === 0) {
-        if (this.hasher) this.hasher.submit(this.world, this.worldGen);
+        if (this.worker) this.worker.hash(this.world, this.worldGen);
         else this.store.append({ kind: 'hash', tick: this.world.g.tick, h: toHex64(hashWorld(this.world)) });
       }
     }
@@ -213,7 +215,27 @@ export class HostWorld {
   emitHostEvents(ev: SimEvent[]): void { for (const l of this.listeners) l(ev); }
   nextEventId(): number { return this.world.g.nextEventId++; }
 
-  /** Write a snapshot of the present (atomic) and start a new journal file. */
+  /**
+   * Snapshot the present and start a new journal file. With `background` and a worker thread, only
+   * the copy happens now (a few ms); hashing, compression and the atomic write finish on the worker.
+   * Rotating the journal first is safe: if the write never lands, recovery uses the previous
+   * snapshot and replays the new journal file too.
+   */
+  saveInBackground(kind: SnapshotKind, label?: string): SnapshotInfo | null {
+    if (!this.store || !this.worker?.threaded) return this.save(kind, label);
+    const w = this.world;
+    const seq = this.store.nextSeq();
+    const prepared = prepareSnapshot(w, { kind, ...(label !== undefined ? { label } : {}), journalSeq: seq, pending: this.pending, wallIso: this.wallIso() });
+    const { dir, ...info } = this.store.snapshotTarget(kind, w.g.epoch, w.g.tick, seq, label);
+    const got = this.store.rotate(w.g.epoch, w.g.tick);
+    if (got !== seq) throw new Error(`journal sequence ${got} != snapshot sequence ${seq}`);
+    this.worker.snapshot(prepared, info.path, dir)
+      .then(() => { this.store?.prune(); })
+      .catch((e: Error) => { this.saveErrors.push(`${info.id}: ${e.message}`); });
+    return info;
+  }
+
+  /** Write a snapshot of the present (atomic, synchronous) and start a new journal file. */
   save(kind: SnapshotKind, label?: string): SnapshotInfo | null {
     const w = this.world;
     const seq = this.store ? this.store.nextSeq() : 0;
@@ -248,5 +270,7 @@ export class HostWorld {
     return this.save('auto')!;
   }
 
-  close(): void { void this.hasher?.close(); this.hasher = null; this.store?.close(); }
+  /** Wait for background writes and stop the worker; the journal stays open. */
+  async closeWorkerOnly(): Promise<void> { const w = this.worker; this.worker = null; await w?.close(); }
+  close(): void { void this.worker?.close(); this.worker = null; this.store?.close(); }
 }

@@ -173,3 +173,31 @@ describe('state hash worker input', () => {
     expect(hashChunks(worldChunks(w))).toBe(toHex64(hashWorld(w)));
   });
 });
+
+describe('host worker jobs', () => {
+  it('finish and write a prepared snapshot exactly as the inline path does', async () => {
+    const { runHostWorker } = await import('../src/host/worker.js');
+    const { prepareSnapshot } = await import('../src/host/snapshot.js');
+    const w = sim.create(CFG);
+    for (let i = 0; i < 10; i++) sim.step(w);
+    const dir = tmp();
+    const path = join(dir, 'x.ptk');
+    let handler: ((m: never) => void) | null = null;
+    const replies: unknown[] = [];
+    runHostWorker({ on: (_e, cb) => { handler = cb as never; }, postMessage: (m) => replies.push(m) });
+    handler!({ op: 'snapshot', id: 1, prepared: prepareSnapshot(w, { kind: 'auto', journalSeq: 3, pending: [] }), path, dir } as never);
+    handler!({ op: 'hash', tick: w.g.tick, tag: 7, chunks: (await import('../src/host/hasher.js')).worldChunks(w) } as never);
+    expect(replies[0]).toMatchObject({ op: 'snapshot', id: 1 });
+    expect(replies[1]).toMatchObject({ op: 'hash', tag: 7, tick: 10 });
+    const back = decodeWorld(new Uint8Array(readFileSync(path)));
+    expect(hashWorld(back.world)).toBe(hashWorld(w));
+    expect(back.meta.journalSeq).toBe(3);
+  });
+  it('falls back to a synchronous save without a worker', () => {
+    const a = HostWorld.open({ dir: tmp(), config: CFG });
+    a.step(5);
+    const info = a.saveInBackground('manual', 'sync')!;
+    expect(a.listSnapshots().some((s) => s.id === info.id)).toBe(true);
+    a.close();
+  });
+});

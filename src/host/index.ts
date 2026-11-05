@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
-  decodeCborFrame, decodeViewport, encodeCborFrame, FRAME, GOVERNOR_EVERY, MAX_INBOUND_BYTES, readHeader,
+  decodeCborFrame, decodeViewport, encodeBodyLeave, encodeCborFrame, FRAME, GOVERNOR_EVERY, MAX_INBOUND_BYTES, readHeader,
   type CborValue, type CommandResult, type GodCommand, type SimEvent, type ViewMode, type WorldConfig,
 } from '../core/index.js';
 import { envFrameFor } from '../sim/index.js';
@@ -139,7 +139,7 @@ export interface HostOptions {
   /** God commands from LAN peers: a second, separate switch. */
   lanGod?: boolean;
   autosaveMs?: number;
-  /** Path of the host bundle (dist/host.mjs) to run the state-hash worker; inline hashing without it. */
+  /** Path of the host bundle (dist/host.mjs) for the worker thread (hashes, background saves); inline without it. */
   hashWorker?: string;
   probe?: OsProbe;
   /** Start ticking immediately (default true). */
@@ -174,8 +174,8 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
   const now = opts.now ?? (() => performance.now());
   const manifest = buildManifest(opts.staticDir);
   const hw = HostWorld.open({ ...(opts.worldDir ? { dir: opts.worldDir } : {}), config: opts.config ?? DEFAULT_DREAM_CONFIG });
-  const threaded = hw.useHashWorker(opts.hashWorker);
-  if (opts.hashWorker && !threaded) log('state hashes run inline (no worker thread)');
+  const threaded = hw.useWorker(opts.hashWorker);
+  if (opts.hashWorker && !threaded) log('state hashes and saves run inline (no worker thread)');
   const secretsDir = opts.secretsDir ?? opts.worldDir;
   const secrets = new Secrets(secretsDir);
   const pairing = new Pairing(secrets);
@@ -249,7 +249,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
     if (tOut.state !== before) {
       log(`throttle: ${before} -> ${tOut.state}`);
       // Evicted: the CPU backend has no GPU buffers to drop, but the world goes to disk (05 §5.2.4)
-      if (tOut.evict && hw.store) { hw.save('auto'); lastSaveTick = hw.tick; }
+      if (tOut.evict && hw.store) { hw.saveInBackground('auto'); lastSaveTick = hw.tick; }
     }
     if (lease.untilWallMs !== undefined && Date.now() >= lease.untilWallMs) endLease('until-wall');
     applySpeed();
@@ -320,6 +320,9 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
 
   function resyncAll(): void {
     for (const c of clients.values()) {
+      // free the view's body slots before the new world's WELCOME (stable slots, CONTRACT 12.2)
+      const slots = c.stream.bodies.liveIds().map((id) => c.stream.bodies.slotOf(id)!).sort((a, b) => a - b);
+      if (slots.length > 0) c.send(encodeBodyLeave(hw.tick, slots));
       c.stream.reset();
       resetDue(c);
       c.send(encodeCborFrame(FRAME.WELCOME, hw.tick, welcomeFor(hw.world, c.scopes)));
@@ -339,7 +342,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
           let snapshotId: string | undefined;
           if (plan.major) {
             // the undo point is the present before the command enters the journal (DESIGN R27)
-            snapshotId = hw.save('beforePower', cmd.power)?.id;
+            snapshotId = hw.saveInBackground('beforePower', cmd.power)?.id;
             lastSaveTick = hw.tick;
           }
           hw.scheduleGod(plan.ev);
@@ -367,7 +370,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
           }
           return res({ ok: true });
         case 'snapshot': {
-          const info = hw.save('manual', cmd.label);
+          const info = hw.saveInBackground('manual', cmd.label);
           lastSaveTick = hw.tick;
           return res({ ok: true, ...(info ? { snapshotId: info.id } : {}) });
         }
@@ -582,7 +585,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
       if (hw.store && t - lastAutosave >= autosaveMs) {
         lastAutosave = t;
         const today = new Date().toDateString();
-        hw.save(today !== lastDaily ? 'daily' : 'auto');
+        hw.saveInBackground(today !== lastDaily ? 'daily' : 'auto');
         lastDaily = today;
         lastSaveTick = hw.tick;
       }
@@ -614,6 +617,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
       await new Promise<void>((r) => wss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));
       // shutdown snapshot (05 §5.4.3); if this is cut short, the journal covers the gap
+      await hw.closeWorkerOnly();
       if (hw.store) hw.save('auto');
       hw.close();
     },

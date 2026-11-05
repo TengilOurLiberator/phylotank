@@ -103,14 +103,19 @@ export class WorldStore {
 
   find(id: string): SnapshotInfo | undefined { return this.listSnapshots().find((s) => s.id === id); }
 
-  writeSnapshot(bytes: Uint8Array, kind: SnapshotKind, epoch: number, tick: number, journalSeq: number, label?: string): SnapshotInfo {
+  /** Where a snapshot of this kind and tick goes (it is written by `writeSnapshot` or by the worker). */
+  snapshotTarget(kind: SnapshotKind, epoch: number, tick: number, journalSeq: number, label?: string): SnapshotInfo & { dir: string } {
     const lab = label ? sanitiseLabel(label) : '';
     const name = `${kind}-e${pad(epoch, 4)}-t${pad(tick, 12)}-j${pad(journalSeq, 6)}${lab ? `-${lab}` : ''}.ptk`;
     const dir = kind === 'manual' ? this.pinnedDir : this.snapDir;
-    const path = join(dir, name);
-    atomicWrite(path, bytes, dir);
+    return { id: name.replace(/\.ptk$/, ''), path: join(dir, name), dir, kind, epoch, tick, journalSeq, ...(lab ? { label: lab } : {}), mtimeMs: Date.now() };
+  }
+
+  writeSnapshot(bytes: Uint8Array, kind: SnapshotKind, epoch: number, tick: number, journalSeq: number, label?: string): SnapshotInfo {
+    const { dir, ...info } = this.snapshotTarget(kind, epoch, tick, journalSeq, label);
+    atomicWrite(info.path, bytes, dir);
     this.prune();
-    return { id: name.replace(/\.ptk$/, ''), path, kind, epoch, tick, journalSeq, ...(lab ? { label: lab } : {}), mtimeMs: statSync(path).mtimeMs };
+    return { ...info, mtimeMs: statSync(info.path).mtimeMs };
   }
 
   readSnapshot(info: SnapshotInfo): Uint8Array { return new Uint8Array(readFileSync(info.path)); }

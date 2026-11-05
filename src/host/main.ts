@@ -19,15 +19,15 @@ import { HOST_PORT, toHex64, type PresetName, type WorldConfig } from '../core/i
 import { sim } from '../sim/index.js';
 import { DEFAULT_DREAM_CONFIG } from '../sim/session.js';
 import { GpuDeviceManager, loadDawn } from './gpu.js';
-import { runHasherWorker } from './hasher.js';
+import { runHostWorker, WORKER_ROLE } from './worker.js';
 import { decodeWorld } from './snapshot.js';
 import { WorldStore } from './store.js';
 import { StubProbe, type ProbeSample } from './throttle.js';
 import { HostWorld } from './world-host.js';
 import { startHost } from './index.js';
 
-if (!isMainThread && (workerData as { ptkRole?: string } | null)?.ptkRole === 'hasher') {
-  runHasherWorker(parentPort!);
+if (!isMainThread && (workerData as { ptkRole?: string } | null)?.ptkRole === WORKER_ROLE) {
+  runHostWorker(parentPort!);
 } else {
   await main();
 }
