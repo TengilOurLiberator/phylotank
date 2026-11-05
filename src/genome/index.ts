@@ -1,79 +1,65 @@
 /**
  * src/genome: development (genome to Phenotype), mutation, crossover, repair, distance,
  * templates, species assignment, the innovation registry and the genome store.
- * CONTRACT 3.3, 6, 7. See README.md.
+ * CONTRACT 3.3, 6, 7. See README.md and docs/modules/genome.md.
  *
- * The binary format itself lives in src/core/genome-format.ts (it is contract). Phase 0
- * provides the Blank template and typed stubs for everything else.
+ * The binary format itself lives in src/core/genome-format.ts (it is contract).
  */
-import {
-  defaultRecord, emptyGenome, GENOME_FLAG_LEVIATHAN, KIND, MODULE_FLAG, MODULE_RECORD, NotImplementedError,
-  SEGMENT_SUBTYPE, T, TRAITS, decodeQ, encodeQ,
-  type BirthEnv, type DevelopOptions, type Genome, type GenomeModule, type ModuleGene, type MutationContext,
-  type Phenotype, type TemplateId,
+import type {
+  BirthEnv, DevelopOptions, Genome, GenomeModule, MutationContext, Phenotype, TemplateId,
 } from '../core/index.js';
+import { crossoverWith } from './crossover.js';
+import { develop } from './develop.js';
+import { distance } from './distance.js';
+import { mutateWith } from './mutate.js';
+import { InnovationRegistry } from './registry.js';
+import { repair } from './repair.js';
+import { templateGenome } from './templates.js';
 
-/** First innovation id outside the reserved template range (CONTRACT 6.8). */
-export const FIRST_FREE_INNOV = 4096;
+export * from './constants.js';
+export { blankGenome } from './blank.js';
+export { clampToCeiling, expressedAdultLength, isLeviathan } from './ceiling.js';
+export {
+  develop, unfold, finish, Restager, adultLength, lengthAtMaturity, regShape, decodeKindParams,
+  ABSORB_FRACTION, MAX_RAW_PARTS, type Unfolded,
+} from './develop.js';
+export { mutateWith, duplicateModule, paralogCount, countGenes, poisson, pickOperator, applyOperator, type MutateStats, type OpName } from './mutate.js';
+export { crossoverWith } from './crossover.js';
+export { repair, repairInPlace } from './repair.js';
+export { distance, distanceParts, bodyPlanDescriptor, descriptorDistance, DIST_TRAITS, DIST_BRAIN_TRAITS } from './distance.js';
+export { InnovationRegistry, eventKey, EVENT, type RegistryState } from './registry.js';
+export { templateGenome, TEMPLATE_NAMES, TEMPLATE_INNOV_BASE, type TemplateName } from './templates.js';
+export { makeModule, makeLink, makeReg, kindDefaults, type ModSpec, type LinkSpec } from './kinds.js';
+export { cloneGenome, expressedSets, trait, setTrait, brainTrait, setBrainTrait } from './genes.js';
+export { lifeHistory, type LifeHistory } from './life.js';
+export { SpeciesRegistry, type SpeciesRecord, type SpeciesEvent, type AssignInput, type SpeciesOptions } from './species.js';
+export { binomialFor, commonNameFor, isPronounceable, type Binomial } from './names.js';
+export { GenomeStore } from './store.js';
+
 export const TEMPLATE_IDS: readonly TemplateId[] = [
   'meadowlamp', 'hushmaw', 'sievebell', 'tetherling', 'ashpicker', 'deepcrown', 'motefly', 'blank',
 ];
 
-/** Blank: a single head segment with default traits. */
-export function blankGenome(): Genome {
-  const g = emptyGenome();
-  const head = defaultRecord<ModuleGene>(MODULE_RECORD);
-  head.innov = 1;
-  head.kind = KIND.SEGMENT;
-  head.subtype = SEGMENT_SUBTYPE.HEAD;
-  head.flags = MODULE_FLAG.ENABLED | MODULE_FLAG.ROOT;
-  head.length = 32768;
-  head.width = 40000;
-  head.span = 128;
-  head.muscleFraction = 64;
-  head.gutFraction = 64;
-  g.modules = [head];
-  g.rootModuleInnov = head.innov;
-  return g;
+/**
+ * A GenomeModule bound to one world's innovation registry. The sim creates one per world and
+ * saves `registry.save()` with snapshots (contract request 2: put the registry in MutationContext).
+ */
+export function createGenomeModule(registry = new InnovationRegistry()): GenomeModule & { readonly registry: InnovationRegistry } {
+  return {
+    registry,
+    develop(g: Genome, maturity: number, env: BirthEnv, opts: DevelopOptions): Phenotype {
+      return develop(g, maturity, env, opts);
+    },
+    mutate(g: Genome, ctx: MutationContext): Genome {
+      const reg = (ctx as MutationContext & { registry?: InnovationRegistry }).registry ?? registry;
+      return mutateWith(g, ctx, reg);
+    },
+    crossover(bearer: Genome, donor: Genome, ctx: MutationContext): Genome { return crossoverWith(bearer, donor, ctx); },
+    repair(g: Genome): Genome { return repair(g); },
+    distance(a: Genome, b: Genome): number { return distance(a, b); },
+    template(id: TemplateId): Genome { return templateGenome(id); },
+  };
 }
 
-/** Expressed adult length after the world ceiling (CONTRACT 3.3). */
-export function expressedAdultLength(g: Genome, lCeilingM: number): number {
-  const L = decodeQ(g.traits[T.ADULT_LENGTH!]!, TRAITS[T.ADULT_LENGTH!]!);
-  return (g.flags & GENOME_FLAG_LEVIATHAN) !== 0 ? L : Math.min(L, lCeilingM);
-}
-
-/** Clamp the stored ADULT_LENGTH q to the ceiling unless the genome is a leviathan (CONTRACT 3.3). */
-export function clampToCeiling(g: Genome, lCeilingM: number): void {
-  if ((g.flags & GENOME_FLAG_LEVIATHAN) !== 0) return;
-  const spec = TRAITS[T.ADULT_LENGTH!]!;
-  const qMax = encodeQ(lCeilingM, spec);
-  if (g.traits[T.ADULT_LENGTH!]! > qMax) g.traits[T.ADULT_LENGTH!] = qMax;
-}
-
-export const genome: GenomeModule = {
-  develop(g: Genome, maturity: number, env: BirthEnv, opts: DevelopOptions): Phenotype {
-    void g; void maturity; void env; void opts;
-    throw new NotImplementedError('genome.develop');
-  },
-  mutate(g: Genome, ctx: MutationContext): Genome {
-    void g; void ctx;
-    throw new NotImplementedError('genome.mutate');
-  },
-  crossover(bearer: Genome, donor: Genome, ctx: MutationContext): Genome {
-    void bearer; void donor; void ctx;
-    throw new NotImplementedError('genome.crossover');
-  },
-  repair(g: Genome): Genome {
-    void g;
-    throw new NotImplementedError('genome.repair');
-  },
-  distance(a: Genome, b: Genome): number {
-    void a; void b;
-    throw new NotImplementedError('genome.distance');
-  },
-  template(id: TemplateId): Genome {
-    if (id === 'blank') return blankGenome();
-    throw new NotImplementedError(`genome.template(${id})`);
-  },
-};
+/** The default module instance (one registry per process; worlds should use createGenomeModule). */
+export const genome = createGenomeModule();
