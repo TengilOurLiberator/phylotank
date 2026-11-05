@@ -52,6 +52,41 @@ export function gaussianBlock(k0: number, k1: number, tick: number, entityId: nu
 }
 const bmBuf = new Float64Array(3);
 
+/** Neurons that read exploration noise: not motors, modulators or oscillators (see tickBrain). */
+function noisy(kind: number): boolean { return kind >= NOISY_LO && kind !== NEURON_KIND.MODULATOR && kind !== OSC; }
+
+/**
+ * gaussianBlock for the exploration noise: the same values at the same indices, but only the
+ * draws some neuron reads. A Philox block (4 values) runs only when one of its neurons is noisy,
+ * and a Box-Muller pair only when one of its two is; the values left out are never read, so the
+ * brain is bit-identical. Motors are over half the neurons, so this skips about 60% of the work.
+ */
+function explorationNoise(
+  k0: number, k1: number, tick: number, entityId: number, n: number, sigma: number, out: Float64Array, nKind: Uint8Array, bN: number,
+): void {
+  const lo = entityId % 4294967296 >>> 0, hi = Math.floor(entityId / 4294967296) >>> 0;
+  const t0 = tick >>> 0;
+  const bm = bmBuf;
+  for (let b = 0, i = 0; i < n; b++, i += 4) {
+    const a0 = noisy(nKind[bN + i]!) || (i + 1 < n && noisy(nKind[bN + i + 1]!));
+    const a1 = i + 2 < n && (noisy(nKind[bN + i + 2]!) || (i + 3 < n && noisy(nKind[bN + i + 3]!)));
+    if (!a0 && !a1) continue;
+    philox4x32(t0, lo, hi, b, k0, k1, blk);
+    if (a0) {
+      boxMullerParts(blk, 0, bm);
+      const r0 = bm[0]! * sigma;
+      out[i] = r0 * bm[1]!;
+      if (i + 1 < n) out[i + 1] = r0 * bm[2]!;
+    }
+    if (a1) {
+      boxMullerParts(blk, 2, bm);
+      const r1 = bm[0]! * sigma;
+      out[i + 2] = r1 * bm[1]!;
+      if (i + 3 < n) out[i + 3] = r1 * bm[2]!;
+    }
+  }
+}
+
 /** Run the brain tick for every due brain. */
 export function think(world: World, ctx: StepContext): void {
   const bs = brainState(world);
@@ -93,7 +128,7 @@ export function tickBrain(world: World, c: number, s: number, st: BrainStatic, t
   const fLow = p.fBand[s * 2]!, fHigh = p.fBand[s * 2 + 1]!;
   const F = fLow + (fHigh - fLow) * sigmoid(4 * oPrev[bN]!);
   const amp = sigmoid(4 * oPrev[bN + 1]!);
-  if (st.exploration > 0) gaussianBlock(k0, k1, tick, st.entityId, nNeu, st.exploration, noiseBuf);
+  if (st.exploration > 0) explorationNoise(k0, k1, tick, st.entityId, nNeu, st.exploration, noiseBuf, nKind, bN);
   for (let i = 0; i < nNeu; i++) phasePrev[i] = phase[bN + i]!;
   for (let i = 0; i < nNeu; i++) {
     let sum = 0;
