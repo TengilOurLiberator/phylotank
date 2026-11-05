@@ -486,7 +486,7 @@ describe('distance', () => {
 describe('species registry', () => {
   it('clones stay in one species; promotion needs count, persistence and biomass; extinction is reported', async () => {
     const { SpeciesRegistry } = await import('../src/genome/species.js');
-    const sr = new SpeciesRegistry({ lCeilingM: 0.2, rng });
+    const sr = new SpeciesRegistry({ lCeilingM: 0.2, rng, joinRule: 'medoid' });
     const g = templateGenome('motefly');
     const lh = lifeHistory(g, 0.2);
     const adult = develop(g, 1, ENV, OPTS).massKg;
@@ -512,6 +512,45 @@ describe('species registry', () => {
     let out: unknown[] = [];
     for (let i = 0; i < 12; i++) out = sr.death(first.species, hAdult, 2000 + i, 900);
     expect(out).toEqual([{ k: 'extinction', species: first.species, lastId: 2011 }]);
+  });
+});
+
+describe('species registry, lineage rule (R14)', () => {
+  it('a birth never founds a species; a bimodal species splits from its reservoir and the daughter is promoted', async () => {
+    const { SpeciesRegistry } = await import('../src/genome/species.js');
+    const sr = new SpeciesRegistry({ lCeilingM: 0.2, rng, mode: 'phenotype' });
+    const a = templateGenome('motefly'), b = templateGenome('hushmaw');
+    const root = sr.found(a, 0, { adultMassKg: 1e-7, tMatureS: 10 });
+    let id = 1;
+    const events: string[] = [];
+    let daughter = 0;
+    for (let i = 0; i < 2000; i++) {
+      const g = i % 2 === 0 ? a : b;
+      const parentSpecies = daughter && g === b ? daughter : root;
+      const r = sr.assign({ genome: g, parentSpecies, tick: i * 3, entityId: id++, massKg: 1e-7, adultMassKg: 1e-7, tMatureS: 10, parentGenome: g });
+      if (r.species !== root) daughter = r.species;
+      for (const e of r.events) events.push(e.k);
+    }
+    events.push(...sr.tick(2000 * 3 + 30 * 30).map((e) => e.k));
+    expect(sr.get(root)!.splitInto).toBeGreaterThan(0);
+    expect(events).toContain('speciation');
+    // after the split, the two body plans sit in different species
+    const ra = sr.assign({ genome: a, parentSpecies: root, tick: 9000, entityId: id++, massKg: 1e-7, adultMassKg: 1e-7, tMatureS: 10 });
+    const rb = sr.assign({ genome: b, parentSpecies: root, tick: 9000, entityId: id++, massKg: 1e-7, adultMassKg: 1e-7, tMatureS: 10 });
+    expect(ra.species).not.toBe(rb.species);
+  });
+  it('clonal drift from one founder stays one species', async () => {
+    const { SpeciesRegistry } = await import('../src/genome/species.js');
+    const sr = new SpeciesRegistry({ lCeilingM: 0.2, rng });
+    const reg = new InnovationRegistry();
+    const f = templateGenome('motefly');
+    const root = sr.found(f, 0, { adultMassKg: 1e-7, tMatureS: 10 });
+    let pop = Array.from({ length: 64 }, () => f);
+    let id = 1;
+    for (let gen = 0; gen < 40; gen++) {
+      pop = pop.map((p, k) => { const c = mutateWith(p, ctx(id++, { tick: gen }), reg); sr.assign({ genome: c, parentSpecies: root, tick: gen * 300, entityId: id, massKg: 1e-7, adultMassKg: 1e-7, tMatureS: 10, parentGenome: p }); return pop[(k * 7 + gen) % 64] === p ? c : c; });
+    }
+    expect(sr.living(true)).toHaveLength(1);
   });
 });
 
@@ -571,5 +610,16 @@ describe('module object', () => {
     expect(lh.tMatureS).toBeGreaterThan(0);
     const big = lifeHistory(templateGenome('deepcrown'), 0.2), small = lifeHistory(templateGenome('meadowlamp'), 0.2);
     expect(big.tMatureS).toBeGreaterThan(small.tMatureS);
+  });
+});
+
+describe('encodedSize', () => {
+  it('matches the encoder for templates and mutants', async () => {
+    const { encodedSize } = await import('../src/genome/genes.js');
+    const reg = new InnovationRegistry();
+    for (const id of TEMPLATE_IDS) {
+      let g = templateGenome(id);
+      for (let i = 0; i < 60; i++) { g = mutateWith(g, ctx(i, { mutagen: 10 }), reg); expect(encodedSize(g)).toBe(encodeGenome(g).length); }
+    }
   });
 });

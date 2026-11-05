@@ -15,11 +15,11 @@
 import {
   BRAIN_TRAITS, BRAIN_TRAIT_COUNT, DSYN_FLAG, GENOME_MAX_BYTES, KIND, KIND_COUNT, LINK_FLAG, LINK_RECORD,
   MODULE_FLAG, MODULE_RECORD, REG_AXIS, REG_PARAM_GATE, REG_RECORD, RNG_STREAM, TRAITS, TRAIT_COUNT,
-  DIRECT_SYNAPSE_RECORD, HIDDEN_NEURON_RECORD, defaultRecord, encodeGenome, exp, hash32,
+  DIRECT_SYNAPSE_RECORD, HIDDEN_NEURON_RECORD, defaultRecord, exp, hash32,
   type Draw, type Genome, type LinkGene, type ModuleGene, type MutationContext, type RegGene,
 } from '../core/index.js';
 import { DEEP_COPY_P, META_RATE, OP_WEIGHTS } from './constants.js';
-import { BTI, SUBTYPE_COUNT, TI, cloneGenome, findModule, pow10, reflect01 } from './genes.js';
+import { BTI, SUBTYPE_COUNT, TI, cloneGenome, encodedSize, findModule, pow10, reflect01 } from './genes.js';
 import { EVENT, InnovationRegistry, eventKey } from './registry.js';
 import { repairInPlace } from './repair.js';
 import { clampToCeiling } from './ceiling.js';
@@ -398,8 +398,6 @@ export function mutateWith(parent: Genome, ctx: MutationContext, reg: Innovation
   if (stats) { stats.points = nPoint; stats.structural = nStruct; stats.ops = ops; }
   repairInPlace(g);
   clampToCeiling(g, ctx.lCeilingM);
-  try {
-    if (encodeGenome(g).length > GENOME_MAX_BYTES) return cloneGenome(parent);
-  } catch { return cloneGenome(parent); }
+  if (encodedSize(g) > GENOME_MAX_BYTES) return cloneGenome(parent);
   return g;
 }

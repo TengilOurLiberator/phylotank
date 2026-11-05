@@ -26,8 +26,8 @@ import {
   type OrganSpec, type Phenotype, type RegGene,
 } from '../core/index.js';
 import {
-  DEG, LINK_RANGE, MOD_RANGE, TAU_, TI, allometryOf, attachAngleOf, hueOffsetOf, isEnabledLink, isEnabledModule,
-  isEnabledReg, jointRangeOf, jointRestOf, phaseOf, powr, trait, u16, u8,
+  DEG, LINK_RANGE, MOD_RANGE, TAU_, TI, allometryOf, attachAngleOf, fastLog16, hueOffsetOf, isEnabledLink, isEnabledModule,
+  isEnabledReg, jointRangeOf, jointRestOf, phaseOf, powr, table8, trait,
 } from './genes.js';
 
 /** Raw parts unfolded before gating and the cap (bounds work for adversarial genomes). */
@@ -57,12 +57,34 @@ const PARAM_MAX: readonly number[] = [
   1e9, 1e9, 1e9, 1, 1e9, 0.6, 0.8, 0.7, 1, 1, 1, 1, 1e9, 1, 170 * DEG, 90 * DEG, 1.5, 1, 1, 1, 1,
 ];
 
+const TAB_SPAN = table8(MOD_RANGE.span), TAB_STIFF = table8(MOD_RANGE.stiffness);
+const TAB_CHILD_SCALE = table8(LINK_RANGE.childScale), TAB_REPEAT_SCALE = table8(LINK_RANGE.repeatScale);
+const decLength = fastLog16(MOD_RANGE.length), decWidth = fastLog16(MOD_RANGE.width);
+
+/** Scratch buffers for unfold and finish (development is synchronous and not re-entrant). */
+const SU = {
+  modOf: new Int16Array(MAX_RAW_PARTS), parent: new Int16Array(MAX_RAW_PARTS), attachPos: new Float64Array(MAX_RAW_PARTS),
+  angle: new Float64Array(MAX_RAW_PARTS), mirror: new Int8Array(MAX_RAW_PARTS), dv: new Int8Array(MAX_RAW_PARTS),
+  phase: new Float64Array(MAX_RAW_PARTS), refLen: new Float64Array(MAX_RAW_PARTS), pathHash: new Uint32Array(MAX_RAW_PARTS),
+  chainMid: new Uint8Array(MAX_RAW_PARTS), recur: new Uint8Array(MAX_RAW_PARTS * 48),
+};
+const SF = {
+  params: new Float64Array(MAX_RAW_PARTS * NP), expressed: new Uint8Array(MAX_RAW_PARTS), keep: new Uint8Array(MAX_RAW_PARTS),
+  len: new Float64Array(MAX_RAW_PARTS), wid: new Float64Array(MAX_RAW_PARTS), absorbed: new Uint8Array(MAX_RAW_PARTS),
+  host: new Int16Array(MAX_RAW_PARTS), newIdx: new Int16Array(MAX_RAW_PARTS), mass: new Float64Array(MAX_RAW_PARTS),
+  px: new Float64Array(MAX_RAW_PARTS), py: new Float64Array(MAX_RAW_PARTS), phi: new Float64Array(MAX_RAW_PARTS),
+  cumBase: new Float64Array(MAX_RAW_PARTS), appRoot: new Int16Array(MAX_RAW_PARTS), tipMax: new Float64Array(MAX_RAW_PARTS),
+  uu: new Float64Array(MAX_RAW_PARTS), vv: new Float64Array(MAX_RAW_PARTS), dd: new Float64Array(MAX_RAW_PARTS),
+  cphi: new Float64Array(MAX_RAW_PARTS), sphi: new Float64Array(MAX_RAW_PARTS), kp: new Float64Array(MAX_RAW_PARTS * 5),
+  relLen: new Float64Array(MAX_RAW_PARTS), cumStart: new Float64Array(MAX_RAW_PARTS), hasAxialChild: new Uint8Array(MAX_RAW_PARTS),
+};
+
 function decodeModuleParams(m: ModuleGene, out: Float64Array, o: number): void {
-  out[o + P_LEN] = u16(m.length, MOD_RANGE.length);
-  out[o + P_WID] = u16(m.width, MOD_RANGE.width);
-  out[o + P_SPAN] = u8(m.span, MOD_RANGE.span);
+  out[o + P_LEN] = decLength(m.length);
+  out[o + P_WID] = decWidth(m.width);
+  out[o + P_SPAN] = TAB_SPAN[m.span & 255]!;
   out[o + P_TAPER] = m.taper / 255;
-  out[o + P_STIFF] = u8(m.stiffness, MOD_RANGE.stiffness);
+  out[o + P_STIFF] = TAB_STIFF[m.stiffness & 255]!;
   out[o + P_LIPID] = (m.lipidFraction / 255) * 0.6;
   out[o + P_MUSCLE] = (m.muscleFraction / 255) * 0.8;
   out[o + P_GUT] = m.kind === KIND.SEGMENT ? (m.gutFraction / 255) * 0.7 : 0;
@@ -110,6 +132,9 @@ export interface Unfolded {
   readonly params: Float64Array;      // n x NP, after non-maturity regulation
   readonly expressed: Uint8Array;     // after non-maturity gates
   readonly maturityRegs: RegGene[];
+  readonly traitValues: TraitValues;
+  /** Mutable trig cache of each part's rest angle (filled by finish). */
+  readonly trigKey: Float64Array; readonly trigCos: Float64Array; readonly trigSin: Float64Array;
   readonly env: BirthEnv;
   readonly opts: DevelopOptions;
 }
@@ -153,17 +178,11 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
   let rootIdx = modIndex.get(g.rootModuleInnov);
   if (rootIdx === undefined) rootIdx = 0;
   const CAP = MAX_RAW_PARTS;
-  const modOf = new Int16Array(CAP);
-  const parent = new Int16Array(CAP);
-  const attachPos = new Float64Array(CAP);
-  const angle = new Float64Array(CAP);
-  const mirror = new Int8Array(CAP);
-  const dv = new Int8Array(CAP);
-  const phase = new Float64Array(CAP);
-  const refLen = new Float64Array(CAP);
-  const pathHash = new Uint32Array(CAP);
-  const recur = new Uint8Array(CAP * Math.max(1, nMod));
-  const chainMid = new Uint8Array(CAP); // a chain copy that is not the last of its series
+  const { modOf, parent, attachPos, angle, mirror, dv, phase, refLen, pathHash, chainMid } = SU;
+  if (SU.recur.length < CAP * nMod) SU.recur = new Uint8Array(CAP * nMod);
+  const recur = SU.recur;
+  chainMid.fill(0);
+  recur.fill(0, 0, Math.max(1, nMod));
   let n = 0;
   const push = (mod: number, par: number, pos: number, ang: number, mir: number, side: number, ph: number,
     ref: number, hash: number, bumpRecur: boolean): number => {
@@ -188,8 +207,8 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
       if (recur[head * nMod + ti]! > tm.recursionLimit) continue;          // recursion exhausted
       if ((L.flags & LINK_FLAG.TERMINAL_ONLY) !== 0 && !terminal) continue;
       const reps = Math.max(1, Math.min(16, L.repeat));
-      const cs = u8(L.childScale, LINK_RANGE.childScale);
-      const rs = u8(L.repeatScale, LINK_RANGE.repeatScale);
+      const cs = TAB_CHILD_SCALE[L.childScale & 255]!;
+      const rs = TAB_REPEAT_SCALE[L.repeatScale & 255]!;
       const baseAng = attachAngleOf(L.attachAngle);
       const pos = L.attachPos / 255;
       const wave = (L.flags & LINK_FLAG.PHASE_WAVE) !== 0 ? phaseOf(L.phaseStep) : 0;
@@ -241,16 +260,16 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
   }
   // root chain (axial segments) and AP from adult relative lengths
   const axial = new Uint8Array(n);
-  const hasAxialChild = new Uint8Array(n);
+  const hasAxialChild = SF.hasAxialChild; hasAxialChild.fill(0, 0, n);
   if (n > 0) axial[0] = 1;
-  const relLen = new Float64Array(n);
+  const relLen = SF.relLen;
   for (let i = 0; i < n; i++) relLen[i] = params[i * NP + P_LEN]! * refLen[i]!;
   for (let i = 1; i < n; i++) {
     const p = parent[i]!;
     if (axial[p] && !hasAxialChild[p] && partMods[i]!.kind === KIND.SEGMENT && dv[i] === 0 && attachPos[i]! >= 0.75
       && Math.abs(angle[i]!) <= 45 * DEG) { axial[i] = 1; hasAxialChild[p] = 1; }
   }
-  const cumStart = new Float64Array(n);
+  const cumStart = SF.cumStart;
   let total = 0;
   for (let i = 0; i < n; i++) if (axial[i]) { cumStart[i] = total; total += relLen[i]!; }
   if (total <= 0) total = 1;
@@ -277,7 +296,25 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
   return {
     g, n, mods: partMods, parent: parent.slice(0, n), attachPos: attachPos.slice(0, n), angle: angle.slice(0, n),
     mirror: mirror.slice(0, n), dv: dv.slice(0, n), phase: phase.slice(0, n), refLen: refLen.slice(0, n),
-    pathHash: pathHash.slice(0, n), axial, ap, params, expressed, maturityRegs, env, opts,
+    pathHash: pathHash.slice(0, n), axial, ap, params, expressed, maturityRegs, env, opts, traitValues: traitValues(g, opts.lCeilingM),
+    trigKey: new Float64Array(n).fill(NaN), trigCos: new Float64Array(n), trigSin: new Float64Array(n),
+  };
+}
+
+/** Trait values used by finish(), decoded once per unfold. */
+export interface TraitValues {
+  gSlender: number; gFin: number; gEye: number; gMouth: number; gSpike: number; gArm: number; gTaper: number;
+  gStiff: number; gPhoto: number; gGut: number; gLimb: number; adultLength: number; birthLength: number;
+  damping: number; bodyHue: number; shell: number; sigmaMus: number;
+}
+function traitValues(g: Genome, lCeilingM: number): TraitValues {
+  const La = adultLength(g, lCeilingM);
+  return {
+    gSlender: trait(g, TI.G_SLENDERNESS), gFin: trait(g, TI.G_FIN), gEye: trait(g, TI.G_EYE), gMouth: trait(g, TI.G_MOUTH),
+    gSpike: trait(g, TI.G_SPIKE), gArm: trait(g, TI.G_ARMOUR), gTaper: trait(g, TI.G_TAPER), gStiff: trait(g, TI.G_STIFFNESS),
+    gPhoto: trait(g, TI.G_PHOTOPHORE), gGut: trait(g, TI.G_GUT), gLimb: trait(g, TI.G_LIMB_LENGTH), adultLength: La,
+    birthLength: trait(g, TI.BIRTH_FRACTION) * La, damping: trait(g, TI.JOINT_DAMPING), bodyHue: trait(g, TI.BODY_HUE),
+    shell: trait(g, TI.SHELL), sigmaMus: trait(g, TI.MUSCLE_STRENGTH),
   };
 }
 
@@ -303,7 +340,7 @@ const ORGAN_FLAG_OF_KIND: readonly number[] = [
 ];
 
 /** Decoded p1..p5 per kind (CONTRACT 6.4 table). x values in 0..1; bit fields as integers. */
-export function decodeKindParams(kind: number, x: ArrayLike<number>, out: Float32Array | number[], o: number): void {
+export function decodeKindParams(kind: number, x: ArrayLike<number>, out: Float32Array | Float64Array | number[], o: number): void {
   const b = (v: number): number => Math.round(v * 255);
   const p1 = x[0]!, p2 = x[1]!, p3 = x[2]!, p4 = x[3]!, p5 = x[4]!;
   let a = p1, c = p2, d = p3, e = p4, f = p5;
@@ -326,21 +363,20 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
   const { g, n, mods, parent, opts } = u;
   const m = maturity < 0 ? 0 : maturity > 1 ? 1 : maturity;
   const maxParts = Math.max(1, Math.min(MAX_PARTS, opts.maxParts || MAX_PARTS));
-  const params = u.params.slice();
-  const expressed = u.expressed.slice();
+  const params = SF.params; params.set(u.params);
+  const expressed = SF.expressed; expressed.set(u.expressed);
   for (const r of u.maturityRegs) for (let i = 0; i < n; i++) if (targets(r, mods[i]!)) applyReg(r, m, params, i * NP, expressed, i);
   // gating: a part survives if expressed and its parent survives; the root always survives
-  const keep = new Uint8Array(n);
+  const keep = SF.keep;
   for (let i = 0; i < n; i++) keep[i] = i === 0 ? 1 : expressed[i]! && keep[parent[i]!]! ? 1 : 0;
   // global modifiers
-  const gSlender = trait(g, TI.G_SLENDERNESS), gFin = trait(g, TI.G_FIN), gEye = trait(g, TI.G_EYE);
-  const gMouth = trait(g, TI.G_MOUTH), gSpike = trait(g, TI.G_SPIKE), gArm = trait(g, TI.G_ARMOUR);
-  const gTaper = trait(g, TI.G_TAPER), gStiff = trait(g, TI.G_STIFFNESS), gPhoto = trait(g, TI.G_PHOTOPHORE);
-  const gGutT = trait(g, TI.G_GUT), gLimb = trait(g, TI.G_LIMB_LENGTH);
-  const La = adultLength(g, opts.lCeilingM);
-  const L = lengthAtMaturity(g, m, opts.lCeilingM);
+  const tv = u.traitValues;
+  const gSlender = tv.gSlender, gFin = tv.gFin, gEye = tv.gEye, gMouth = tv.gMouth, gSpike = tv.gSpike, gArm = tv.gArm;
+  const gTaper = tv.gTaper, gStiff = tv.gStiff, gPhoto = tv.gPhoto, gGutT = tv.gGut, gLimb = tv.gLimb;
+  const La = tv.adultLength;
+  const L = tv.birthLength + m * (La - tv.birthLength);
   const ratio = La > 0 ? L / La : 1;
-  const len = new Float64Array(n), wid = new Float64Array(n);
+  const len = SF.len, wid = SF.wid;
   let chain = 0;
   for (let i = 0; i < n; i++) {
     if (!keep[i]) continue;
@@ -367,8 +403,8 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
   const K = chain > 0 ? L / chain : L;
   for (let i = 0; i < n; i++) { len[i]! *= K; wid[i]! *= K; }
   // absorption of small sensory organs; children of an absorbed part are dropped
-  const absorbed = new Uint8Array(n);
-  const host = new Int16Array(n).fill(-1);
+  const absorbed = SF.absorbed; absorbed.fill(0, 0, n);
+  const host = SF.host; host.fill(-1, 0, n);
   for (let i = 1; i < n; i++) {
     if (!keep[i]) continue;
     const p = parent[i]!;
@@ -379,7 +415,7 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
     }
   }
   // part cap in BFS order (absorbed organs do not occupy a part)
-  const newIdx = new Int16Array(n).fill(-1);
+  const newIdx = SF.newIdx; newIdx.fill(-1, 0, n);
   let np = 0;
   for (let i = 0; i < n; i++) {
     if (!keep[i]) continue;
@@ -389,30 +425,28 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
     newIdx[i] = np++;
   }
   // allocate the phenotype
+  // one buffer for every per-part array: 25 f32, 2 u32, 2 x 16-bit and 3 x 8-bit lanes per part
+  const buf = new ArrayBuffer(np * 115);
+  let off = 0;
+  const f32 = (k = 1): Float32Array => { const a = new Float32Array(buf, off, np * k); off += 4 * np * k; return a; };
   const ph: Phenotype = {
     nParts: np,
-    parent: new Int16Array(np), kind: new Uint8Array(np), subtype: new Uint8Array(np), moduleInnov: new Uint32Array(np),
-    pathHash: new Uint32Array(np), dv: new Int8Array(np), organs: new Uint16Array(np),
-    attachU: new Float32Array(np), restAngle: new Float32Array(np), limitLo: new Float32Array(np), limitHi: new Float32Array(np),
-    length: new Float32Array(np), radius: new Float32Array(np), span: new Float32Array(np), taper: new Float32Array(np),
-    muscleFrac: new Float32Array(np), lipidFrac: new Float32Array(np), armour: new Float32Array(np),
-    youngsE: new Float32Array(np), damping: new Float32Array(np),
-    u: new Float32Array(np), v: new Float32Array(np), d: new Float32Array(np),
-    cpgPhase: new Float32Array(np), cpgAmp: new Float32Array(np), glow: new Float32Array(np), hue: new Float32Array(np),
-    params: new Float32Array(np * 5),
+    attachU: f32(), restAngle: f32(), limitLo: f32(), limitHi: f32(), length: f32(), radius: f32(), span: f32(), taper: f32(),
+    muscleFrac: f32(), lipidFrac: f32(), armour: f32(), youngsE: f32(), damping: f32(), u: f32(), v: f32(), d: f32(),
+    cpgPhase: f32(), cpgAmp: f32(), glow: f32(), hue: f32(), params: f32(5),
+    moduleInnov: new Uint32Array(buf, 100 * np, np), pathHash: new Uint32Array(buf, 104 * np, np),
+    parent: new Int16Array(buf, 108 * np, np), organs: new Uint16Array(buf, 110 * np, np),
+    kind: new Uint8Array(buf, 112 * np, np), subtype: new Uint8Array(buf, 113 * np, np), dv: new Int8Array(buf, 114 * np, np),
     lengthM: L, adultLengthM: La, maturity: m, massKg: 0, gutVolume: 0, gGut: 0,
     mouth: { filter: 0, scrape: 0, bite: 0, suction: 0, latch: 0, gape: 0, biteForce: 0, mesh: 0 },
     handlingSize: 0, buildCostKg: 0, organList: [],
   };
-  const damping = trait(g, TI.JOINT_DAMPING);
-  const bodyHue = trait(g, TI.BODY_HUE);
-  const shell = trait(g, TI.SHELL);
-  const sigmaMus = trait(g, TI.MUSCLE_STRENGTH);
+  const damping = tv.damping, bodyHue = tv.bodyHue, shell = tv.shell, sigmaMus = tv.sigmaMus;
   const minLen = MIN_LENGTH_FRACTION * L, minR = MIN_RADIUS_FRACTION * L;
-  const mass = new Float64Array(np);
+  const mass = SF.mass;
   // rest-pose layout (heading 0, mirror +1): x forward, y down; dorsal is -y
-  const px = new Float64Array(n), py = new Float64Array(n), phi = new Float64Array(n);
-  const cumBase = new Float64Array(n), appRoot = new Int16Array(n).fill(-1);
+  const { px, py, phi, cumBase, cphi, sphi, kp } = SF;
+  const appRoot = SF.appRoot; appRoot.fill(-1, 0, n);
   const xp = new Float64Array(5);
   for (let i = 0; i < n; i++) {
     if (!keep[i]) continue;
@@ -424,18 +458,24 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
     if (!absorbed[i]) { if (l < minLen) l = minLen; if (r < minR) r = minR; }
     const rest = i === 0 ? 0 : u.angle[i]! + u.mirror[i]! * params[o + P_REST]!;
     // layout
-    if (p < 0) { phi[i] = 0; px[i] = 0; py[i] = 0; }
+    if (p < 0) { phi[i] = 0; px[i] = 0; py[i] = 0; cphi[i] = 1; sphi[i] = 0; }
     else {
       phi[i] = phi[p]! + rest;
+      // trig of the rest angle is cached on the unfolded body, so a restage computes none
+      if (u.trigKey[i] !== rest) { u.trigKey[i] = rest; u.trigCos[i] = cos(rest); u.trigSin[i] = sin(rest); }
+      const cr = u.trigCos[i]!, sr = u.trigSin[i]!;
+      cphi[i] = cphi[p]! * cr - sphi[p]! * sr; sphi[i] = sphi[p]! * cr + cphi[p]! * sr;
       const au = 0.5 - u.attachPos[i]!;
-      const jx = px[p]! + au * len[p]! * cos(phi[p]!), jy = py[p]! + au * len[p]! * sin(phi[p]!);
-      px[i] = jx - 0.5 * l * cos(phi[i]!); py[i] = jy - 0.5 * l * sin(phi[i]!);
+      const jx = px[p]! + au * len[p]! * cphi[p]!, jy = py[p]! + au * len[p]! * sphi[p]!;
+      px[i] = jx - 0.5 * l * cphi[i]!; py[i] = jy - 0.5 * l * sphi[i]!;
       if (!u.axial[i]) {
         if (u.axial[p]) { appRoot[i] = i; cumBase[i] = 0; }
         else { appRoot[i] = appRoot[p]!; cumBase[i] = cumBase[p]! + len[p]!; }
       }
     }
     len[i] = l;
+    for (let q = 0; q < 5; q++) xp[q] = params[o + (q === 0 ? P_P1 : q === 1 ? P_P2 : q === 2 ? P_P3 : q === 3 ? P_P4 : P_P5)]!;
+    decodeKindParams(mod.kind, xp, kp, i * 5);
     if (absorbed[i]) continue;
     const j = newIdx[i]!;
     const lip = params[o + P_LIPID]!, arm = params[o + P_ARMOUR]!;
@@ -470,16 +510,15 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
     ph.glow[j] = params[o + P_GLOW]!;
     let hue = (bodyHue + hueOffsetOf(mod.hueOffset)) % 1; if (hue < 0) hue += 1;
     ph.hue[j] = hue;
-    for (let q = 0; q < 5; q++) xp[q] = params[o + (q === 0 ? P_P1 : q === 1 ? P_P2 : q === 2 ? P_P3 : q === 3 ? P_P4 : P_P5)]!;
-    decodeKindParams(mod.kind, xp, ph.params, j * 5);
+    for (let q = 0; q < 5; q++) ph.params[j * 5 + q] = kp[i * 5 + q]!;
   }
   // body-frame coordinates and appendage extents
   const snoutX = n > 0 ? 0.5 * len[0]! : 0;
-  const tipMax = new Float64Array(n);
+  const tipMax = SF.tipMax; tipMax.fill(0, 0, n);
   for (let i = 0; i < n; i++) if (keep[i] && appRoot[i]! >= 0) {
     const a = appRoot[i]!; const t = cumBase[i]! + len[i]!; if (t > tipMax[a]!) tipMax[a] = t;
   }
-  const uu = new Float64Array(n), vv = new Float64Array(n), dd = new Float64Array(n);
+  const { uu, vv, dd } = SF;
   for (let i = 0; i < n; i++) {
     if (!keep[i]) continue;
     const uRaw = L > 0 ? (snoutX - px[i]!) / L : 0;
@@ -498,14 +537,12 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
   };
   let massKg = 0, gutVol = 0, gutLen = 0, build = 0, bodyW = 0, spikeL = 0;
   const mouth: MouthDescriptor = ph.mouth;
-  const tmp = [0, 0, 0, 0, 0];
   for (let i = 0; i < n; i++) {
     if (!keep[i]) continue;
     const mod = mods[i]!;
     const o = i * NP;
-    for (let q = 0; q < 5; q++) xp[q] = params[o + (q === 0 ? P_P1 : q === 1 ? P_P2 : q === 2 ? P_P3 : q === 3 ? P_P4 : P_P5)]!;
-    decodeKindParams(mod.kind, xp, tmp, 0);
-    const prm = tmp.slice();
+    const prm = [kp[i * 5]!, kp[i * 5 + 1]!, kp[i * 5 + 2]!, kp[i * 5 + 3]!, kp[i * 5 + 4]!];
+    xp[0] = params[o + P_P1]!; xp[1] = params[o + P_P2]!;
     const j = absorbed[i] ? newIdx[host[i]!]! : newIdx[i]!;
     let flags = ORGAN_FLAG_OF_KIND[mod.kind] ?? 0;
     const ok = ORGAN_OF_KIND[mod.kind];

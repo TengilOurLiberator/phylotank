@@ -52,9 +52,24 @@ export function traitSpec(idx: number): TraitSpec {
   if (!s) throw new Error(`no trait at index ${idx}`);
   return s;
 }
+/** 256-entry decode table for a u8 field (built once with dmath, so identical on every engine). */
+export function table8(r: Range): Float64Array {
+  const t = new Float64Array(256);
+  for (let q = 0; q < 256; q++) t[q] = decodeQ(q, r, 255);
+  return t;
+}
+/** Decoder for a u16 field: decodeQ with the log ratio hoisted. Bit-identical to decodeQ. */
+export function fastLog16(r: Range): (q: number) => number {
+  if (r.scale !== 'log') return (q) => decodeQ(q, r, 65535);
+  const c = log(r.max / r.min), mn = r.min;
+  return (q) => mn * exp((q / 65535) * c);
+}
+const TRAIT_DEC: ((q: number) => number)[] = TRAITS.map((s) => (s ? fastLog16(s) : () => 0));
 /** Decoded trait value. */
 export function trait(g: Genome, idx: number): number {
-  return decodeQ(g.traits[idx] ?? 0, traitSpec(idx));
+  const d = TRAIT_DEC[idx];
+  if (!d || !TRAITS[idx]) throw new Error(`no trait at index ${idx}`);
+  return d(g.traits[idx] ?? 0);
 }
 export function setTrait(g: Genome, idx: number, v: number): void {
   g.traits[idx] = encodeQ(v, traitSpec(idx));
@@ -121,19 +136,42 @@ export function expressedSets(g: Genome): { modules: Set<number>; links: Set<num
   for (const m of g.modules) byInnov.set(m.innov, m);
   const root = byInnov.get(g.rootModuleInnov);
   if (!root || !isEnabledModule(root)) return { modules: mods, links };
+  // adjacency of enabled links by source, in link order
+  const out = new Map<number, LinkGene[]>();
+  for (const l of g.links) {
+    if (!isEnabledLink(l)) continue;
+    const a = out.get(l.fromInnov);
+    if (a) a.push(l); else out.set(l.fromInnov, [l]);
+  }
+  const queue = [root.innov];
   mods.add(root.innov);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const l of g.links) {
-      if (!isEnabledLink(l) || !mods.has(l.fromInnov)) continue;
+  for (let h = 0; h < queue.length; h++) {
+    const ls = out.get(queue[h]!);
+    if (!ls) continue;
+    for (const l of ls) {
       const to = byInnov.get(l.toInnov);
       if (!to || !isEnabledModule(to)) continue;
-      if (!links.has(l.innov)) { links.add(l.innov); changed = true; }
-      if (!mods.has(to.innov)) { mods.add(to.innov); changed = true; }
+      links.add(l.innov);
+      if (!mods.has(to.innov)) { mods.add(to.innov); queue.push(to.innov); }
     }
   }
   return { modules: mods, links };
+}
+
+/** Encoded size in bytes of a genome (CONTRACT 6.1, 6.2), without encoding it. */
+export function encodedSize(g: Genome): number {
+  const pad4 = (n: number): number => (n + 3) & ~3;
+  const sec = (count: number, size: number, ext: number): number => 12 + pad4(count * (size + ext));
+  const extOf = (l: readonly { ext?: Uint8Array }[]): number => { let e = 0; for (const r of l) if (r.ext && r.ext.length > e) e = r.ext.length; return e; };
+  let n = 32 + sec(g.traits.length, 2, 0) + sec(2, 4, 0) + sec(g.modules.length, 32, extOf(g.modules))
+    + sec(g.links.length, 20, extOf(g.links)) + sec(g.brainTraits.length, 2, 0);
+  if (g.regs.length) n += sec(g.regs.length, 16, extOf(g.regs));
+  if (g.cppnNodes.length) n += sec(g.cppnNodes.length, 16, extOf(g.cppnNodes));
+  if (g.cppnConns.length) n += sec(g.cppnConns.length, 32, extOf(g.cppnConns));
+  if (g.hiddenNeurons.length) n += sec(g.hiddenNeurons.length, 8, extOf(g.hiddenNeurons));
+  if (g.directSynapses.length) n += sec(g.directSynapses.length, 12, extOf(g.directSynapses));
+  for (const u of g.unknown) n += 12 + pad4(u.bytes.length);
+  return n;
 }
 
 /** Reflect into [0, 1] (01 §1.6.1): a gene never sticks at a bound. */
