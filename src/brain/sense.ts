@@ -59,20 +59,6 @@ export function buildGrid(world: World, stamp: number): Grid {
   return g;
 }
 
-/** Visit neighbours within r of (x, y) in (cell, slot) order, at most MAX_CELL_VISITS cells nearest-first by row. */
-function forNear(g: Grid, x: number, y: number, r: number, cb: (s: number) => void): void {
-  const cx = Math.floor(x / GRID_CELL_M), cy = Math.floor(y / GRID_CELL_M);
-  let ext = Math.ceil(r / GRID_CELL_M);
-  while ((2 * ext + 1) * (2 * ext + 1) > MAX_CELL_VISITS && ext > 0) ext--;
-  const x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
-  const y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
-  for (let iy = y0; iy <= y1; iy++) {
-    for (let ix = x0; ix <= x1; ix++) {
-      const cell = iy * g.w + ix;
-      for (let k = g.start[cell]!; k < g.start[cell + 1]!; k++) cb(g.items[k]!);
-    }
-  }
-}
 
 function coarseIndex(world: World, x: number, y: number): number {
   const [w, h] = world.fields.coarse;
@@ -113,7 +99,20 @@ let nearCount = 0;
 /** Gather the neighbours of one creature once; every eye and lateral organ filters this list. */
 function gather(g: Grid, x: number, y: number, r: number, self: number): void {
   nbCount = 0;
-  forNear(g, x, y, r, (j) => { if (j !== self && nbCount < NB_CAP) nbBuf[nbCount++] = j; });
+  const cx = Math.floor(x / GRID_CELL_M), cy = Math.floor(y / GRID_CELL_M);
+  let ext = Math.ceil(r / GRID_CELL_M);
+  while ((2 * ext + 1) * (2 * ext + 1) > MAX_CELL_VISITS && ext > 0) ext--;
+  const x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
+  const y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
+  for (let iy = y0; iy <= y1; iy++) {
+    for (let ix = x0; ix <= x1; ix++) {
+      const cell = iy * g.w + ix;
+      for (let k = g.start[cell]!; k < g.start[cell + 1]!; k++) {
+        const j = g.items[k]!;
+        if (j !== self && nbCount < NB_CAP) nbBuf[nbCount++] = j;
+      }
+    }
+  }
 }
 const depthBuf = new Float64Array(16);
 const objBuf = new Int32Array(16);
@@ -199,12 +198,13 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   inp[bI + IN.FATIGUE] = clamp01(1 - cr.anaerobic[k]!);
   inp[bI + IN.ITCH] = 0; // parasite latching arrives with disease (v0.4)
 
-  const partPos = (p: number): [number, number, number] => {
+  let PX = 0, PY = 0, PA = 0;
+  const partPos = (p: number): void => {
     if (segStart !== NONE_U32 && p >= 0 && p < segCount) {
       const sg = segStart + p;
-      return [seg.posX[sg]!, seg.posY[sg]!, seg.angle[sg]!];
+      PX = seg.posX[sg]!; PY = seg.posY[sg]!; PA = seg.angle[sg]!; return;
     }
-    return [x, y, heading];
+    PX = x; PY = y; PA = heading;
   };
 
   nbCount = 0;
@@ -223,7 +223,8 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   }
   // eyes
   for (const e of L.eyes) {
-    const [ex, ey] = partPos(e.part);
+    partPos(e.part);
+    const ex = PX, ey = PY;
     const R = e.receptors;
     const lanes = e.bands.length + 1;
     const axis = heading - mirror * e.mount;
@@ -287,7 +288,8 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // chemo organs: level and rate per channel (rate = tauSmell * d(level)/dt along own motion)
   for (const ch of L.chemos) {
-    const [cx, cy] = partPos(ch.part);
+    partPos(ch.part);
+    const cx = PX, cy = PY;
     let at = bI + ch.base;
     for (const chan of ch.channels) {
       const lv = scentLevel(world, cx, cy, chan);
@@ -307,7 +309,8 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const kind = chn.kind;
     if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
     const p = chn.part;
-    const [px, py, pa] = partPos(p);
+    partPos(p);
+    const px = PX, py = PY, pa = PA;
     const sg = segStart !== NONE_U32 && p < segCount ? segStart + p : -1;
     switch (kind) {
       case IN.LATERAL: {
