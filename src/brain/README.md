@@ -29,3 +29,7 @@ Spike 8 (encoding shoot-out): brains E2 (forced duplications) and genome E8 (dis
 ## Acceptance tests
 
 03 §3.14 (reflex-only generation 0 survives, E1; duplicated organs wired in their first generation, E2); the CPU reference tick is bit-identical across Node and Chromium; a C4 brain ticks in under the budget of 03 §3.9.6 on the CPU.
+
+## Status (phase 1)
+
+Implemented and tested: `layout` (CONTRACT 8.1, keys, trimming), the direct encoding (default) and the CPPN encoding behind `ENCODING = 1`, class pools with overflow to larger classes, `sense` (internal and clock inputs, three-band eyes with occlusion, lateral line, smell level and rate, touch, taste, proprioception, sensor noise), `think` (Jacobi CTRNN, oscillators, ABCD plasticity, NaN guard, trigger hysteresis), `rehydrate`, the inspector frame, behaviour templates and a behaviour classifier. Notes: [docs/modules/brain.md](../../docs/modules/brain.md). Contract requests: [docs/contract-requests/brain.md](../../docs/contract-requests/brain.md). Spike 8: [docs/spikes/brain-8.md](../../docs/spikes/brain-8.md). Cross-engine check: `node tests/e2e/brain-crossengine.cjs` (Node and Chromium give the same hash).
