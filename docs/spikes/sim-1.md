@@ -58,7 +58,7 @@ Small, seed (7, 1), agent cap 1,024, 200 Motefly founders, 108,000 ticks, an exa
 | | Value |
 |---|---|
 | Wall time, standalone Node (esbuild bundle) | 78.3 s (46x real time, under load) |
-| Wall time, inside vitest | 152 s |
+| Wall time, inside vitest | 152 s (load average 12); 629 s at load average 38 |
 | Births (all buds), deaths (all age) | 1,666 and 1,274 |
 | Live at the end, peak live | 592 and 751 (under the cap; the additive fee holds it) |
 | Deepest generation | 4 |
