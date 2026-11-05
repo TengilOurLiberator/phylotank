@@ -10,7 +10,7 @@
  * window (and ?sim=mock anywhere) uses the in-page MockSimLink so it works standalone.
  */
 import {
-  decodeBodyEnter, decodeCborFrame, encodeCborFrame, FRAME, HOST_PORT, readHeader, VIEW_PROFILES,
+  decodeBodyEnter, decodeCborFrame, encodeAck, encodeCborFrame, encodeViewport, FRAME, HOST_PORT, readHeader, VIEW_PROFILES,
   type Camera, type SimEvent, type SimLink, type ViewMode,
 } from '../core/index.js';
 import { audio } from '../audio/index.js';
@@ -21,6 +21,7 @@ import { CaptionLayer, CaptionScheduler, captionFor } from './captions.js';
 import { detectLocale, setLocale, t } from './i18n.js';
 import { MockSimLink } from './mock-sim.js';
 import { GodApp } from './god/app.js';
+import { HostFirstLink } from './link.js';
 
 export const MODES: readonly ViewMode[] = ['wallpaper', 'screensaver', 'tv', 'god'];
 
@@ -44,7 +45,12 @@ export function chooseLink(loc: Location, mode: ViewMode = 'wallpaper'): SimLink
     return new SocketLink(`${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws/v1`);
   }
   if (sim === 'mock' || (mode === 'god' && sim !== 'worker')) return new MockSimLink();
-  return new WorkerLink(new URL('sim-worker.js', loc.href).href);
+  const workerUrl = new URL('sim-worker.js', loc.href).href;
+  // the Lively wallpaper page tries the local host first, then dreams (DESIGN R31)
+  if (mode === 'wallpaper' && sim === null && /wallpaper\.html$/.test(loc.pathname)) {
+    return new HostFirstLink(`ws://127.0.0.1:${HOST_PORT}/ws/v1`, { socket: (u) => new SocketLink(u), worker: () => new WorkerLink(workerUrl) });
+  }
+  return new WorkerLink(workerUrl);
 }
 
 export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
@@ -67,13 +73,15 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   let lastSpeed: unknown = 1;
   let epoch = -1;
 
+  let lastTick = 0;
   if (mode === 'god') {
     god = new GodApp(root, link, canvas); // sends its own HELLO
     const client = god.client;
-    link.onFrame((f) => { renderer.ingest(f); client.ingest(f); });
+    link.onFrame((f) => { renderer.ingest(f); client.ingest(f); lastTick = client.tick; });
   } else {
     link.onFrame((f) => {
       renderer.ingest(f);
+      try { lastTick = readHeader(f).tick; } catch { /* ignore */ }
       if (!captions) return;
       try {
         const hd = readHeader(f);
@@ -124,7 +132,8 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   let last = 0;
   const minInterval = profile.fpsCap > 0 ? 1000 / profile.fpsCap - 1 : 0;
   const t0 = performance.now();
-  const stats: Record<string, unknown> = { mode, link: link.kind, mock: (link as { mock?: boolean }).mock === true, glOk: renderer.ok, renderer: renderer.stats };
+  const stats: Record<string, unknown> = { mode, mock: (link as { mock?: boolean }).mock === true, glOk: renderer.ok, renderer: renderer.stats };
+  Object.defineProperty(stats, 'link', { get: () => link.kind, enumerable: true });
   if (captions) stats.captions = captions.history;
   if (god) (window as unknown as { __phylotankGod?: GodApp }).__phylotankGod = god;
   window.__phylotank = stats;
@@ -144,7 +153,17 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
       if (captions && captionLayer) captionLayer.show(captions.update(now / 1000));
     }
     renderer.render(now, cam);
+    // VIEWPORT at most 10 Hz when the view moves, ACK at 2 Hz (CONTRACT 12.2)
+    if (now - lastVp > 100) {
+      const ppm = 2 ** cam.zeta, hw = canvas.width / (2 * ppm), hh = canvas.height / (2 * ppm);
+      const rect: [number, number, number, number] = [cam.cx - hw, cam.cy - hh, cam.cx + hw, cam.cy + hh];
+      const key = rect.map((v) => v.toFixed(2)).join(',');
+      if (key !== lastVpKey) { lastVpKey = key; link.send(encodeViewport(lastTick, { rect, pxPerM: ppm, paused: false, resync: false, leadS: 0 })); }
+      lastVp = now;
+    }
+    if (now - lastAck > 500 && lastTick > 0) { lastAck = now; link.send(encodeAck(lastTick)); }
   };
+  let lastVp = 0, lastAck = 0, lastVpKey = '';
   requestAnimationFrame(frame);
 
   return {

@@ -397,3 +397,41 @@ describe('casting state machine (UX-T22)', () => {
     expect(inTarget({ kind: 'species', species: [3] }, 0, 0, 3)).toBe(true);
   });
 });
+
+describe('host-first wallpaper link (DESIGN R31)', async () => {
+  const { vi } = await import('vitest');
+  const { HostFirstLink } = await import('../src/ui/link.js');
+  class Fake {
+    cb: ((f: Uint8Array) => void) | null = null; sent: Uint8Array[] = []; closed = false;
+    constructor(readonly kind: 'worker' | 'socket') {}
+    onFrame(cb: (f: Uint8Array) => void) { this.cb = cb; }
+    send(f: Uint8Array) { this.sent.push(f); }
+    close() { this.closed = true; }
+  }
+  it('falls back to the worker after 2 s of silence, replays HELLO, and returns when the host answers', () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: Fake[] = [], workers: Fake[] = [];
+      const link = new HostFirstLink('ws://x', { socket: () => { const s = new Fake('socket'); sockets.push(s); return s; }, worker: () => { const w = new Fake('worker'); workers.push(w); return w; } });
+      const got: number[] = [];
+      link.onFrame((f) => got.push(f[0]!));
+      link.send(encodeCborFrame(FRAME.HELLO, 0, { view: 'wallpaper' }));
+      expect(link.kind).toBe('socket');
+      vi.advanceTimersByTime(2100);
+      expect(link.kind).toBe('worker');
+      expect(sockets[0]!.closed).toBe(true);
+      expect(readHeader(workers[0]!.sent[0]!).type).toBe(FRAME.HELLO);
+      workers[0]!.cb!(new Uint8Array([FRAME.DUST_FRAME, 0, 1, 0, 0, 0, 0, 0]));
+      vi.advanceTimersByTime(600); // first probe at 0.5 s
+      expect(sockets.length).toBe(2);
+      expect(readHeader(sockets[1]!.sent[0]!).type).toBe(FRAME.HELLO);
+      sockets[1]!.cb!(new Uint8Array([FRAME.WELCOME, 0, 1, 0, 0, 0, 0, 0]));
+      expect(link.kind).toBe('socket');
+      expect(workers[0]!.closed).toBe(true);
+      expect(got).toEqual([FRAME.DUST_FRAME, FRAME.WELCOME]);
+      vi.advanceTimersByTime(6000); // the host goes silent
+      expect(link.kind).toBe('worker');
+      link.close();
+    } finally { vi.useRealTimers(); }
+  });
+});

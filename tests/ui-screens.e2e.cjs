@@ -183,6 +183,15 @@ function serve() {
       if (errs.length) failures.push(`${mode} errors: ${errs.join(' | ')}`);
       await p.close();
     }
+    // the Lively wallpaper page tries the host, then dreams after 2 s (no host is running here)
+    {
+      const p = await browser.newPage({ viewport: { width: 640, height: 360 } });
+      await p.goto(`${base}/wallpaper.html`);
+      let s = null;
+      for (let i = 0; i < 20; i++) { await p.waitForTimeout(500); s = await p.evaluate(() => ({ link: window.__phylotank.link, dust: window.__phylotank.renderer.dustFrames })); if (s.link === 'worker' && s.dust > 0) break; }
+      if (!s || s.link !== 'worker' || !(s.dust > 0)) failures.push(`wallpaper did not fall back to the dream tank: ${JSON.stringify(s)}`);
+      await p.close();
+    }
     // wallpaper has no text, even with the mock sim
     {
       const p = await browser.newPage({ viewport: { width: 1280, height: 720 } });
