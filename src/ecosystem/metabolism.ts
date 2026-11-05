@@ -107,7 +107,10 @@ export function loadCreature(world: World, s: EcoState, slot: number, init: Crea
   e[o + ER.ODOUR_C] = trait(tr, 'ODOUR_C'); e[o + ER.ODOUR_D] = trait(tr, 'ODOUR_D');
   const ph = init.phenotype;
   const mouth: MouthDescriptor = ph?.mouth ?? { filter: 0, scrape: 0, bite: 0, suction: 0, latch: 0, gape: 0, biteForce: 0, mesh: 0 };
-  e[o + ER.FILTER] = mouth.filter; e[o + ER.SCRAPE] = mouth.scrape; e[o + ER.BITE] = mouth.bite; e[o + ER.GAPE] = mouth.gape;
+  // A suction mouth inhales particles and loose detritus: it feeds through the filter path at
+  // 0.8 of a filter's rate (integration decision: suction had no intake at all, so every
+  // suction feeder starved; docs/spikes/integration-1.md). Selectivity follows its enzymes.
+  e[o + ER.FILTER] = Math.max(mouth.filter, 0.8 * mouth.suction); e[o + ER.SCRAPE] = mouth.scrape; e[o + ER.BITE] = mouth.bite; e[o + ER.GAPE] = mouth.gape;
   const adultL = c.adultLength[slot]! > 0 ? c.adultLength[slot]! : (ph?.adultLengthM ?? Math.min(trait(tr, 'ADULT_LENGTH'), world.lCeilingM));
   c.adultLength[slot] = adultL;
   const adultM = init.adultMassKg ?? M_REF_1M * adultL * adultL * adultL;
@@ -249,7 +252,9 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
     const starving = c.qReserve[slot]! <= 0;
     e[o + ER.STARVING] = starving ? 1 : 0;
     const Prep = starving ? 0 : repairPowerW(B, e[o + ER.LIFESPAN_MULT]!);
-    const Pmus = Math.max(0, c.powerW[slot]!), Pbr = Math.max(0, c.brainW[slot]!);
+    // pumping power of an open filter (CONTRACT 9.5); the intake below assumes the mouth open
+    const Ppump = e[o + ER.FILTER]! > 0 ? pumpPowerW(B, e[o + ER.FILTER]!, 1) : 0;
+    const Pmus = Math.max(0, c.powerW[slot]!), Pbr = Math.max(0, c.brainW[slot]!) + Ppump;
     const Ptot = B + Prep + Pmus + Pbr;
     // 1. burning (reserve to dissolved N, consumes oxygen), then catabolism of tissue
     const burnQ = quantiseWithCarry((Ptot * dt) / (Q_MASS * E_B), carry, CARRY.BURN);
@@ -280,16 +285,25 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
     const gape = e[o + ER.GAPE]! > 0 ? e[o + ER.GAPE]! : 0.3 * L;
     const filt = e[o + ER.FILTER]!;
     if (free > 0 && filt > 0) {
-      const sessile = (c.flags[slot]! & CF.SESSILE_ATTACHED) !== 0 || e[o + ER.SESSILE]! > 0.5;
+      // Only a physically attached creature filters the current while standing still. The
+      // SESSILE trait alone used to grant still-water intake in mid-water, which is the
+      // "sessile jet blob" exploit of spike evolab-1 (integration decision, docs/spikes/integration-1.md).
+      const sessile = (c.flags[slot]! & CF.SESSILE_ATTACHED) !== 0;
       const vx = (sessile ? 0 : c.velX[slot]!) - f.flowU[ci]!, vy = (sessile ? 0 : c.velY[slot]!) - f.flowV[ci]!;
-      const vrel = Math.sqrt(vx * vx + vy * vy) + 0.2 * L; // pumping keeps a floor of flow
+      const vrel = Math.sqrt(vx * vx + vy * vy) + P.pumpFloorBL * L; // pumping keeps a floor of flow
       const cP = (f.qP[fi]! * Q_MASS) / areaF, cD = (f.qD[ci]! * Q_MASS) / areaC;
-      const jRaw = filt * gape * vrel * (cP + cD);
+      // Selective filtering (integration decision, docs/spikes/integration-1.md): particles are
+      // retained in proportion to the enzymes that can digest them, so a plant specialist is
+      // not choked by detritus it cannot use (it keeps a quarter of what it meets).
+      const sP = P.filterSelect0 + (1 - P.filterSelect0) * e[o + ER.E_PLANT]!;
+      const sD = P.filterSelect0 + (1 - P.filterSelect0) * e[o + ER.E_DET]!;
+      const eP = cP * sP, eD = cD * sD;
+      const jRaw = filt * gape * vrel * (eP + eD);
       const J = hollingFilter(jRaw, B);
       let want = Math.min(free, (J * dt) * Q_PER_KG);
-      if (want > 0 && cP + cD > 0) {
-        const wp = quantiseWithCarry((want * cP) / (cP + cD), carry, CARRY.INTAKE);
-        const wd = quantiseWithCarry((want * cD) / (cP + cD), carry, CARRY.INTAKE);
+      if (want > 0 && eP + eD > 0) {
+        const wp = quantiseWithCarry((want * eP) / (eP + eD), carry, CARRY.INTAKE);
+        const wd = quantiseWithCarry((want * eD) / (eP + eD), carry, CARRY.INTAKE);
         pushDem(dem, slot, FIELD.P, fi, wp); pushDem(dem, slot, FIELD.D, ci, wd);
         free -= wp + wd; want = 0;
       }

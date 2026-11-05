@@ -196,6 +196,8 @@ Type codes used below: `f64, f32, u32, i32, u16, i16, u8, i8`. "xN" means N lane
 | `biteCooldown` | f32 | s until the next bite (phase 2, request P1) | physics |
 | `wdE0`, `wdIn` | f64 | exploit watchdog: water-frame energy at window start (-1 unset), work in during the window, J (P1) | physics |
 | `wdTicks` | u16 | watchdog ticks into the window (P1) | physics |
+| `brainStage` | f64 | maturity of the phenotype the brain was built from, so a snapshot load rebuilds the same brain (B2) | sim |
+| `birthY` | f64 | depth at birth, m: the `DEPTH_AT_BIRTH` axis of every later develop (restage, rehydrate) | sim |
 
 ### 5.2 Segment pool (`SEGMENT_COLUMNS`, capacity = `SEG_PER_AGENT` x agent capacity)
 

@@ -6,11 +6,13 @@
  *
  * Module state that lives outside the pools is rebuilt here too: brains through
  * `BrainModule.rehydrate` (from the genome and the phenotype at the creature's maturity).
- * Physics keeps its persistent state in pool columns since phase 2 (request P1), except the
- * cross-creature links of bites, grabs and latches, which a load drops (they re-form on the next
- * contact). That is the one known difference between a restored and an uninterrupted run.
+ * Physics keeps its persistent state in pool columns since phase 2 (request P1); its pending
+ * bites and its cross-creature links (bites, grabs, latches) travel here. The real ecosystem's
+ * side state travels as `eco` (request E4). Tested: a restored world steps bit for bit.
  */
 import { decodeGenome, LIFE, type CborValue, type World } from '../core/index.js';
+import { ecosystem as realEcosystem, restoreEcoState, saveEcoState } from '../ecosystem/index.js';
+import { contactState, linkState, type BiteRecord, type Link } from '../physics/index.js';
 import { birthEnvFor, developOpts } from './commit.js';
 import { requestsOf, type SimRequests } from './requests.js';
 import { loadSpecies, saveSpecies, type SavedSpecies } from './species.js';
@@ -33,6 +35,12 @@ export interface SavedSim {
   registry?: unknown;
   /** Journal entries not yet applied (the host also keeps them in EVTQ). */
   pending: JournalEntry[];
+  /** The real ecosystem's side state (request E4), when the world uses it. */
+  eco?: CborValue;
+  /** Bites physics recorded since the last ecology tick (request P3 queue). */
+  bites?: BiteRecord[];
+  /** Physics links between creatures (bites, grabs, latches). */
+  links?: Link[];
 }
 
 interface WithRegistry { registry?: { save(): unknown } }
@@ -52,6 +60,9 @@ export function exportSimState(world: World): SavedSim {
     seq: s.seq, deferredBirths: s.deferredBirths, popSoftLimit: s.popSoftLimit,
     nAgentsAtTickStart: s.nAgentsAtTickStart, hashEvery: s.hashEvery,
     ...(reg ? { registry: reg.save() } : {}),
+    ...(s.modules.ecosystem === realEcosystem ? { eco: saveEcoState(world) } : {}),
+    bites: contactState(world).bites.map((b) => ({ ...b })),
+    links: linkState(world).links.map((l) => ({ ...l })),
     pending: s.journal.map(({ seq, ...e }) => { void seq; return e as JournalEntry; }),
   };
 }
@@ -66,6 +77,7 @@ export function adoptWorld(world: World, modules: SimModules, saved?: SavedSim |
   const mods: SimModules = { ...modules };
   if (modules.genomeFor) mods.genome = modules.genomeFor(saved?.registry);
   const st = initState(world, mods, saved?.hashEvery ?? 0);
+  if (mods.ecosystem === realEcosystem) restoreEcoState(world, saved?.eco);
   if (!saved) return;
   if (saved.v !== SIM_STATE_VERSION) throw new Error(`unknown sim state version ${saved.v}`);
   st.store = loadStore(saved.store, decodeGenome);
@@ -78,6 +90,8 @@ export function adoptWorld(world: World, modules: SimModules, saved?: SavedSim |
   for (const e of saved.pending) st.journal.push({ ...e, seq: st.seq++ });
   st.seq = Math.max(st.seq, saved.seq);
   st.deferredBirths = saved.deferredBirths;
+  if (saved.bites) contactState(world).bites.push(...saved.bites.map((b) => ({ ...b })));
+  if (saved.links) linkState(world).links.push(...saved.links.map((l) => ({ ...l })));
   st.popSoftLimit = saved.popSoftLimit;
   st.nAgentsAtTickStart = saved.nAgentsAtTickStart;
   // brains: rebuild the derived constants of every brained creature (request B2)
@@ -87,7 +101,7 @@ export function adoptWorld(world: World, modules: SimModules, saved?: SavedSim |
     for (let s = 0; s < world.cr.highWater; s++) {
       if (c.life[s] !== LIFE.ALIVE) continue;
       const g = st.store.get(c.genome[s]!);
-      const ph = mods.genome.develop(g, c.maturity[s]!, birthEnvFor(world, c.posY[s]!), developOpts(world));
+      const ph = mods.genome.develop(g, c.brainStage[s]!, birthEnvFor(world, c.birthY[s]!), developOpts(world));
       rehydrate.call(mods.brain, world, s, ph, g);
     }
   }

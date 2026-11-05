@@ -72,10 +72,16 @@ export function makeEngine(a: CliArgs): EvoEngine {
     });
   }
   if (engine === 'sim') {
-    const config: Record<string, number> = { ...params };
+    // --param values go to WorldConfig.params (the ecosystem's balancing names, request EV1)
+    const config: Record<string, unknown> = Object.keys(params).length > 0 ? { params: { ...params } } : {};
     if (f['m-target-kg'] !== undefined) config.mTargetKg = num(f, 'm-target-kg', 0);
     if (f['agent-cap'] !== undefined) config.agentCap = num(f, 'agent-cap', 0);
     if (f.motes !== undefined) config.skeletonMotes = num(f, 'motes', 0);
+    if (typeof f.habitat === 'string') config.habitat = f.habitat;
+    // --founders motefly:200,meadowlamp:60 (templates and counts)
+    if (typeof f.founders === 'string') {
+      config.founders = f.founders.split(',').map((p) => { const [t, n] = p.split(':'); return { template: t, count: Number(n ?? 1) }; });
+    }
     return new SimCoreEngine({ seed, preset: ((f.preset as string) ?? 'small') as 'small', config });
   }
   throw new Error(`unknown engine ${engine} (toy or sim)`);
@@ -157,6 +163,7 @@ const USAGE = `evolab: headless evolution laboratory
         toy only: --cap-tax additive|multiplicative  --free-immortality  --thrust-bug X  --leak Q
                   --m-target-kg KG  --dt S  --species-theta T
         sim only: --agent-cap N  --motes N (phase-0 skeleton)  --m-target-kg KG
+                  --founders template:count,...  --habitat basin|lagoon|twinBasins|open
   detect  re-run the exploit detectors on a saved series.csv: --series FILE [--burn-in H]
   tune  Morris screening, then CMA-ES on the most influential parameters, scored against bands
         --preset P  --hours H  --seeds N  --morris-r R  --top K  --cma-gens G  --cma-pop P

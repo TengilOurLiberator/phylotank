@@ -22,6 +22,9 @@ import { detectLocale, setLocale, t } from './i18n.js';
 import { MockSimLink } from './mock-sim.js';
 import { GodApp } from './god/app.js';
 import { HostFirstLink } from './link.js';
+import { GenomeTemplates } from './genomes.js';
+import { TvOverlay } from './tv.js';
+import { NameBook } from './naming.js';
 
 export const MODES: readonly ViewMode[] = ['wallpaper', 'screensaver', 'tv', 'god'];
 
@@ -63,6 +66,23 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   root.appendChild(canvas);
   const renderer = createRenderer(canvas, mode);
   const link = chooseLink(window.location, mode);
+  // real bodies: regrow every creature from its genome with develop() (GENOME_REQ / GENOME)
+  const genomes = new GenomeTemplates();
+  renderer.setTemplateSource(genomes.source);
+  let builtSeen = 0;
+  const feedGenomes = (f: Uint8Array): void => {
+    try {
+      const h = readHeader(f);
+      if (h.type === FRAME.WELCOME) {
+        const w = decodeCborFrame(f).payload as { lCeiling?: number };
+        if (typeof w.lCeiling === 'number') genomes.lCeilingM = w.lCeiling;
+        return;
+      }
+      if (h.type !== FRAME.BODY_ENTER && h.type !== FRAME.GENOME) return;
+      for (const req of genomes.ingest(f)) link.send(req);
+      if (genomes.built !== builtSeen) { builtSeen = genomes.built; renderer.setTemplateSource(genomes.source); }
+    } catch { /* a malformed frame never breaks the view */ }
+  };
   let god: GodApp | null = null;
   let tankH = 18;
   const species = new Map<number, string>();
@@ -71,23 +91,34 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   const captions = profile.captions && q.get('captions') !== 'off' ? new CaptionScheduler(profile.captions.holdS, profile.captions.minGapS) : null;
   const captionLayer = captions ? new CaptionLayer(root, profile) : null;
   let lastSpeed: unknown = 1;
+  // user species names win in every view (07 §6.4); this viewer's mirror of the host's record
+  const names = new NameBook();
+  const nameOf = (id: number): string => { const n = names.get(id); return n ? `${n.genus} ${n.epithet}` : species.get(id) ?? `species ${id}`; };
+  const tv = mode === 'tv' ? new TvOverlay(root, {
+    tank: () => renderer.tank, speciesName: nameOf,
+    viewSize: () => ({ w: canvas.width, h: canvas.height }),
+    setSound: (v) => { const a = audio as typeof audio & { setVolume?: (x: number) => void }; if (v === 0) a.stop(); else { void a.start(); a.setVolume?.(v / 10); } },
+  }) : null;
   let epoch = -1;
 
   let lastTick = 0;
   if (mode === 'god') {
     god = new GodApp(root, link, canvas); // sends its own HELLO
     const client = god.client;
-    link.onFrame((f) => { renderer.ingest(f); client.ingest(f); lastTick = client.tick; });
+    link.onFrame((f) => { renderer.ingest(f); client.ingest(f); feedGenomes(f); lastTick = client.tick; });
   } else {
     link.onFrame((f) => {
       renderer.ingest(f);
+      feedGenomes(f);
+      tv?.ingest(f);
       try { lastTick = readHeader(f).tick; } catch { /* ignore */ }
       if (!captions) return;
       try {
         const hd = readHeader(f);
         if (hd.type === FRAME.WELCOME) {
-          const w = decodeCborFrame(f).payload as { tank?: { h: number }; epoch?: number; speciesTable?: { id: number; name: string }[] };
+          const w = decodeCborFrame(f).payload as { tank?: { h: number }; epoch?: number; worldId?: string; speciesTable?: { id: number; name: string }[] };
           if (w.tank) tankH = w.tank.h;
+          if (w.worldId !== undefined) names.load(String(w.worldId));
           for (const s of w.speciesTable ?? []) species.set(s.id, s.name);
           if (epoch >= 0 && w.epoch !== undefined && w.epoch !== epoch) captions.offer({ text: t('caption.rewound', { when: '' }).trim(), priority: 1, at: performance.now() / 1000 });
           if (w.epoch !== undefined) epoch = w.epoch;
@@ -107,7 +138,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
           const evs = decodeCborFrame(f).payload as unknown as SimEvent[];
           const now = performance.now() / 1000;
           for (const ev of Array.isArray(evs) ? evs : []) {
-            const c = captionFor(ev, (id) => species.get(id) ?? `species ${id}`, tankH, (id) => entitySpecies.get(id));
+            const c = captionFor(ev, nameOf, tankH, (id) => entitySpecies.get(id));
             if (c) captions.offer({ ...c, at: now });
           }
         }
@@ -126,6 +157,8 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   };
   resize();
   window.addEventListener('resize', resize);
+  // the dream tank saves its world when the page goes away (best effort, v0.1 autosave)
+  window.addEventListener('pagehide', () => { try { link.send(encodeCborFrame(FRAME.BYE, lastTick, {})); } catch { /* closing */ } });
 
   let cam: Camera = { cx: 16, cy: 9, zeta: 5 };
   let running = true;
@@ -133,6 +166,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   const minInterval = profile.fpsCap > 0 ? 1000 / profile.fpsCap - 1 : 0;
   const t0 = performance.now();
   const stats: Record<string, unknown> = { mode, mock: (link as { mock?: boolean }).mock === true, glOk: renderer.ok, renderer: renderer.stats };
+  Object.defineProperty(stats, 'genomeTemplates', { get: () => genomes.built, enumerable: true });
   Object.defineProperty(stats, 'link', { get: () => link.kind, enumerable: true });
   if (captions) stats.captions = captions.history;
   if (god) (window as unknown as { __phylotankGod?: GodApp }).__phylotankGod = god;
@@ -150,7 +184,9 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
     } else {
       const drift = idleDrift(tS, renderer.tank.w, renderer.tank.h, canvas.width, canvas.height);
       cam = profile.camera === 'idleDrift' ? drift : director.update([], 0, drift);
-      if (captions && captionLayer) captionLayer.show(captions.update(now / 1000));
+      if (tv) cam = tv.camera(cam, Math.min(0.1, (now - lastFrameAt) / 1000));
+      lastFrameAt = now;
+      if (captions && captionLayer) { const c = captions.update(now / 1000); captionLayer.show(tv && !tv.captionsOn ? null : c); }
     }
     renderer.render(now, cam);
     // VIEWPORT at most 10 Hz when the view moves, ACK at 2 Hz (CONTRACT 12.2)
@@ -163,7 +199,18 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
     }
     if (now - lastAck > 500 && lastTick > 0) { lastAck = now; link.send(encodeAck(lastTick)); }
   };
-  let lastVp = 0, lastAck = 0, lastVpKey = '';
+  let lastVp = 0, lastAck = 0, lastVpKey = '', lastFrameAt = performance.now();
+  if (tv) (window as unknown as { __phylotankTv?: TvOverlay }).__phylotankTv = tv;
+  // screensaver and TV: the view, its captions and the overlay form the main landmark (axe "region");
+  // the wallpaper gets no extra DOM at all
+  if (mode === 'tv' || mode === 'screensaver') {
+    const main = document.createElement('main');
+    main.setAttribute('aria-label', 'Phylotank');
+    canvas.replaceWith(main);
+    main.append(canvas);
+    if (captionLayer) main.append(captionLayer.el);
+    if (tv) main.append(tv.el, tv.modeEl);
+  }
   requestAnimationFrame(frame);
 
   return {

@@ -1,0 +1,14 @@
+import { LEDGER_CHANNELS, type WorldConfig } from '../../src/core/index.js';
+import { createSim, realModules } from '../../src/sim/index.js';
+import { ledgerStats } from '../../src/ecosystem/index.js';
+const tmpl = process.argv[2] ?? 'motefly';
+const params = process.argv[3] ? JSON.parse(process.argv[3]) : undefined;
+const core = createSim(realModules());
+const w = core.create({ preset: 'small', seedLo: 7, seedHi: 1, backend: 'cpu', founders: [{ template: tmpl as never, count: 100, zone: (process.argv[4] ?? 'water') as never }], params } as WorldConfig);
+for (let i = 0; i < 900; i++) core.step(w);
+const t = ledgerStats(w).total;
+const live = w.g.liveCount;
+console.log(tmpl, 'live', live, 'per creature per s, quanta:');
+LEDGER_CHANNELS.forEach((n, i) => { if (t[i]) console.log('  ', n, (t[i]! / live / 30).toExponential(2)); });
+let tis = 0; const c = w.cr.c; for (let s = 0; s < w.cr.highWater; s++) if (c.life[s] === 1) tis += c.qTissue[s]!;
+console.log('  mean tissue q', (tis / live).toExponential(2));
