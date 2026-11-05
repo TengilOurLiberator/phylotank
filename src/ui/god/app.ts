@@ -76,6 +76,8 @@ export class GodApp {
   private mapCanvas: HTMLCanvasElement | null = null;
   private mapUnder: HTMLElement | null = null;
   private speciesPick = new Set<number>();
+  private panelSig = '';
+  private mapSpecies: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement, link: SimLink, private readonly canvas: HTMLCanvasElement) {
     root.appendChild(h('style', null, GOD_CSS));
@@ -172,29 +174,42 @@ export class GodApp {
   toggleInspector(): void { this.inspOpen = !this.inspOpen; store.set('pt.god.insp', this.inspOpen ? '1' : '0'); this.inspector.el.classList.toggle('collapsed', !this.inspOpen || this.panel === 'designer'); }
 
   // ---------------- top bar ----------------
+  private topKey = '';
+  private clockEl: HTMLElement | null = null;
+  private achievedEl: HTMLElement | null = null;
+  /** Rebuild the top bar only when its structure changes, so its buttons stay put under the pointer. */
   private renderTop(): void {
     const ck = clockOf(this.client.tick, this.client.env, this.client.welcome?.tickHz ?? 30);
     const sp = this.client.speed;
     const unattended = sp.unattended && sp.until?.wallIso;
+    const clockText = `${t('time.day', { d: ck.day })}  ${String(ck.hh).padStart(2, '0')}:${String(ck.mm).padStart(2, '0')}  ${t(`season.${ck.season}` as MsgKey)}`;
+    const achievedText = sp.requested !== 1 ? t('time.achieved', { req: sp.requested === 'max' ? 'max' : `${sp.requested}x`, got: `${fmtNum(sp.achieved, 1)}x` }) : '';
+    const down = !this.client.isMock && performance.now() - this.client.lastFrameAt > 3000;
+    const key = `${getLocale()}|${sp.requested}|${unattended ?? ''}|${this.client.isMock}|${down}`;
+    if (key === this.topKey && this.clockEl && this.achievedEl && this.clockEl.isConnected) {
+      this.clockEl.textContent = clockText;
+      this.achievedEl.textContent = achievedText;
+      return;
+    }
+    this.topKey = key;
     const label = (s: Speed) => (s === 0 ? '❚❚' : s === 'max' ? t('time.max') : `${s}x`);
     const speedBtns = SPEEDS.map((s) => h('button', {
       class: sp.requested === s ? 'on' : '', 'aria-pressed': String(sp.requested === s), title: s === 0 ? t('time.pause') : s === 'max' || (typeof s === 'number' && s > 1) ? t('time.ff') : '',
       onclick: () => void this.client.setSpeed(s),
     }, label(s)));
-    const achieved = sp.requested !== 1 ? t('time.achieved', { req: sp.requested === 'max' ? 'max' : `${sp.requested}x`, got: `${fmtNum(sp.achieved, 1)}x` }) : '';
     const status = this.client.isMock ? h('span', { class: 'pt-status', title: t('app.mockBanner') }, h('span', { class: 'dot mock' }), 'mock sim')
-      : h('span', { class: 'pt-status' }, h('span', { class: `dot${performance.now() - this.client.lastFrameAt > 3000 ? ' down' : ''}` }), t('common.live'));
+      : h('span', { class: 'pt-status' }, h('span', { class: `dot${down ? ' down' : ''}` }), down ? t('app.hostDown') : t('common.live'));
     const lang = h('select', { 'aria-label': t('app.language'), onchange: (e: Event) => setLocale((e.target as HTMLSelectElement).value as Locale) },
       h('option', { value: 'en', selected: getLocale() === 'en' }, 'English'), h('option', { value: 'sv', selected: getLocale() === 'sv' }, 'Svenska'));
     mount(this.top,
       h('span', { class: 'pt-brand' }, t('app.name').toUpperCase()), h('span', { class: 'pt-world' }, t('app.worldName')), h('span', { class: 'sep' }),
-      h('span', { class: 'pt-clock', 'aria-live': 'off' }, `${t('time.day', { d: ck.day })}  ${String(ck.hh).padStart(2, '0')}:${String(ck.mm).padStart(2, '0')}  ${t(`season.${ck.season}` as MsgKey)}`),
+      this.clockEl = h('span', { class: 'pt-clock', 'aria-live': 'off' }, clockText),
       h('span', { class: 'sep' }),
       h('div', { class: 'row pt-speed', role: 'group', 'aria-label': t('time.ff') }, ...speedBtns),
       unattended ? h('span', { class: 'warn', style: 'font-size:12px' }, t('time.overnightActive', { time: new Date(sp.until!.wallIso!).toLocaleTimeString(getLocale() === 'sv' ? 'sv-SE' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) }), ' ',
         h('button', { onclick: () => void this.client.setSpeed(1) }, t('time.overnightCancel')))
         : h('button', { onclick: () => this.overnightDialog(), title: t('time.overnightTitle') }, `☾ ${t('time.overnight')}`),
-      h('span', { class: 'dim', style: 'font-size:12px' }, achieved),
+      this.achievedEl = h('span', { class: 'dim', style: 'font-size:12px' }, achievedText),
       h('span', { class: 'grow' }),
       status, lang);
     this.bannerEl.style.display = sp.requested !== 1 && !unattended && sp.requested !== 0 ? '' : 'none';
@@ -257,7 +272,8 @@ export class GodApp {
     this.mapCanvas.addEventListener('click', (e) => { const r = this.mapCanvas!.getBoundingClientRect(); this.jumpTo(((e.clientX - r.left) / r.width) * this.client.tank.w, ((e.clientY - r.top) / r.height) * this.client.tank.h); });
     const chips = (Object.keys(this.layers) as (keyof MiniLayers)[]).map((k) => h('button', { class: `chip${this.layers[k] ? ' on' : ''}`, 'aria-pressed': String(this.layers[k]),
       onclick: (e: Event) => { this.layers[k] = !this.layers[k]; (e.currentTarget as HTMLElement).classList.toggle('on'); } }, t(({ zones: 'map.zones', currents: 'map.currents', light: 'map.light', temp: 'map.temp', pop: 'map.pop', events: 'map.events' } as Record<string, MsgKey>)[k]!)));
-    body.append(h('div', { class: 'row', style: 'margin-bottom:8px' }, ...chips), this.mapCanvas, this.mapUnder, this.speciesList());
+    this.mapSpecies = this.speciesList();
+    body.append(h('div', { class: 'row', style: 'margin-bottom:8px' }, ...chips), this.mapCanvas, this.mapUnder, this.mapSpecies);
   }
   private speciesList(): HTMLElement {
     const live = this.client.species.filter((s) => s.count > 0).sort((a, b) => b.count - a.count);
@@ -504,8 +520,11 @@ export class GodApp {
       if (c === 'epoch') { this.toast(t('bookmarks.rewound', { when: `${t('time.day', { d: clockOf(this.client.tick, null).day })}` })); this.follow = -1; this.inspector.render(); }
     }
     if (c === 'stats') {
-      if (this.client.selected) this.inspector.render();
-      if (this.panel === 'bookmarks' || (this.panel === 'stats' && this.statsTable) || this.panel === 'map') this.renderPanel();
+      if (this.client.selected) this.inspector.refresh();
+      const sig = this.panel === 'bookmarks' ? this.client.snapshots.map((x) => x.id).join(',')
+        : this.panel === 'stats' && this.statsTable ? this.client.species.map((x) => `${x.id}:${x.count}`).join(',') : '';
+      if (sig && sig !== this.panelSig) { this.panelSig = sig; this.renderPanel(); }
+      if (this.panel === 'map' && this.mapSpecies?.isConnected) { const n = this.speciesList(); this.mapSpecies.replaceWith(n); this.mapSpecies = n; }
     }
     if (c === 'genome') this.inspector.render();
   }

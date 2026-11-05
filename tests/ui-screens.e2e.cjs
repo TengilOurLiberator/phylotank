@@ -51,6 +51,7 @@ function serve() {
     });
     if (pos) { await page.mouse.click(pos[0], pos[1]); await page.waitForTimeout(1500); }
     if (want('inspector')) {
+      await page.getByRole('tab', { name: 'Brain' }).waitFor({ timeout: 8000 }).catch(() => failures.push('inspector did not open for the clicked creature'));
       await page.getByRole('tab', { name: 'Brain' }).click().catch(() => {});
       await page.waitForTimeout(800);
       await shot(page, 'inspector-brain');

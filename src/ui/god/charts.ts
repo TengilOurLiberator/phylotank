@@ -39,7 +39,7 @@ export function drawMinimap(
     c.strokeStyle = 'rgba(160,220,235,.25)'; c.setLineDash([3, 3]); c.lineWidth = 1;
     for (const f of [0.33, 0.66]) { c.beginPath(); c.moveTo(0, h * f); c.lineTo(w, h * f); c.stroke(); }
     c.setLineDash([]);
-    c.fillStyle = 'rgba(190,225,235,.5)'; c.font = `${Math.max(9, Math.round(h / 14))}px system-ui`;
+    c.fillStyle = 'rgba(190,225,235,.5)'; c.font = `${Math.max(9, Math.min(12, Math.round(h / 14)))}px system-ui`;
     c.fillText('photic', 4, h * 0.1); c.fillText('twilight', 4, h * 0.43); c.fillText('midnight', 4, h * 0.76);
     // seabed
     c.fillStyle = 'rgba(40,30,25,.9)';
@@ -64,7 +64,8 @@ export function drawMinimap(
       const dim = highlight !== undefined && sp !== highlight;
       c.fillStyle = rgb(palette[col % palette.length] ?? [200, 230, 255], dim ? 0.15 : 0.85);
       const px = ((x0 + (dust.x[s]! / 65535) * (x1 - x0)) * sx), py = ((y0 + (dust.y[s]! / 65535) * (y1 - y0)) * sy);
-      c.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
+      const ds = w > 300 ? 2.2 : 1.5;
+      c.fillRect(px - ds / 2, py - ds / 2, ds, ds);
     }
   }
   if (layers.events) for (const e of godEvents) {

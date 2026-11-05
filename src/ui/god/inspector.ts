@@ -29,6 +29,23 @@ export class Inspector {
     this.render();
   }
   setTab(tab: InspTab): void { this.tab = tab; this.render(); }
+  private shownId = -1;
+  /** Called on each STATS: rebuild only what changes (keeps focus and live canvases intact). */
+  refresh(): void {
+    const s = this.client.selected;
+    if (!s || s.id !== this.shownId) { this.render(); return; }
+    const o = this.ov;
+    if (this.tab !== 'overview' || !o) return;
+    o.energy.style.width = `${s.energy * 100}%`; o.energy.parentElement?.setAttribute('aria-valuenow', String(Math.round(s.energy * 100)));
+    o.health.style.width = `${s.health * 100}%`;
+    o.length.textContent = fmtLength(s.lengthM); o.action.textContent = s.action; o.offspring.textContent = String(s.offspring);
+    o.sub.textContent = this.subline();
+  }
+  private ov: { energy: HTMLElement; health: HTMLElement; length: HTMLElement; action: HTMLElement; offspring: HTMLElement; sub: HTMLElement } | null = null;
+  private subline(): string {
+    const s = this.client.selected!;
+    return `#${s.id} · ${s.adult ? t('inspector.adult') : t('inspector.juvenile')} · ${fmtDuration(s.ageS)} · ${t('inspector.generation')} ${s.generation}`;
+  }
 
   private genome(): Genome | null {
     const s = this.client.selected;
@@ -44,34 +61,42 @@ export class Inspector {
     if (!s) { mount(this.body, h('p', { class: 'dim' }, `#${this.client.selectedId} …`)); return; }
     const name = this.client.speciesName(s.species);
     const tabs: InspTab[] = ['overview', 'genome', 'body', 'brain', 'kin'];
+    const sub = h('div', { class: 'dim', style: 'font-size:12px' }, this.subline());
+    this.ov = null;
     const head = h('div', { class: 'col', style: 'gap:4px;margin-bottom:8px' },
       h('div', null, binomial(name)),
-      h('div', { class: 'dim', style: 'font-size:12px' }, `#${s.id} · ${s.adult ? t('inspector.adult') : t('inspector.juvenile')} · ${fmtDuration(s.ageS)} · ${t('inspector.generation')} ${s.generation}`),
+      sub,
       h('div', { class: 'tabs', role: 'tablist' }, ...tabs.map((x) => h('button', { role: 'tab', 'aria-selected': String(x === this.tab), class: x === this.tab ? 'on' : '', onclick: () => this.setTab(x) }, t(`inspector.${x}` as MsgKey)))));
     let content: HTMLElement;
     switch (this.tab) {
-      case 'overview': content = this.overview(); break;
+      case 'overview': content = this.overview(sub); break;
       case 'genome': content = this.genomeTab(); break;
       case 'body': content = this.bodyTab(); break;
       case 'brain': content = this.brainTab(s.brain); break;
       default: content = this.kinTab();
     }
+    const focused = document.activeElement instanceof HTMLElement && this.el.contains(document.activeElement) ? document.activeElement.textContent : null;
     mount(this.body, head, content);
+    this.shownId = s.id;
+    if (focused) for (const b of this.body.querySelectorAll('button')) if (b.textContent === focused) { b.focus(); break; }
   }
 
-  private overview(): HTMLElement {
+  private overview(sub: HTMLElement): HTMLElement {
     const s = this.client.selected!;
+    const energy = h('i', { style: `width:${s.energy * 100}%` }), health = h('i', { style: `width:${s.health * 100}%;background:var(--accent)` });
+    const length = h('span', null, fmtLength(s.lengthM)), action = h('span', null, s.action), offspring = h('span', null, String(s.offspring));
+    this.ov = { energy, health, length, action, offspring, sub };
     const following = this.actions.following() === s.id;
     const g = this.client.genomes.get(`${s.genomeLo}:${s.genomeHi}`);
     if (!g) this.client.requestGenome(s.genomeLo, s.genomeHi);
     const name = this.client.speciesName(s.species);
     return h('div', { class: 'col' },
       h('div', { class: 'kv' },
-        h('span', null, t('inspector.energy')), h('div', { class: 'bar', role: 'meter', 'aria-valuenow': String(Math.round(s.energy * 100)), 'aria-valuemin': '0', 'aria-valuemax': '100', title: `${Math.round(s.energy * 100)}%` }, h('i', { style: `width:${s.energy * 100}%` })),
-        h('span', null, t('inspector.health')), h('div', { class: 'bar', role: 'meter', 'aria-valuenow': String(Math.round(s.health * 100)) }, h('i', { style: `width:${s.health * 100}%;background:var(--accent)` })),
-        h('span', null, t('inspector.length')), h('span', null, fmtLength(s.lengthM)),
-        h('span', null, t('inspector.action')), h('span', null, s.action),
-        h('span', null, t('inspector.offspring')), h('span', null, String(s.offspring))),
+        h('span', null, t('inspector.energy')), h('div', { class: 'bar', role: 'meter', 'aria-label': t('inspector.energy'), 'aria-valuenow': String(Math.round(s.energy * 100)), 'aria-valuemin': '0', 'aria-valuemax': '100' }, energy),
+        h('span', null, t('inspector.health')), h('div', { class: 'bar', role: 'meter', 'aria-label': t('inspector.health'), 'aria-valuenow': String(Math.round(s.health * 100)), 'aria-valuemin': '0', 'aria-valuemax': '100' }, health),
+        h('span', null, t('inspector.length')), length,
+        h('span', null, t('inspector.action')), action,
+        h('span', null, t('inspector.offspring')), offspring),
       h('div', { class: 'row' },
         h('button', { onclick: () => this.actions.follow(following ? -1 : s.id) }, following ? t('inspector.unfollow') : t('inspector.follow')),
         h('button', { onclick: () => this.actions.bookmark() }, t('inspector.bookmark')),
