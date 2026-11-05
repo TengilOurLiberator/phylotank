@@ -70,6 +70,15 @@ describe('layout (CONTRACT 8.1)', () => {
 });
 
 describe('trimming and caps (03 §3.14 test 7)', () => {
+  it('an input-heavy body trims inputs only and keeps its ganglia and oscillators', () => {
+    const ph = fishBody({ segments: 40, fins: [2, 5, 9], eye: true, chemoMask: 0xff });
+    const L = buildLayout(ph, genome({ HIDDEN_PER_SEGMENT: 2 }));
+    expect(L.nIn).toBeLessThanOrEqual(192);
+    expect(L.count.gang).toBe(41 * 2);
+    expect(L.count.osc).toBeGreaterThan(40);
+    expect(L.trims.some((t) => t.startsWith('ganglia') || t.startsWith('oscillators'))).toBe(false);
+    expect(L.trims.some((t) => t.startsWith('eye') || t.startsWith('part inputs'))).toBe(true);
+  });
   it('random large bodies always fit a class and never reference an out-of-range source', () => {
     let seed = 12345;
     const rnd = (): number => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 4294967296; };

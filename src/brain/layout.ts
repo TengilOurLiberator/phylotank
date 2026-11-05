@@ -342,28 +342,31 @@ export function buildLayout(ph: Phenotype, g: Genome, tvIn?: BrainTraitValues): 
   const trims: string[] = [];
   if (tv.headHidden > 64) trims.push(`head hidden ${tv.headHidden} -> 64`);
   let L = build(ph, g, tv, ts);
-  const fits = (): boolean => sizeClassOf(L.nNeurons, L.nIn) >= 0;
-  // Each stage keeps the largest count that fits, found by bisection (fitting is monotone in it).
-  const shrink = (get: () => number, set: (v: number) => void, lo: number): void => {
-    if (fits()) return;
-    let best = lo;
-    let a = lo, b = get() - 1;
+  const maxN = BRAIN_CLASSES[BRAIN_CLASSES.length - 1]!.n, maxI = BRAIN_CLASSES[BRAIN_CLASSES.length - 1]!.i;
+  const fitsN = (): boolean => L.nNeurons <= maxN;
+  const fitsI = (): boolean => L.nIn <= maxI;
+  // Neuron stages run only while N overflows and input stages only while I overflows, so an
+  // input-heavy body keeps its ganglia. Each stage keeps the largest count that fits, by bisection.
+  const shrink = (ok: () => boolean, get: () => number, set: (v: number) => void): void => {
+    if (ok()) return;
+    let best = 0;
+    let a = 0, b = get() - 1;
     while (a <= b) {
       const mid = (a + b) >> 1;
       set(mid); L = build(ph, g, tv, ts);
-      if (fits()) { best = mid; a = mid + 1; } else b = mid - 1;
+      if (ok()) { best = mid; a = mid + 1; } else b = mid - 1;
     }
     set(best); L = build(ph, g, tv, ts);
   };
-  if (tv.hiddenPerSegment > 0) shrink(() => ts.gangKeep, (v) => { ts.gangKeep = v; }, 0);
+  if (tv.hiddenPerSegment > 0) shrink(fitsN, () => ts.gangKeep, (v) => { ts.gangKeep = v; });
   if (ts.gangKeep < nSeg) trims.push(`ganglia kept on ${ts.gangKeep} of ${nSeg} segments`);
-  while (!fits() && ts.eyeShift < 4 && L.eyes.some((e) => e.receptors > 1)) { ts.eyeShift++; L = build(ph, g, tv, ts); }
+  while (!fitsI() && ts.eyeShift < 4 && L.eyes.some((e) => e.receptors > 1)) { ts.eyeShift++; L = build(ph, g, tv, ts); }
   if (ts.eyeShift > 0) trims.push(`eye receptors merged pairwise ${ts.eyeShift}x`);
-  if (!fits()) { ts.oscKeep = L.count.osc; shrink(() => ts.oscKeep, (v) => { ts.oscKeep = v; }, 0); }
+  if (!fitsN()) { ts.oscKeep = L.count.osc; shrink(fitsN, () => ts.oscKeep, (v) => { ts.oscKeep = v; }); }
   if (ts.oscKeep < ph.nParts) trims.push(`oscillators kept ${ts.oscKeep}`);
-  shrink(() => ts.partInKeep, (v) => { ts.partInKeep = v; }, 0);
+  shrink(fitsI, () => ts.partInKeep, (v) => { ts.partInKeep = v; });
   if (ts.partInKeep < ph.nParts) trims.push(`part inputs kept on ${ts.partInKeep} parts`);
-  shrink(() => ts.partOutKeep, (v) => { ts.partOutKeep = v; }, 0);
+  shrink(fitsN, () => ts.partOutKeep, (v) => { ts.partOutKeep = v; });
   if (ts.partOutKeep < ph.nParts) trims.push(`part outputs kept on ${ts.partOutKeep} parts`);
   L.trims = trims;
   return L;
