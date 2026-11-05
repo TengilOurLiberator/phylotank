@@ -34,6 +34,8 @@ export interface SpeciesRecord {
   bornTick: number; promotedTick: number; extinctTick: number;
   medoid: Genome; founder: Genome; founderAdultKg: number; genTimeS: number;
   reservoir: Genome[]; joins: number; pop: number; peakPop: number; biomassKg: number;
+  /** Pairwise distances within the reservoir (64 x 64), rows recomputed only when a member changes. */
+  resD: Float64Array; resOk: Uint8Array;
   children: number[]; founders: number[];
   /** The latest daughter split off by split detection; members move over lazily at reproduction. */
   splitInto: number;
@@ -117,6 +119,7 @@ export class SpeciesRegistry {
     this.records.push({
       id, parentId, status: 'incipient', bornTick: tick, promotedTick: 0, extinctTick: 0, medoid: g, founder: g,
       founderAdultKg: adultKg, genTimeS: Math.max(1, tMatureS), reservoir: [g], joins: 0, pop: 0, peakPop: 0, biomassKg: 0,
+      resD: new Float64Array(RESERVOIR_SIZE * RESERVOIR_SIZE), resOk: new Uint8Array(RESERVOIR_SIZE),
       children: [], founders: [], splitInto: 0, absorbedInto: 0, genus: '', epithet: '', common: { en: '', sv: '' }, namedBy: 'generator',
     });
     if (parentId > 0) this.records[parentId]?.children.push(id);
@@ -173,10 +176,10 @@ export class SpeciesRegistry {
     if (r.pop > r.peakPop) r.peakPop = r.pop;
     if (r.status === 'incipient' && r.founders.length < this.nMin) r.founders.push(inp.entityId);
     // reservoir sample (algorithm R)
-    if (r.reservoir.length < RESERVOIR_SIZE) r.reservoir.push(inp.genome);
+    if (r.reservoir.length < RESERVOIR_SIZE) { r.resOk[r.reservoir.length] = 0; r.reservoir.push(inp.genome); }
     else {
       const j = this.opts.rng.draw(RNG_STREAM.SPECIES, inp.tick, inp.entityId).int(r.joins);
-      if (j < RESERVOIR_SIZE) r.reservoir[j] = inp.genome;
+      if (j < RESERVOIR_SIZE) { r.reservoir[j] = inp.genome; r.resOk[j] = 0; }
     }
     if (r.joins % MEDOID_EVERY === 0) { this.updateMedoid(r); this.detectSplit(r, inp.tick); }
     this.checkPromotion(r, inp.tick, events);
@@ -252,12 +255,24 @@ export class SpeciesRegistry {
     return wasSpecies ? [{ k: 'extinction', species: r.id, lastId: entityId }] : [];
   }
 
+  /** The reservoir distance matrix (stride RESERVOIR_SIZE), refreshing only changed rows. */
+  private matrix(r: SpeciesRecord): Float64Array {
+    const res = r.reservoir, n = res.length, D = r.resD, S = RESERVOIR_SIZE;
+    for (let i = 0; i < n; i++) {
+      if (r.resOk[i]) continue;
+      for (let j = 0; j < n; j++) { const d = i === j ? 0 : this.dist(res[i]!, res[j]!); D[i * S + j] = d; D[j * S + i] = d; }
+      r.resOk[i] = 1;
+    }
+    return D;
+  }
+
   private updateMedoid(r: SpeciesRecord): void {
-    const res = r.reservoir;
+    const res = r.reservoir, n = res.length, S = RESERVOIR_SIZE;
+    const D = this.matrix(r);
     let best = 0, bestSum = Infinity;
-    for (let i = 0; i < res.length; i++) {
+    for (let i = 0; i < n; i++) {
       let s = 0;
-      for (let j = 0; j < res.length && s < bestSum; j++) if (i !== j) s += this.dist(res[i]!, res[j]!);
+      for (let j = 0; j < n; j++) s += D[i * S + j]!;
       if (s < bestSum) { bestSum = s; best = i; }
     }
     r.medoid = res[best]!;
@@ -272,8 +287,9 @@ export class SpeciesRegistry {
     const res = r.reservoir;
     const n = res.length;
     if (n < 32 || (r.splitInto && this.records[r.splitInto]?.status !== 'extinct')) return;
+    const M = this.matrix(r), S = RESERVOIR_SIZE;
     const D = new Float64Array(n * n);
-    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { const d = this.dist(res[i]!, res[j]!); D[i * n + j] = d; D[j * n + i] = d; }
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) D[i * n + j] = M[i * S + j]!;
     // seeds: the current medoid's farthest member, then that member's farthest member
     let a = 0, b = 0;
     const mi = Math.max(0, res.indexOf(r.medoid));
@@ -314,6 +330,7 @@ export class SpeciesRegistry {
     const d = this.records[id]!;
     d.reservoir = res.filter((_, i) => lab[i] !== stay);
     r.reservoir = res.filter((_, i) => lab[i] === stay);
+    r.resOk.fill(0); d.resOk.fill(0);
     r.medoid = res[keepA ? a : b]!;
     r.splitInto = id;
   }
