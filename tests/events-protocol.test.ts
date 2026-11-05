@@ -7,7 +7,10 @@ import {
   BODY_CLASS, BodyDeltaDecoder, BodyDeltaEncoder, decodeBodyFrame, encodeBodyFrame, FRAME_FLAG, LIFE, log2, predictBody,
   quantRel, readHeader, speedToByte, TAU, type BodyFrame, type BodyRecord, type Rect, type World,
 } from '../src/core/index.js';
-import { sim } from '../src/sim/index.js';
+import { createSim, fallbackModules } from '../src/sim/index.js';
+
+/** Fallback motes: the codec is under test, and they step fast. */
+const sim = createSim(fallbackModules());
 
 vi.setConfig({ testTimeout: 120_000 });
 
@@ -164,7 +167,7 @@ describe('protocol 1.1 in the streams', () => {
 
   it('the dream-tank session does the same for a view that says caps.proto 0x0101', async () => {
     const { SimSession } = await import('../src/sim/session.js');
-    const s = new SimSession({ preset: 'small', seedLo: 8, seedHi: 8, backend: 'cpu', skeletonMotes: 300 });
+    const s = new SimSession({ preset: 'small', seedLo: 8, seedHi: 8, backend: 'cpu', skeletonMotes: 300 }, sim);
     const got10: Uint8Array[] = []; const got11: Uint8Array[] = [];
     s.add({ send: (f) => got10.push(f) }, ['view']);
     s.add({ send: (f) => got11.push(f) }, ['view'], { proto: 0x0101 });

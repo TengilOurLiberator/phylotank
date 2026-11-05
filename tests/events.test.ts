@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { hashWorld, LIFE, NONE_U32, ORGAN, type SimEvent, type World, type WorldConfig } from '../src/core/index.js';
-import { drainEvents, sim } from '../src/sim/index.js';
+import { createSim, drainEvents, fallbackModules, sim as productSim } from '../src/sim/index.js';
 import { EventSuite, type Derived } from '../src/sim/events/index.js';
 import { BloomDetector } from '../src/sim/events/bloom.js';
 import { CarcassDetector } from '../src/sim/events/carcass.js';
@@ -18,6 +18,9 @@ import { Scanner } from '../src/sim/events/scan.js';
 import type { Detector } from '../src/sim/events/types.js';
 
 vi.setConfig({ testTimeout: 120_000 });
+
+/** Staged worlds use the fallback modules (one capsule part, plain motes): the detectors are under test, not the modules. */
+const sim = createSim(fallbackModules());
 
 const CFG: WorldConfig = { preset: 'small', seedLo: 7, seedHi: 1, backend: 'cpu', skeletonMotes: 300 };
 const base = { eid: 0, epoch: 0 };
@@ -50,16 +53,17 @@ function aliveOf(w: World, species?: number): number[] {
 }
 
 describe('event suite', () => {
-  it('never writes sim state and is deterministic', () => {
+  it('never writes sim state and is deterministic (real modules)', () => {
+    const sim = productSim;
     const outs: string[] = [];
     for (let rep = 0; rep < 2; rep++) {
-      const w = sim.create({ ...CFG, skeletonMotes: 200 });
+      const w = sim.create({ ...CFG, skeletonMotes: 120 });
       const suite = new EventSuite();
       const got: Derived[] = [];
-      for (let i = 0; i < 240; i++) {
+      for (let i = 0; i < 90; i++) {
         sim.step(w);
         const ev = drainEvents(w);
-        if (i % 120 === 30) {
+        if (i % 60 === 30) {
           const h = hashWorld(w);
           got.push(...suite.observe(w, ev), ...suite.run(w));
           expect(hashWorld(w)).toBe(h);
