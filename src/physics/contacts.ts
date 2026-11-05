@@ -260,6 +260,7 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
   const dt = opts.dt;
   const hs = buildHash(world, st.hs, dt);
   st.hs = hs;
+  if (hs.n === 0) return { pairs: 0, contacts: 0, cells: 0 };
   const acc = st.acc;
   for (let q = 0; q < hs.n; q++) { const i = hs.items[q]!; acc.fill(0, i * 6, i * 6 + 6); sg.touch[i] = 0; }
   wk.contactHeat.fill(0, 0, world.cr.highWater);

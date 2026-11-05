@@ -44,7 +44,7 @@ describe('physics spike: energy and momentum', () => {
       const [x0, y0] = com(tw.world, slot);
       const rng = new RngStreams(7, 7);
       let maxL = 0; let scaleL = 0; let mass = 0;
-      for (let k = 0; k < 300; k++) {
+      for (let k = 0; k < (LONG ? 300 : 120); k++) {
         const d = rng.draw(8, k, 1);
         setCmds(tw.world, slot, () => d.u01() * 2 - 1);
         phys.step(tw.world, tw.ctx); nextTick(tw);

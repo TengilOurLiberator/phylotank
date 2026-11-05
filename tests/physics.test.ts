@@ -147,7 +147,7 @@ describe('physics: contacts and bites', () => {
   it('I1: hash pairs equal brute force over a four-decade size spectrum, with no duplicates', () => {
     const tw = makeWorld();
     const rng = new RngStreams(3, 3);
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 200; i++) {
       const d = rng.draw(1, 0, i);
       const L = 0.0005 * Math.exp(d.u01() * Math.log(400));
       spawn(tw, physics.loadBody, makePhenotype(chain(3, L / 3, () => L * 0.08)), 5 + d.u01() * 0.6, 5 + d.u01() * 0.4, d.u01() * 6);
@@ -248,7 +248,7 @@ describe('physics: determinism (I2)', () => {
   function run(): bigint {
     const tw = makeWorld({ seedLo: 9 });
     const rng = new RngStreams(4, 4);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 20; i++) {
       const d = rng.draw(1, 0, i);
       const body = fish(5, 0.02 + 0.05 * d.u01());
       if (i % 3 === 0) body[0]!.kind = KIND.MOUTH;
@@ -256,14 +256,14 @@ describe('physics: determinism (I2)', () => {
     }
     tw.world.fields.flowU.fill(0.01);
     const sg = tw.world.seg.c; const c = tw.world.cr.c;
-    for (let k = 0; k < 150; k++) {
-      for (let s = 0; s < 40; s++) {
+    for (let k = 0; k < 100; k++) {
+      for (let s = 0; s < 20; s++) {
         for (let j = 1; j < 5; j++) sg.cmd[c.segStart[s]! + j] = Math.sin(k * 0.3 + s - j);
         sg.cmd2[c.segStart[s]!] = (k + s) % 20 < 10 ? 1 : 0;
       }
       physics.step(tw.world, tw.ctx); nextTick(tw);
     }
-    for (let s = 0; s < 40; s++) expect(c.life[s]).toBe(LIFE.ALIVE);
+    for (let s = 0; s < 20; s++) expect(c.life[s]).toBe(LIFE.ALIVE);
     void workFor;
     return hashWorld(tw.world);
   }

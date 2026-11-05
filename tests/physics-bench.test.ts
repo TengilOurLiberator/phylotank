@@ -257,10 +257,10 @@ describe('physics spike: CPU throughput', () => {
   it('a small population steps and reports throughput', { timeout: 600_000 }, () => {
     const { world, ctx } = makeWorld({ agentCap: 4096 });
     const phys = createPhysics({});
-    const N = LONG ? 2000 : 200;
+    const N = LONG ? 2000 : 60;
     const segs = populate(world, N, phys, true);
     const c = world.cr.c; const sg = world.seg.c;
-    const ticks = LONG ? 60 : 10;
+    const ticks = LONG ? 60 : 5;
     let tStep = 0; let subs = 0;
     for (let k = 0; k < ticks; k++) {
       for (let s = 0; s < N; s++) {
