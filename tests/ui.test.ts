@@ -435,3 +435,14 @@ describe('host-first wallpaper link (DESIGN R31)', async () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('trade-off chips (07 §1.4)', async () => {
+  const { tradeoffs } = await import('../src/ui/designer/budget.js');
+  it('returns the three largest finite effects, sorted by size', () => {
+    const g = templateGenome('hushmaw');
+    const tops = tradeoffs(g, (gg) => sketch(gg, 1, L_CEIL));
+    expect(tops.length).toBe(3);
+    for (const x of tops) expect(Number.isFinite(x.dNetPct)).toBe(true);
+    expect(Math.abs(tops[0]!.dNetPct)).toBeGreaterThanOrEqual(Math.abs(tops[2]!.dNetPct));
+  });
+});

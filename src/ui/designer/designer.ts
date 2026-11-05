@@ -11,7 +11,7 @@ import {
 import { h, mount, binomial } from '../dom.js';
 import { fmtDuration, fmtLength, fmtNum, getLocale, t, tk, type MsgKey } from '../i18n.js';
 import { drawBody, growBody, pickPart, type GrownBody } from './body.js';
-import { anyInviable, computeBudget, validate, type Budget, type Issue } from './budget.js';
+import { anyInviable, computeBudget, tradeoffs, validate, type Budget, type Issue, type Tradeoff } from './budget.js';
 import { designString, fingerprint, makeMeta, packDesign, type Library } from './library.js';
 import {
   addPart, breakOut, countKind, deleteRule, duplicateRule, fromX, getModule, getTrait, History, linksTo, moduleFieldValue,
@@ -32,14 +32,14 @@ export interface DesignerHost {
 
 interface Doc { genome: Uint8Array; genus: string; epithet: string; common: string; notes: string; origin: DesignMeta['origin']; parents: string[]; libraryId?: string; template?: TemplateId }
 
-const GROUP_ORDER = ['Size', 'Life', 'Reproduction', 'Diet', 'Body', 'Shape', 'Senses', 'Habitat', 'Health', 'Look', 'Mating', 'Behaviour', 'Mutation', 'Brain', 'Instinct', 'Personality', 'Drives', 'Plasticity', 'Advanced'] as const;
+const GROUP_ORDER = ['Life', 'Reproduction', 'Diet', 'Body', 'Shape', 'Senses', 'Habitat', 'Health', 'Look', 'Mating', 'Behaviour', 'Mutation', 'Brain', 'Instinct', 'Personality', 'Drives', 'Plasticity', 'Advanced'] as const;
 const BRAIN_GROUPS = new Set(['Instinct', 'Personality', 'Drives', 'Plasticity']);
 const PARTS_OWNED = new Set(['G_FIN', 'G_EYE', 'G_MOUTH', 'G_SPIKE', 'G_LIMB_LENGTH', 'G_PHOTOPHORE']);
 
 interface Locus { table: TraitTable; spec: TraitSpec; group: string }
 function loci(): Locus[] {
   const out: Locus[] = [];
-  for (const s of TRAITS) if (s) out.push({ table: 'T', spec: s, group: s.group === 'hidden' ? 'Advanced' : s.group });
+  for (const s of TRAITS) if (s) out.push({ table: 'T', spec: s, group: s.group === 'hidden' ? 'Advanced' : s.group === 'Size' ? 'Life' : s.group });
   for (const s of BRAIN_TRAITS) if (s && !s.immutable) out.push({ table: 'B', spec: s, group: s.group });
   return out;
 }
@@ -64,7 +64,7 @@ export class DesignerView {
   private saved: Uint8Array | null = null;
   private history = new History();
   private mode: 'genes' | 'parts' = 'genes';
-  private group = 'Size';
+  private group = 'Life';
   private sel: { rule: number; link: number; copy: number } | null = null;
   private age = 1;
   private playing = false;
@@ -75,6 +75,8 @@ export class DesignerView {
   private budget!: Budget;
   private issues: Issue[] = [];
   private fp = '';
+  private chips: Tradeoff[] = [];
+  private chipTimer: ReturnType<typeof setTimeout> | null = null;
   private tankSeed = 1;
   private tankT0 = 0;
   // live elements
@@ -131,6 +133,13 @@ export class DesignerView {
     this.issues = validate(g, this.adult, this.budget, { count: 20, asLeviathan: false }, { tempMinC: 4, tempMaxC: 22, lCeilingM: L });
     this.tankT0 = performance.now();
     const bytes = this.doc.genome;
+    // trade-off chips are 26 extra evaluations: compute them when the edits pause
+    if (this.chipTimer) clearTimeout(this.chipTimer);
+    this.chipTimer = setTimeout(() => {
+      if (bytes !== this.doc.genome) return;
+      this.chips = tradeoffs(view(bytes), (gg) => growBody(gg, 1, L));
+      this.renderFoot();
+    }, 250);
     void fingerprint(bytes).then((fp) => { if (bytes === this.doc.genome) { this.fp = fp; this.renderHead(); } });
   }
 
@@ -374,6 +383,10 @@ export class DesignerView {
       ...(this.issues.length === 0 ? [h('div', { class: 'good', style: 'font-size:12px' }, t('designer.noIssues'))] :
         this.issues.map((i) => h('div', { class: 'issue', role: 'button', tabindex: 0, onclick: () => this.focusIssue(i) },
           h('span', { class: `sev ${i.severity}` }, t(`sev.${i.severity}` as MsgKey)), h('span', null, tk(`issue.${i.id}`)), h('span', { class: 'faint' }, i.id)))));
+    const chips = h('div', { class: 'row', style: 'gap:4px;font-size:12px' }, h('span', { class: 'dim' }, t('designer.tradeoffs')),
+      ...this.chips.map((c) => h('button', { class: 'ro-chip', onclick: () => { const l = LOCI.find((x) => x.spec.name === c.name && x.table === c.table); if (l) { this.mode = 'genes'; this.group = l.group; this.focusTrait = l.spec.name; this.render(); } } },
+        t('designer.tradeoff', { locus: prettyName(c.name), net: `${c.dNetPct >= 0 ? '+' : ''}${fmtNum(c.dNetPct, 0)}` }))));
+    energy.append(chips);
     mount(this.footEl, energy, issues);
   }
   private focusIssue(i: Issue): void {

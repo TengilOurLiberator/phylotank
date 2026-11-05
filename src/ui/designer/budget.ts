@@ -140,3 +140,31 @@ export function validate(g: Genome, body: GrownBody, b: Budget, plan: ReleasePla
   return out;
 }
 export const anyInviable = (issues: readonly Issue[]): boolean => issues.some((i) => i.severity === 'inviable');
+
+/** Loci the trade-off chips consider (07 §1.4): the big levers of the budget. */
+export const TRADEOFF_LOCI: readonly ['T' | 'B', string][] = [
+  ['T', 'ADULT_LENGTH'], ['T', 'GROWTH_RATE'], ['T', 'LIFESPAN_MULT'], ['T', 'CLUTCH_SIZE'], ['T', 'FAT_CAPACITY'], ['T', 'IMMUNE_INVEST'],
+  ['T', 'DIET_PLANT'], ['T', 'DIET_DETRITUS'], ['T', 'GLOW_BASE'], ['T', 'TEMP_TOLERANCE'], ['B', 'ACTIVITY'], ['B', 'HEAD_HIDDEN'], ['B', 'LIGHT_SHOW'],
+];
+export interface Tradeoff { table: 'T' | 'B'; name: string; dNetPct: number }
+/**
+ * Central finite differences of net energy at typical density for each locus, at +/-5% of its
+ * range in x space; the three with the largest effect, as "+10%" chips.
+ */
+export function tradeoffs(g: Genome, grow: (g: Genome) => GrownBody, top = 3): Tradeoff[] {
+  const net = (gg: Genome) => { const b = computeBudget(gg, grow(gg)); return b.income.typical - b.costW; };
+  const base = net(g);
+  const scale = Math.max(1e-30, Math.abs(computeBudget(g, grow(g)).costW));
+  const out: Tradeoff[] = [];
+  for (const [table, name] of TRADEOFF_LOCI) {
+    const arr = table === 'T' ? 'traits' : 'brainTraits';
+    const idx = (table === 'T' ? T : BT)[name]!;
+    const q = g[arr][idx]!;
+    const step = Math.round(0.05 * 65535);
+    const at = (dq: number) => { const c = { ...g, [arr]: g[arr].slice() } as Genome; c[arr][idx] = Math.max(0, Math.min(65535, q + dq)); return net(c); };
+    const d = (at(step) - at(-step)) / scale; // per 10% of range
+    if (Number.isFinite(d)) out.push({ table, name, dNetPct: d * 100 });
+  }
+  void base;
+  return out.sort((a, b) => Math.abs(b.dNetPct) - Math.abs(a.dNetPct)).slice(0, top);
+}
