@@ -60,6 +60,8 @@ export interface FishOptions {
   lengthM?: number;
   /** Extra copies of trunk segment k (forced duplication); default none. */
   duplicateTrunk?: number;
+  /** Insert a literal copy of trunk k right after it (same module, same innate phase, new path). */
+  insertTrunk?: number;
   /** Extra copy of the fin on trunk k (forced duplication). */
   duplicateFinOn?: number;
 }
@@ -72,7 +74,8 @@ export const FISH_INNOV = { HEAD: 1, TRUNK: 2, FIN: 3, NOSE: 4, MOUTH: 5, EYE: 6
  * number of parts, so a duplication shifts every part's u as `develop` would.
  */
 export function fishBody(o: FishOptions): Phenotype {
-  const nTrunk = o.segments + (o.duplicateTrunk !== undefined ? 1 : 0);
+  const nTrunk = o.segments + (o.duplicateTrunk !== undefined ? 1 : 0) + (o.insertTrunk !== undefined ? 1 : 0);
+  const ins = o.insertTrunk;
   const step = o.phaseStep ?? 0.9;
   const amp = o.cpgAmp ?? 0.8;
   const parts: PartDesc[] = [];
@@ -85,8 +88,11 @@ export function fishBody(o: FishOptions): Phenotype {
     const parent = t === 0 ? 0 : trunkIdx[t - 1]!;
     trunkIdx.push(parts.length);
     parts.push({
-      kind: KIND.SEGMENT, parent, moduleInnov: FISH_INNOV.TRUNK, pathHash: hash32(FISH_INNOV.TRUNK, t + 1, 0),
-      u: (t + 1.5) / (nTrunk + 1), organs: ORGAN.LATERAL_LINE | ORGAN.TOUCH, cpgPhase: t * step, cpgAmp: amp,
+      kind: KIND.SEGMENT, parent, moduleInnov: FISH_INNOV.TRUNK,
+      pathHash: ins !== undefined && t === ins + 1 ? hash32(FISH_INNOV.TRUNK, 99, 1) : hash32(FISH_INNOV.TRUNK, ins !== undefined && t > ins ? t : t + 1, 0),
+      u: (t + 1.5) / (nTrunk + 1), organs: ORGAN.LATERAL_LINE | ORGAN.TOUCH, cpgAmp: amp,
+      // with an inserted copy after trunk `ins`, segments behind it keep their original wave phase
+      cpgPhase: (ins !== undefined && t > ins ? t - 1 : t) * step,
     });
   }
   const finsOn = [...(o.fins ?? [])];

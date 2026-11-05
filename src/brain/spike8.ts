@@ -23,7 +23,7 @@ import { install } from './index.js';
 
 export type Encoding = 'direct' | 'cppn';
 export interface Geno { g: Genome; phaseStep: number; cpgAmp: number; enc: Encoding }
-export interface BodyVariant { dupTrunk?: number; dupFin?: number }
+export interface BodyVariant { dupTrunk?: number; dupFin?: number; insTrunk?: number }
 
 export const N_TRUNK = 5;
 export const FINS = [1];
@@ -59,6 +59,7 @@ export function bodyOf(x: Geno, v: BodyVariant = {}): Phenotype {
     lateral: false, touch: false, mouth: false,
     ...(v.dupTrunk !== undefined ? { duplicateTrunk: v.dupTrunk } : {}),
     ...(v.dupFin !== undefined ? { duplicateFinOn: v.dupFin } : {}),
+    ...(v.insTrunk !== undefined ? { insertTrunk: v.insTrunk } : {}),
   });
 }
 
@@ -93,6 +94,7 @@ export function buildArena(x: Geno, v: BodyVariant = {}, unwire: number[] = []):
 export function newPartOf(x: Geno, v: BodyVariant): number {
   const ph = bodyOf(x, v);
   if (v.dupTrunk !== undefined) return 1 + N_TRUNK; // the extra trunk copy is the last trunk part
+  if (v.insTrunk !== undefined) return 1 + v.insTrunk + 1; // head is part 0, trunk t is part t + 1
   for (let p = ph.nParts - 1; p >= 0; p--) if (ph.kind[p] === KIND.FIN) return p;
   return -1;
 }

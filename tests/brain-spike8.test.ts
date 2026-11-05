@@ -57,9 +57,10 @@ describe.skipIf(!ON)('spike 8', () => {
         const x = r.best;
         bests[enc].push(x);
         const base = evaluate(x, test);
-        const dt = { dupTrunk: 2 }, df = { dupFin: 1 };
+        const dt = { dupTrunk: 2 }, df = { dupFin: 1 }, di = { insTrunk: 1 };
         const e2 = {
           base,
+          insTrunk: evaluate(x, test, di), insTrunkUnwired: evaluate(x, test, di, [newPartOf(x, di)]),
           dupTrunk: evaluate(x, test, dt), dupTrunkUnwired: evaluate(x, test, dt, [newPartOf(x, dt)]),
           dupFin: evaluate(x, test, df), dupFinUnwired: evaluate(x, test, df, [newPartOf(x, df)]),
         };

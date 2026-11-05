@@ -4,7 +4,7 @@
  * and inspector data. CONTRACT 5.3, 6.7, 8. See README.md and docs/modules/brain.md.
  */
 import {
-  BRAIN_CLASSES, BRAIN_COST_NEURON_W, BRAIN_COST_PLASTIC_W, BRAIN_COST_SYNAPSE_W, NONE_U32, RNG_STREAM,
+  BRAIN_CLASSES, BRAIN_COST_NEURON_W, BRAIN_COST_PLASTIC_W, BRAIN_COST_SYNAPSE_W, NONE_U32, RNG_STREAM, RngStreams,
   type BrainLayout, type BrainModule, type Genome, type Phenotype, type StepContext, type World,
 } from '../core/index.js';
 import { developBrain, type BrainSpec } from './develop.js';
@@ -40,6 +40,14 @@ function entityIdOf(world: World, slot: number): number {
 }
 
 /**
+ * The individuality draw: stream DEVELOPMENT, counter tick = the creature's birth tick, subject =
+ * its entity id. Keyed by birth rather than the allocation tick so `rehydrate` reproduces it.
+ */
+function individualityDraw(world: World, slot: number) {
+  return new RngStreams(world.g.seedLo, world.g.seedHi).draw(RNG_STREAM.DEVELOPMENT, world.cr.c.birthTick[slot]!, entityIdOf(world, slot));
+}
+
+/**
  * Put a developed brain into the smallest class pool with a free slot, starting at its own class
  * (a full class sends it to the next larger one, CONTRACT 5.3). Returns false if all are full.
  */
@@ -66,7 +74,7 @@ export function rehydrate(world: World, slot: number, ph: Phenotype, g: Genome):
   const c = world.cr.c.brainClass[slot]!;
   const s = world.cr.c.brainSlot[slot]!;
   if (c === 255 || s === NONE_U32) return;
-  const spec = developBrain(ph, g, {});
+  const spec = developBrain(ph, g, { draw: individualityDraw(world, slot) });
   brainState(world).statics[c]![s] = makeStatic(world, slot, ph, g, spec);
 }
 
@@ -76,8 +84,8 @@ export const brain: BrainModule = {
   },
   allocate(world: World, slot: number, ph: Phenotype, g: Genome, ctx: StepContext): boolean {
     if (world.cr.c.brainSlot[slot] !== NONE_U32) freeBrain(world, slot);
-    const draw = ctx.rng.draw(RNG_STREAM.DEVELOPMENT, ctx.tick, entityIdOf(world, slot));
-    return install(world, slot, ph, g, developBrain(ph, g, { draw }));
+    void ctx;
+    return install(world, slot, ph, g, developBrain(ph, g, { draw: individualityDraw(world, slot) }));
   },
   free(world: World, slot: number) {
     freeBrain(world, slot);
