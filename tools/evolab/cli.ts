@@ -14,8 +14,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SimCoreEngine } from './adapters/simcore.js';
-import type { EvoEngine } from './engine.js';
-import { runLab, writeOutputs } from './lab.js';
+import type { EvoEngine, Observation } from './engine.js';
+import { DEFAULT_DETECTOR_OPTIONS, runDetectors } from './detectors.js';
+import { GENES } from './toy/genome.js';
+import { runLab, toCsv, writeOutputs } from './lab.js';
 import { ToyEngine } from './toy/engine.js';
 import type { ToyParams } from './toy/world.js';
 import { runTuning } from './tune/harness.js';
@@ -93,9 +95,14 @@ export function main(argv: string[]): number {
     const out = (f.out as string) ?? join('tools', 'evolab', 'runs', `${e.name}-${num(f, 'seed', 1)}`);
     const quiet = f.quiet === true;
     let lastPrint = -1;
+    const partial: Record<string, number>[] = [];
+    mkdirSync(out, { recursive: true });
     const res = runLab(e, {
       hours, sampleS, stopOnExtinction: f['keep-going'] !== true,
       onSample: (r) => {
+        // checkpoint the series so a long run that is stopped early still leaves its data
+        partial.push(r);
+        if (partial.length % 30 === 0) writeFileSync(join(out, 'series.partial.csv'), toCsv(partial));
         if (quiet) return;
         const h = Math.floor(r.tH!);
         if (h !== lastPrint) {
@@ -108,6 +115,17 @@ export function main(argv: string[]): number {
     const s = res.summary as { wallSeconds: number; speedup: number; detectors: Record<string, { fired: boolean; available: boolean }> };
     process.stdout.write(`done: ${files.length} files in ${out}; wall ${s.wallSeconds.toFixed(1)} s (${s.speedup.toFixed(0)}x)\n`);
     for (const [k, v] of Object.entries(s.detectors)) process.stdout.write(`  ${k}: ${v.available ? (v.fired ? 'FIRED' : 'clear') : 'n/a'}\n`);
+    return 0;
+  }
+  if (a.cmd === 'detect') {
+    // re-run the detectors on a saved series.csv (bounds default to the toy genome's)
+    if (typeof f.series !== 'string') throw new Error('detect needs --series path/to/series.csv');
+    const lines = readFileSync(f.series, 'utf8').trim().split('\n');
+    const keys = lines[0]!.split(',');
+    const rows = lines.slice(1).map((l) => Object.fromEntries(l.split(',').map((v, i) => [keys[i]!, v === '' ? NaN : Number(v)])));
+    const traitBounds = Object.fromEntries(GENES.map((g) => [g.name, [g.lo, g.hi] as const]));
+    const verdicts = runDetectors(rows, { traitBounds } as unknown as Observation, { ...DEFAULT_DETECTOR_OPTIONS, burnInH: num(f, 'burn-in', 1) });
+    process.stdout.write(JSON.stringify(verdicts, null, 2) + '\n');
     return 0;
   }
   if (a.cmd === 'tune') {
@@ -139,6 +157,7 @@ const USAGE = `evolab: headless evolution laboratory
         toy only: --cap-tax additive|multiplicative  --free-immortality  --thrust-bug X  --leak Q
                   --m-target-kg KG  --dt S  --species-theta T
         sim only: --agent-cap N  --motes N (phase-0 skeleton)  --m-target-kg KG
+  detect  re-run the exploit detectors on a saved series.csv: --series FILE [--burn-in H]
   tune  Morris screening, then CMA-ES on the most influential parameters, scored against bands
         --preset P  --hours H  --seeds N  --morris-r R  --top K  --cma-gens G  --cma-pop P
 `;

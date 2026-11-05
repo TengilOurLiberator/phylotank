@@ -55,8 +55,12 @@ export function immortalBlobs(rows: Row[], obs: Observation | null, o = DEFAULT_
   const sb = obs?.traitBounds.senescence;
   const has = w.length > 0 && w[0]!.maxAgeOverLifespan !== undefined;
   if (!has) return { name: 'immortalBlobs', available: false, fired: false, firstH: null, fraction: 0, evidence: {} };
+  const life0 = w.find((r) => Number.isFinite(r.trait_lifespanMult!))?.trait_lifespanMult;
   const hold = (r: Row): boolean => {
     const outlived = r.maxAgeOverLifespan! > 3;
+    // the jet-parked filter blob of R10: sessile takes over while lifespan creeps up
+    const blob = r.sessileFrac! > 0.8 && life0 !== undefined && r.trait_lifespanMult! > 1.25 * life0;
+    if (blob) return true;
     let walked = false;
     if (lb && sb && r.trait_lifespanMult !== undefined && r.trait_senescence !== undefined) {
       walked = relPos(r.trait_lifespanMult, lb[0], lb[1]) > 0.8 && relPos(r.trait_senescence, sb[0], sb[1]) < 0.2;
