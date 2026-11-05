@@ -12,7 +12,12 @@ import {
 } from '../core/index.js';
 import type { SegmentSpec } from './segment-spec.js';
 import { loadBody, restage } from './body.js';
-import { DEFAULT_OPTIONS, stepCreature, type PhysicsOptions } from './solver.js';
+import {
+  DEFAULT_OPTIONS, beginCreature, endCreature, stepCreature, substepCreature, substepCreatureEnd, type FlowSampler,
+  type PhysicsOptions,
+} from './solver.js';
+import { islands, linkState, pruneLinks, resetLinkForces, solveLinks } from './links.js';
+import type { Work } from './work.js';
 import { stepContacts } from './contacts.js';
 import { workFor } from './work.js';
 import { watch } from './watchdog.js';
@@ -24,6 +29,7 @@ export { massProps, dragCoeffs, segVolume, tissueDensity } from './body.js';
 export { workFor } from './work.js';
 export { drainFlags, waterFrameEnergy } from './watchdog.js';
 export { drainBites, type BiteRecord } from './contacts.js';
+export { LINK, linkState, type Link } from './links.js';
 
 /** Drag rate for passive drifters (1/s): a mote follows the water with a ~0.5 s lag. */
 export const DRIFTER_DRAG = 2;
@@ -87,6 +93,22 @@ function stepDrifters(world: World, ctx: StepContext): void {
   }
 }
 
+/** Linked creatures step together: common substep count, links solved inside every substep (R6). */
+export const ISLAND_SUBSTEPS = 8;
+function stepIsland(world: World, members: readonly number[], wk: Work, opts: PhysicsOptions, flowAt: FlowSampler): void {
+  const cts = members.map((m) => beginCreature(world, m, wk, opts, flowAt, Math.max(ISLAND_SUBSTEPS, opts.nSub)));
+  const nSub = cts[0]!.nSub;
+  for (let s = 0; s < nSub; s++) {
+    for (const ct of cts) substepCreature(world, ct, wk, opts, s);
+    solveLinks(world, wk, members, cts[0]!.h);
+    for (const ct of cts) substepCreatureEnd(world, ct, wk, opts, s);
+  }
+  for (const ct of cts) {
+    endCreature(world, ct, wk, opts);
+    if (opts.watchdog) watch(world, ct.slot, wk, opts.dt, opts.gravity);
+  }
+}
+
 /** Build a physics module with options (tests and benchmarks); `physics` is the default. */
 export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule & { readonly opts: PhysicsOptions } {
   const opts: PhysicsOptions = { ...DEFAULT_OPTIONS, ...over };
@@ -99,13 +121,23 @@ export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule
       const c = world.cr.c;
       const wk = workFor(world);
       const sampler = (x: number, y: number, out: Float64Array): void => sampleFlow(world, x, y, out);
+      resetLinkForces(world);
+      const isl = linkState(world).links.length > 0 ? islands(world) : null;
+      const rootOf = new Map<number, number>();
+      if (isl) for (const [r, ms] of isl) for (const m of ms) rootOf.set(m, r);
       for (let s = 0; s < world.cr.highWater; s++) {
         const life = c.life[s];
         if ((life !== LIFE.ALIVE && life !== LIFE.CARCASS) || c.segCount[s] === 0) continue;
+        const root = rootOf.get(s);
+        if (root !== undefined) {
+          if (root === s) stepIsland(world, isl!.get(root)!, wk, opts, sampler);
+          continue;
+        }
         stepCreature(world, s, wk, opts, sampler);
         if (opts.watchdog) watch(world, s, wk, opts.dt, opts.gravity);
       }
       if (opts.contacts) stepContacts(world, ctx, wk, opts);
+      pruneLinks(world);
     },
   };
 }

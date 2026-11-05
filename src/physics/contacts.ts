@@ -10,6 +10,10 @@ import {
   KIND, LIFE, ORGAN, PI, type StepContext, type World,
 } from '../core/index.js';
 import { SC, sincos } from './sincos.js';
+import { LINK, addLink, hasLink, linkState, ownsLink, tryGrab } from './links.js';
+
+/** Jaw-lock break force: the bite force of the mouth (02 §2.4.4). */
+function jawBreak(rm: number): number { return SIGMA_JAW * 0.3 * PI * rm * rm * 3; }
 import {
   BITE_OFF, BITE_ON, CONTACT_FRICTION, C_BITE, DEPEN_BL_PER_S, FIX_POS, H_TISSUE, RHO_TISSUE, SIGMA_JAW,
 } from './constants.js';
@@ -251,10 +255,12 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
   for (let q = 0; q < hs.n; q++) { const i = hs.items[q]!; acc.fill(0, i * 6, i * 6 + 6); sg.touch[i] = 0; }
   wk.contactHeat.fill(0, 0, world.cr.highWater);
   let pairs = 0; let contacts = 0; let cells = 0;
+  const anyLinks = linkState(world).links.length > 0;
   const lenOf = (slot: number): number => (c.length[slot]! > 0 ? c.length[slot]! : 0.01);
   const visit = (i: number, j: number): void => {
     const oa = sg.owner[i]!; const ob = sg.owner[j]!;
     if (oa === ob) return; // self-collision off (02 §2.4.1)
+    if (anyLinks && hasLink(world, i, j)) return; // a held pair is solved by its link
     pairs++;
     const ra = sg.radius[i]!; const rb = sg.radius[j]!;
     const ha = 0.5 * sg.len[i]!; const hb = 0.5 * sg.len[j]!;
@@ -301,7 +307,10 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     accum(acc, j, -nx * corr * (1 / mb) / wsum, -ny * corr * (1 / mb) / wsum, -Px / mb, -Py / mb, -(pbx * Py - pby * Px) / Ib);
     const F = Jn / dt;
     sg.touch[i] = sg.touch[i]! + F; sg.touch[j] = sg.touch[j]! + F;
-    tryBite(world, ctx, st, i, j, depth); tryBite(world, ctx, st, j, i, depth);
+    const mx = 0.5 * (cp[0]! + cp[2]!); const my = 0.5 * (cp[1]! + cp[3]!);
+    if (tryBite(world, ctx, st, i, j, depth) && !ownsLink(world, i)) addLink(world, LINK.JAW, i, j, mx, my, jawBreak(sg.radius[i]!));
+    if (tryBite(world, ctx, st, j, i, depth) && !ownsLink(world, j)) addLink(world, LINK.JAW, j, i, mx, my, jawBreak(sg.radius[j]!));
+    tryGrab(world, i, j, mx, my); tryGrab(world, j, i, mx, my);
   };
   for (let q = 0; q < hs.n; q++) cells += queryPairs(world, hs, hs.items[q]!, visit);
   // apply averaged corrections
@@ -336,23 +345,23 @@ function accum(acc: Float64Array, i: number, dx: number, dy: number, dvx: number
  * A mouth segment whose bite drive (cmd2, adapter until a BITE column exists) crosses 0.5
  * with hysteresis bites the touched segment of another creature (02 §2.4.3).
  */
-function tryBite(world: World, ctx: StepContext, st: ContactState, i: number, j: number, depth: number): void {
+function tryBite(world: World, ctx: StepContext, st: ContactState, i: number, j: number, depth: number): boolean {
   const sg = world.seg.c;
   const c = world.cr.c;
-  if (sg.kind[i] !== KIND.MOUTH && (sg.organs[i]! & ORGAN.MOUTH) === 0) return;
+  if (sg.kind[i] !== KIND.MOUTH && (sg.organs[i]! & ORGAN.MOUTH) === 0) return false;
   void depth;
   const drive = sg.cmd2[i]!;
-  if (st.biteArmed[i] === 0) { if (drive >= BITE_ON) st.biteArmed[i] = 1; else return; }
-  if (drive < BITE_OFF) { st.biteArmed[i] = 0; return; }
+  if (st.biteArmed[i] === 0) { if (drive >= BITE_ON) st.biteArmed[i] = 1; else return false; }
+  if (drive < BITE_OFF) { st.biteArmed[i] = 0; return false; }
   const a = sg.owner[i]!; const b = sg.owner[j]!;
-  if (st.biteCooldown[a]! > 0 || c.life[b] === LIFE.FREE) return;
+  if (st.biteCooldown[a]! > 0 || c.life[b] === LIFE.FREE) return false;
   const rm = sg.radius[i]!;
   const sharp = 0.5;
   const fJaw = 0.3;
   const F = SIGMA_JAW * fJaw * PI * rm * rm;
   const Ac = 0.1 * (1 - 0.8 * sharp) * PI * rm * rm;
   const p = F * (0.5 + sharp) - H_TISSUE * Ac;
-  if (p <= 0) return;
+  if (p <= 0) return false;
   const gape = 0.5;
   const vGape = 0.5 * PI * gape * rm * rm * rm;
   const dm = Math.min(RHO_TISSUE * vGape, 0.5 * sg.mass[j]!, p * C_BITE);
@@ -362,6 +371,7 @@ function tryBite(world: World, ctx: StepContext, st: ContactState, i: number, j:
   st.bites.push({ attacker: a, target: b, targetSeg: j, dmKg: dm, tick: ctx.tick });
   const idOf = (s: number): number => c.idLo[s]! + c.idHi[s]! * 4294967296;
   ctx.events.emit({ k: 'bite', attacker: idOf(a), target: idOf(b), pos: [sg.posX[j]!, sg.posY[j]!], dmg: dm } as Parameters<StepContext['events']['emit']>[0]);
+  return true;
 }
 
 /** Terrain: push segment centres out of rock along the SDF gradient; remove inward velocity. */
