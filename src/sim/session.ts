@@ -6,8 +6,8 @@ import {
   CENSUS_EVERY, decodeCborFrame, encodeCborFrame, FRAME, PRESETS, readHeader, TICK_HZ,
   type CborValue, type World, type WorldConfig,
 } from '../core/index.js';
-import { encodeViewFrames, envFrameFor } from './frames.js';
-import { sim, SKELETON_COLOURS } from './index.js';
+import { encodeViewFrames, envFrameFor, paletteBytes } from './frames.js';
+import { sim } from './index.js';
 
 /** Frames per second of DUST_FRAME output (every 2nd tick at 30 Hz). */
 export const DUST_EVERY = 2;
@@ -16,11 +16,7 @@ export const DEFAULT_DREAM_CONFIG: WorldConfig = {
   preset: 'small', seedLo: 0x5eed1234, seedHi: 0x0000beef, backend: 'cpu', skeletonMotes: 3000,
 };
 
-export function paletteBytes(): Uint8Array {
-  const b = new Uint8Array(SKELETON_COLOURS.length * 3);
-  SKELETON_COLOURS.forEach((c, i) => b.set(c, i * 3));
-  return b;
-}
+export { paletteBytes };
 
 export function welcomeFor(world: World, scopes: string[]): CborValue {
   return {
