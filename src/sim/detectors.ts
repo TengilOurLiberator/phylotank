@@ -1,6 +1,8 @@
 /**
- * Derived-event detectors (CONTRACT 11): hunts, giants, schools, outbreaks, mass deaths and
- * endangered species. They read world state and the primitive event stream and never write
+ * Derived-event detectors (CONTRACT 11): hunts, giants, schools, mass deaths and endangered
+ * species here; carcasses and frenzies, migration, blooms and bloom fronts, records, novelty,
+ * outbreaks and epidemic fronts, new roles and lineage stories in the event suite
+ * (`./events/`, docs/modules/events.md), which this class runs on the same ticks. They read world state and the primitive event stream and never write
  * sim state, so they can run anywhere outside the step (the host, the dream-tank worker, a
  * replay tool) without touching determinism. They are deterministic anyway: a pure function
  * of the state and events they are shown, so a replay reproduces the director's story.
@@ -9,9 +11,10 @@
  * release) pass through untouched; the session forwards both kinds on the EVENT channel.
  */
 import {
-  CENSUS_EVERY, CF, G_REL, LIFE, NONE_U32, TICK_HZ, type SimEvent, type V2, type World,
+  CENSUS_EVERY, CF, G_REL, LIFE, TICK_HZ, type SimEvent, type V2, type World,
 } from '../core/index.js';
 import { entityId } from './requests.js';
+import { EventSuite, type SuiteOptions } from './events/index.js';
 
 type Distribute<E> = E extends SimEvent ? Omit<E, 't' | 'eid' | 'epoch'> : never;
 type Derived = Distribute<SimEvent>;
@@ -30,6 +33,8 @@ export interface DetectorOptions {
   /** Outbreak: prevalence to start and to end. */
   outbreakOn?: number;
   outbreakOff?: number;
+  /** Options for the event suite (carcass, migration, bloom, records, novelty, outbreak, roles, lineage). */
+  suite?: SuiteOptions;
 }
 
 interface Hunt { pred: number; prey: number; start: number; last: number; pos: V2 }
@@ -39,11 +44,11 @@ interface School { n: number; centroid: V2 }
 function sq(x: number): number { return x * x; }
 
 export class Detectors {
-  private readonly o: Required<DetectorOptions>;
+  private readonly o: Required<Omit<DetectorOptions, 'suite'>>;
   private readonly hunts = new Map<number, Hunt>();
   private readonly giants = new Set<number>();
   private readonly schools = new Map<number, School>();
-  private readonly outbreaks = new Map<number, number>();
+  readonly suite: EventSuite;
   private readonly endangered = new Set<number>();
   private readonly peak = new Map<number, number>();
   private deathsInWindow: V2[] = [];
@@ -54,10 +59,12 @@ export class Detectors {
   private eid = 1;
 
   constructor(opts: DetectorOptions = {}) {
+    const { suite, ...rest } = opts;
     this.o = {
       huntTimeoutS: 5, schoolRadiusM: 0.4, schoolMin: 8, schoolPolarisation: 0.6, massWindowS: 10, massMin: 10, massZ: 4,
-      outbreakOn: 0.1, outbreakOff: 0.05, ...opts,
+      outbreakOn: 0.15, outbreakOff: 0.05, ...rest,
     };
+    this.suite = new EventSuite({ every: CENSUS_EVERY, ...suite, outbreak: { on: this.o.outbreakOn, off: this.o.outbreakOff, ...suite?.outbreak } });
   }
 
   /**
@@ -73,11 +80,12 @@ export class Detectors {
       else if (e.k === 'death') this.onDeath(e, tick, out);
     }
     this.expireHunts(tick, out);
+    out.push(...(this.suite.observe(world, events) as unknown as Derived[]));
     if (tick % CENSUS_EVERY === 0) {
       this.detectGiants(world, out);
       this.detectSchools(world, out);
-      this.detectOutbreaks(world, out);
       this.detectEndangered(world, out);
+      out.push(...(this.suite.run(world, true) as unknown as Derived[]));
     }
     return out.map((d) => ({ ...d, t: tick, eid: 2 ** 52 + this.eid++, epoch: world.g.epoch }) as SimEvent);
   }
@@ -220,39 +228,6 @@ export class Detectors {
       if (best.has(sp)) continue;
       this.schools.delete(sp);
       out.push({ k: 'school', phase: 'end', species: sp, n: 0, centroid: sc.centroid, radius: 0, polarisation: 0, sample: [] });
-    }
-  }
-
-  private detectOutbreaks(world: World, out: Derived[]): void {
-    const c = world.cr.c;
-    const hosts = new Map<number, number>();
-    const inf = new Map<number, { n: number; host: number; x: number; y: number }>();
-    for (let s = 0; s < world.cr.highWater; s++) {
-      if (c.life[s] !== LIFE.ALIVE) continue;
-      hosts.set(c.species[s]!, (hosts.get(c.species[s]!) ?? 0) + 1);
-      const strain = c.infStrain[s * 2]!;
-      if (strain === NONE_U32) continue;
-      const r = inf.get(strain) ?? { n: 0, host: c.species[s]!, x: 0, y: 0 };
-      r.n++; r.x += c.posX[s]!; r.y += c.posY[s]!;
-      inf.set(strain, r);
-    }
-    for (const [strain, r] of [...inf].sort((a, b) => a[0] - b[0])) {
-      const prev = hosts.get(r.host) ?? 1;
-      const p = r.n / prev;
-      const before = this.outbreaks.get(strain);
-      if (before === undefined && p >= this.o.outbreakOn && r.n >= 5) {
-        this.outbreaks.set(strain, p);
-        out.push({ k: 'outbreak', phase: 'start', strain, host: r.host, prevalence: p, growth: 0, centroid: [r.x / r.n, r.y / r.n], radius: 0 });
-      } else if (before !== undefined) {
-        this.outbreaks.set(strain, p);
-        out.push({ k: 'outbreak', phase: p < this.o.outbreakOff ? 'end' : 'update', strain, host: r.host, prevalence: p, growth: p - before, centroid: [r.x / r.n, r.y / r.n], radius: 0 });
-        if (p < this.o.outbreakOff) this.outbreaks.delete(strain);
-      }
-    }
-    for (const strain of [...this.outbreaks.keys()]) {
-      if (inf.has(strain)) continue;
-      this.outbreaks.delete(strain);
-      out.push({ k: 'outbreak', phase: 'end', strain, host: 0, prevalence: 0, growth: 0, centroid: [0, 0], radius: 0 });
     }
   }
 
