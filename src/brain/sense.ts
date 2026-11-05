@@ -221,8 +221,11 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const dx = cr.posX[j]! - x, dy = cr.posY[j]! - y;
     if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = j;
   }
+  // organs on parts not grown yet (segCount < nParts at an early stage) read 0 (03 §3.3.2)
+  const grown = (p: number): boolean => segStart === NONE_U32 || p < segCount;
   // eyes
   for (const e of L.eyes) {
+    if (!grown(e.part)) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
     partPos(e.part);
     const ex = PX, ey = PY;
     const R = e.receptors;
@@ -288,6 +291,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // chemo organs: level and rate per channel (rate = tauSmell * d(level)/dt along own motion)
   for (const ch of L.chemos) {
+    if (!grown(ch.part)) { inp.fill(0, bI + ch.base, bI + ch.base + 2 * ch.channels.length); continue; }
     partPos(ch.part);
     const cx = PX, cy = PY;
     let at = bI + ch.base;
@@ -309,6 +313,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const kind = chn.kind;
     if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
     const p = chn.part;
+    if (!grown(p)) { inp[bI + i] = 0; continue; }
     partPos(p);
     const px = PX, py = PY, pa = PA;
     const sg = segStart !== NONE_U32 && p < segCount ? segStart + p : -1;
