@@ -118,3 +118,24 @@ describe('host detectors', () => {
     expect(out.filter((e) => e.k === 'frenzy')).toEqual([expect.objectContaining({ n: 6 })]);
   });
 });
+
+describe('FIELDS and INSPECT frames', () => {
+  it('quantise the coarse fields per channel and report a selected creature', async () => {
+    const { decodeFieldsFrame, decodeInspect, encodeFieldsFrame, encodeInspect, FIELD_CH } = await import('../src/host/frames.js');
+    const w = sim.create(CFG);
+    for (let i = 0; i < 20; i++) sim.step(w);
+    w.fields.qP.fill(0); w.fields.qP[0] = 16; w.fields.qP[w.fields.fine[0] * w.fields.fine[1] - 1] = 32;
+    const f = decodeFieldsFrame(encodeFieldsFrame(w));
+    expect([f.w, f.h]).toEqual([...w.fields.coarse]);
+    expect(f.channels.map((c) => c.id)).toEqual(Object.values(FIELD_CH));
+    const p = f.channels.find((c) => c.id === FIELD_CH.plankton)!;
+    expect(p.max).toBe(32);
+    expect(p.data[0]).toBe(128);
+    expect(p.data[f.w * f.h - 1]).toBe(255);
+    const id = entityId(w, 3);
+    const ins = decodeInspect(encodeInspect(w, id)!);
+    expect(ins.id).toBe(id);
+    expect(ins.activations.length).toBe(0); // phase-0 motes have no brains
+    expect(encodeInspect(w, 999_999)).toBeNull();
+  });
+});

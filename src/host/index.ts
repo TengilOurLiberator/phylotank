@@ -17,6 +17,7 @@ import { envFrameFor } from '../sim/index.js';
 import { DEFAULT_DREAM_CONFIG, welcomeFor } from '../sim/session.js';
 import { CommandError, HOST_EVENT_ID_BASE, planCast, RateLimit, validateCommand } from './commands.js';
 import { Detectors, type DerivedEvent } from './detectors.js';
+import { encodeFieldsFrame, encodeInspect } from './frames.js';
 import { InterestStream, type Caps } from './interest.js';
 import { TickScheduler } from './scheduler.js';
 import {
@@ -101,7 +102,7 @@ export class FlowControl {
 }
 
 /** Stream periods in wall milliseconds (CONTRACT 12.2 rates). */
-export const PERIOD_MS = { body: 1000 / 15, dust: 1000 / 15, glow: 500, env: 1000, census: 1000, stats: 1000 } as const;
+export const PERIOD_MS = { body: 1000 / 15, dust: 1000 / 15, glow: 500, env: 1000, census: 1000, stats: 1000, fields: 2000, inspect: 100 } as const;
 type StreamName = keyof typeof PERIOD_MS;
 
 export interface HostClient {
@@ -262,6 +263,12 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
     return true;
   }
 
+  /** One FIELDS frame per tick, shared by every client. */
+  let fieldsCache: { tick: number; epoch: number; f: Uint8Array } | null = null;
+  function fieldsFrame(): Uint8Array {
+    if (!fieldsCache || fieldsCache.tick !== hw.tick || fieldsCache.epoch !== hw.epoch) fieldsCache = { tick: hw.tick, epoch: hw.epoch, f: encodeFieldsFrame(hw.world) };
+    return fieldsCache.f;
+  }
   function sendTo(c: HostClient, f: Uint8Array, t: number): void { c.send(f); c.flow.sent(f.length, t); }
   function resetDue(c: HostClient): void { for (const k of Object.keys(c.due) as StreamName[]) { c.due[k] = 0; c.lastTick[k] = -1; } }
 
@@ -289,6 +296,8 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
       if (isDue('glow')) sendTo(c, c.stream.glowFrame(w), t);
       if (isDue('env')) sendTo(c, envFrameFor(w), t);
       if (isDue('census')) sendTo(c, censusFrame(lastSummary), t);
+      if (isDue('fields')) sendTo(c, fieldsFrame(), t);
+      if (c.selected !== null && isDue('inspect')) { const f = encodeInspect(w, c.selected); if (f) sendTo(c, f, t); }
       if (c.scopes.includes('god') && isDue('stats')) {
         sendTo(c, statsFrame(lastSummary, { achievedHz: scheduler.achievedHz, speed: scheduler.speedValue, throttle: tOut.state, clients: clients.size, stepErrors: hw.stepErrors, lastSaveTick }), t);
       }
@@ -503,8 +512,8 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
     const c: HostClient = {
       id: nextClientId++, view, scopes, lan, stream, flow: new FlowControl(stream.caps.maxBytesPerSec), paused: false,
       lastAckMs: null, frozen: false, selected: null,
-      due: { body: 0, dust: 0, glow: 0, env: 0, census: 0, stats: 0 },
-      lastTick: { body: -1, dust: -1, glow: -1, env: -1, census: -1, stats: -1 },
+      due: { body: 0, dust: 0, glow: 0, env: 0, census: 0, stats: 0, fields: 0, inspect: 0 },
+      lastTick: { body: -1, dust: -1, glow: -1, env: -1, census: -1, stats: -1, fields: -1, inspect: -1 },
       events: [], eventBudget: 20, rate: new RateLimit(20, 20, now()),
       send: (f) => { if (ws.readyState === ws.OPEN) ws.send(f); },
       buffered: () => ws.bufferedAmount,

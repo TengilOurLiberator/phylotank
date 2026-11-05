@@ -34,13 +34,13 @@ The sim applies `release` at step 0 (develop, load, allocate, as for births in 9
 
 **Change.** Export `pendingJournal(world: World): readonly JournalEntry[]` from `src/sim/index.ts`.
 
-## H4. GLOW_FIELD codec in core
+## H4. GLOW_FIELD, FIELDS and INSPECT codecs in core
 
 **What.** CONTRACT 12.2 defines GLOW_FIELD (`f32 rect[4], u16 w, u16 h, RGBA8 x w x h`) but `src/core/protocol.ts` has no encoder or decoder.
 
 **Why.** The renderer needs the decoder; the host has written both (`encodeGlowField`, `decodeGlowField` in `src/host/interest.ts`), with the keyframe flag set.
 
-**Change.** Move those two functions into `src/core/protocol.ts` unchanged. The host uses `w x h = 128 x 72` for any rect; document "the host chooses w and h; 16:9, at most 512 x 288".
+**Change.** Move those two functions into `src/core/protocol.ts` unchanged, with `encodeFieldsFrame`/`decodeFieldsFrame` and `encodeInspect`/`decodeInspect` from `src/host/frames.ts` (FIELDS: the coarse grid, per channel min and max over the grid and u8 steps between them; plankton is the fine grid summed onto the coarse one; INSPECT: activations are `round(clamp(o, -1, 1) * 127)` of the brain pool's `o` lanes, and the scope neurons are the first 8 raw values until the UI can pin others). The host uses `w x h = 128 x 72` for any GLOW_FIELD rect; document "the host chooses w and h; 16:9, at most 512 x 288".
 
 ## H5. The 50:1 decompression-ratio cap rejects sparse sections
 
