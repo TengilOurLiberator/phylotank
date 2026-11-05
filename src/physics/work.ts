@@ -34,6 +34,8 @@ export interface Work {
   restPrev: Float64Array; restInit: Uint8Array;
   /** Per segment muscle fraction (not a pool column; contract request). */
   muscleFrac: Float32Array;
+  /** Per segment Phenotype subtype (mouth kind; not a pool column; contract request P2). */
+  subtype: Uint8Array;
   /** Diagnostics, per segment, accumulated over the last tick: net muscle work, drag work by the water. */
   netWork: Float64Array; dragWork: Float64Array;
   /** Diagnostics per creature over the last tick: contact heat (J). */
@@ -50,7 +52,7 @@ export function workFor(world: World): Work {
     wk = {
       cap, th: f(), vx: f(), vy: f(), w: f(), xp: f(), yp: f(), thp: f(), ai: f(6), am: f(6), mm: f(3), ie: f(),
       rhs: f(3), tau: f(), cm: f(), tauReal: f(), lam: f(), ux: f(), uy: f(), phi: f(), restPrev: f(), restInit: new Uint8Array(cap),
-      muscleFrac: new Float32Array(cap).fill(0.3), netWork: f(), dragWork: f(),
+      muscleFrac: new Float32Array(cap).fill(0.3), subtype: new Uint8Array(cap), netWork: f(), dragWork: f(),
       contactHeat: new Float64Array(world.cr.capacity),
     };
     works.set(world, wk);

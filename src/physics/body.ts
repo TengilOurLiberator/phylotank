@@ -85,7 +85,7 @@ export function dragCoeffs(plate: boolean, l: number, r: number, span: number, e
 }
 
 /** Write segment rows for creature `slot` from its phenotype. The segment range must be set. */
-function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPose: boolean): void {
+function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPose: boolean, subtypes?: Uint8Array): void {
   const c = world.cr.c;
   const sg = world.seg.c;
   const s0 = c.segStart[slot]!;
@@ -116,6 +116,7 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
     sg.restAngle[i] = s.restAngle;
     sg.limitLo[i] = s.limitLo; sg.limitHi[i] = s.limitHi;
     wk.muscleFrac[i] = s.muscleFrac;
+    wk.subtype[i] = subtypes ? subtypes[k]! : 0;
     if (!keepPose || wk.restInit[i] === 0) { wk.restPrev[i] = s.restAngle; wk.restInit[i] = 1; }
     dragCoeffs(s.plate, s.length, s.radius, s.span, k === 0 || hasChild[k] === 0, sg.drag, i * 5);
     if (s.parent >= 0) {
@@ -165,7 +166,7 @@ export function loadBody(world: World, slot: number, ph: Phenotype): void {
   const specs = toSegmentSpecs(ph);
   world.cr.c.segCount[slot] = specs.length;
   world.cr.c.length[slot] = ph.lengthM;
-  writeSegments(world, slot, specs, false);
+  writeSegments(world, slot, specs, false, ph.subtype);
 }
 
 /**
@@ -177,7 +178,7 @@ export function restage(world: World, slot: number, ph: Phenotype): void {
   const specs = toSegmentSpecs(ph);
   if (specs.length !== c.segCount[slot]) { loadBody(world, slot, ph); return; }
   c.length[slot] = ph.lengthM;
-  writeSegments(world, slot, specs, true);
+  writeSegments(world, slot, specs, true, ph.subtype);
   // re-seat children on their parents with the new lengths, keeping world angles
   const sg = world.seg.c;
   const s0 = c.segStart[slot]!;

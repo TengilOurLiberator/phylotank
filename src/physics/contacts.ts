@@ -7,7 +7,7 @@
  * same contact list. Terrain uses the SDF grid.
  */
 import {
-  KIND, LIFE, ORGAN, PI, type StepContext, type World,
+  KIND, LIFE, MOUTH_SUBTYPE, ORGAN, PI, type StepContext, type World,
 } from '../core/index.js';
 import { SC, sincos } from './sincos.js';
 import { isPlate, segVolume } from './body.js';
@@ -15,7 +15,7 @@ import { isPlate, segVolume } from './body.js';
 /** Ram damage threshold (J/m^3) and toughness (J/m^3), starting values. */
 export const E_THR_RAM = 50;
 export const TOUGHNESS = 2e3;
-import { LINK, addLink, hasLink, linkState, ownsLink, tryGrab } from './links.js';
+import { LINK, addLink, hasLink, linkState, ownsLink, tryGrab, tryLatch } from './links.js';
 
 /** Jaw-lock break force: the bite force of the mouth (02 §2.4.4). */
 function jawBreak(rm: number): number { return SIGMA_JAW * 0.3 * PI * rm * rm * 3; }
@@ -324,9 +324,13 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     const F = Jn / dt;
     sg.touch[i] = sg.touch[i]! + F; sg.touch[j] = sg.touch[j]! + F;
     const mx = 0.5 * (cp[0]! + cp[2]!); const my = 0.5 * (cp[1]! + cp[3]!);
-    if (tryBite(world, ctx, st, i, j, depth) && !ownsLink(world, i)) addLink(world, LINK.JAW, i, j, mx, my, jawBreak(sg.radius[i]!));
-    if (tryBite(world, ctx, st, j, i, depth) && !ownsLink(world, j)) addLink(world, LINK.JAW, j, i, mx, my, jawBreak(sg.radius[j]!));
-    if (depth > 0) { tryGrab(world, i, j, mx, my); tryGrab(world, j, i, mx, my); }
+    const probI = wk.subtype[i] === MOUTH_SUBTYPE.PROBOSCIS; const probJ = wk.subtype[j] === MOUTH_SUBTYPE.PROBOSCIS;
+    if (!probI && tryBite(world, ctx, st, i, j, depth) && !ownsLink(world, i)) addLink(world, LINK.JAW, i, j, mx, my, jawBreak(sg.radius[i]!));
+    if (!probJ && tryBite(world, ctx, st, j, i, depth) && !ownsLink(world, j)) addLink(world, LINK.JAW, j, i, mx, my, jawBreak(sg.radius[j]!));
+    if (depth > 0) {
+      tryGrab(world, i, j, mx, my); tryGrab(world, j, i, mx, my);
+      tryLatch(world, wk, i, j, mx, my); tryLatch(world, wk, j, i, mx, my);
+    }
   };
   for (let q = 0; q < hs.n; q++) cells += queryPairs(world, hs, hs.items[q]!, visit);
   // apply averaged corrections

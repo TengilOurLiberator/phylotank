@@ -7,10 +7,11 @@
  * anchors fixed in each segment's frame; it breaks when the owner's drive drops below 0.2, when
  * its constraint force exceeds the break force, or when either segment is severed or freed.
  *
- * Parasite latches need the mouth subtype in the segment pool (contract request P2) and are
- * not created yet; the link type exists.
+ * Parasite latches (02 §2.4.5): a PROBOSCIS mouth with its drive on pierces a touched host
+ * segment when `SIGMA_PIERCE pi r^2 > H_host A_tip`; the latch holds up to 4x a grip. The
+ * energy drain itself belongs to the ecosystem's ledger: it reads `latches(world)`.
  */
-import { LIFE, ORGAN, PI, type World } from '../core/index.js';
+import { KIND, LIFE, MOUTH_SUBTYPE, ORGAN, PI, type World } from '../core/index.js';
 import { SC, sincos } from './sincos.js';
 import type { Work } from './work.js';
 
@@ -156,4 +157,28 @@ export function tryGrab(world: World, i: number, j: number, px: number, py: numb
   const sg = world.seg.c;
   if ((sg.organs[i]! & ORGAN.CLAW) === 0 || sg.cmd2[i]! < GRIP_ON || ownsLink(world, i)) return;
   addLink(world, LINK.GRAB, i, j, px, py, gripBreakForce(sg.radius[i]!));
+}
+
+export const SIGMA_PIERCE = 4e5;
+export const H_HOST = 2e5;
+
+/** Latch candidates: a proboscis mouth (subtype from the Phenotype, adapter for P2). */
+export function tryLatch(world: World, wk: Work, i: number, j: number, px: number, py: number): boolean {
+  const sg = world.seg.c;
+  if (sg.kind[i] !== KIND.MOUTH || wk.subtype[i] !== MOUTH_SUBTYPE.PROBOSCIS) return false;
+  if (sg.cmd2[i]! < GRIP_ON || ownsLink(world, i)) return false;
+  const r = sg.radius[i]!;
+  // piercing stress against the host's hardness H (1 + 20 armour); the host armour is not in
+  // the segment pool yet, so only unarmoured hardness is tested
+  if (SIGMA_PIERCE <= H_HOST) return false;
+  addLink(world, LINK.LATCH, i, j, px, py, 4 * gripBreakForce(r));
+  return true;
+}
+
+/** Current parasite latches: (parasite slot, host slot, host segment). */
+export function latches(world: World): { parasite: number; host: number; hostSeg: number }[] {
+  const sg = world.seg.c;
+  const out: { parasite: number; host: number; hostSeg: number }[] = [];
+  for (const l of linkState(world).links) if (l.type === LINK.LATCH) out.push({ parasite: sg.owner[l.a]!, host: sg.owner[l.b]!, hostSeg: l.b });
+  return out;
 }

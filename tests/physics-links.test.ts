@@ -1,7 +1,7 @@
 /** Grabs and jaw locks solved inside the substep loop (02 §2.4.4, REVIEW R6). */
 import { describe, expect, it } from 'vitest';
-import { KIND, ORGAN } from '../src/core/index.js';
-import { drainFlags, linkState, LINK, physics, workFor } from '../src/physics/index.js';
+import { KIND, MOUTH_SUBTYPE, ORGAN } from '../src/core/index.js';
+import { drainBites, drainFlags, latches, linkState, LINK, physics, workFor } from '../src/physics/index.js';
 import { chain, fish, kinetic, makePhenotype, makeWorld, nextTick, spawn } from '../src/physics/testkit.js';
 
 describe('physics: links', () => {
@@ -43,6 +43,26 @@ describe('physics: links', () => {
     sg.cmd2[c.segStart[pred]!] = 0;
     physics.step(w, tw.ctx); nextTick(tw);
     expect(linkState(w).links.length).toBe(0);
+  });
+
+  it('a proboscis latches onto a host, does not bite, and rides along', () => {
+    const tw = makeWorld();
+    const ph = makePhenotype([
+      { parent: -1, attachU: 0, restAngle: 0, length: 0.004, radius: 0.001, kind: KIND.MOUTH },
+      { parent: 0, attachU: -0.5, restAngle: Math.PI, length: 0.004, radius: 0.001 },
+    ]);
+    ph.subtype[0] = MOUTH_SUBTYPE.PROBOSCIS;
+    const par = spawn(tw, physics.loadBody, ph, 10, 5, 0);
+    const host = spawn(tw, physics.loadBody, makePhenotype(fish(4, 0.06)), 10.0045, 5.0, Math.PI / 2);
+    const w = tw.world; const sg = w.seg.c; const c = w.cr.c;
+    sg.cmd2[c.segStart[par]!] = 1;
+    physics.step(w, tw.ctx); nextTick(tw);
+    expect(latches(w)).toEqual([{ parasite: par, host, hostSeg: latches(w)[0]!.hostSeg }]);
+    expect(drainBites(w)).toEqual([]); // a proboscis does not bite
+    const x0 = c.posX[par]!;
+    for (let k = 0; k < 30; k++) { sg.velX[c.segStart[host]!] = 0.05; physics.step(w, tw.ctx); nextTick(tw); }
+    expect(latches(w).length).toBe(1);
+    expect(c.posX[par]! - x0).toBeGreaterThan(0.005); // dragged along by the host
   });
 
   it('a successful bite locks the jaws until the bite drive drops', () => {
