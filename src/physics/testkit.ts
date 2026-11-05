@@ -148,11 +148,17 @@ export function kineticEff(w: World, slot: number, mm: Float64Array, ie: Float64
   return E;
 }
 
-/** The 20 cm, 8-segment reference fish (tapered capsules, the last one a little fin-like). */
-export function fish(n = 8, len = 0.2): PartDef[] {
+/**
+ * The 20 cm, 8-segment reference fish (tapered capsules). `depth` is the body depth (the
+ * out-of-plane span) over the width: 1 is a round section (spike 1), 2 a laterally compressed
+ * fish body as in most real swimmers (spike physics-2's B4 reference).
+ */
+export function fish(n = 8, len = 0.2, depth = 1): PartDef[] {
   const seg = len / n;
   // radius 6% of the body length at the head (12 mm for the 20 cm fish), tapering to 40%
-  return chain(n, seg, (k) => 0.06 * len * (1 - 0.6 * k / n), { muscleFrac: 0.5 });
+  const parts = chain(n, seg, (k) => 0.06 * len * (1 - 0.6 * k / n), { muscleFrac: 0.5 });
+  if (depth !== 1) for (const p of parts) p.span = depth * 2 * p.radius;
+  return parts;
 }
 
 export function setCmds(w: World, slot: number, f: (k: number) => number): void {

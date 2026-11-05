@@ -68,12 +68,10 @@ describe('physics spike: energy and momentum', () => {
       expect(drift).toBeLessThan(1e-5);
     }
     log('vacuum', res);
-    // measured (spike 1): under maximal random muscles in vacuum (a light, whip-like tail
-    // turning at tens of rad/s) the linearised joint solve leaves an angular-momentum error of
-    // a few 1e-2 m L^2/s at 4 substeps, falling first order with the substep; the design's 1e-6
-    // is not met (docs/spikes/physics-1.md)
-    expect(res[0]!.relToMLL!).toBeLessThan(0.1);
-    expect(res[2]!.relToMLL!).toBeLessThan(res[0]!.relToMLL!);
+    // spike 1 measured 5e-2 m L^2/s at 4 substeps: the linearised joint solve's lever arms
+    // left a net angular impulse every substep. Spike 2 cancels it with a rigid rotation about
+    // the centre of mass (tree.ts, angularFix); what remains is f32 storage (docs/spikes/physics-2.md)
+    for (const r of res) expect(r.relToMLL!).toBeLessThan(1e-6);
   });
 
   it('passive bodies in water never gain kinetic plus elastic energy', () => {

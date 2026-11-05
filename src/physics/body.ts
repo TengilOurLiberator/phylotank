@@ -53,7 +53,9 @@ export function addedMass(plate: boolean, l: number, r: number, span: number): [
  * Drag coefficients `k_t1, k_n1, k_t15, k_t2, k_n2` (02 §2.3.1). `endCap` adds the nose and
  * tail pressure drag of a capsule at the root and at free tips.
  */
-export function dragCoeffs(plate: boolean, l: number, r: number, span: number, endCap: boolean, out: Float32Array, o: number): void {
+export function dragCoeffs(
+  plate: boolean, l: number, r: number, span: number, endCap: boolean, out: Float32Array, o: number, run = 0,
+): void {
   const mu = MU_WATER;
   const rho = RHO_WATER;
   let kt1: number; let kn1: number; let swet: number; let kt2: number; let kn2: number;
@@ -80,8 +82,30 @@ export function dragCoeffs(plate: boolean, l: number, r: number, span: number, e
     kt2 = 0.5 * rho * 0.004 * swet + (endCap ? 0.5 * rho * 0.1 * PI * r * r : 0);
     kn2 = 0.5 * rho * 1.1 * (span > 0 ? span : 2 * r) * l;
   }
-  const kt15 = 0.665 * rho * Math.sqrt(NU_WATER / l) * swet;
+  // Laminar skin friction (Blasius): the wall shear at distance x from the leading edge is
+  // 0.332 rho U^1.5 sqrt(nu / x), so a segment covering [run, run + l] of the boundary layer
+  // carries 0.664 rho sqrt(nu) (S_wet / l) (sqrt(run + l) - sqrt(run)). With run = 0 this is the
+  // isolated-plate value 0.665 rho sqrt(nu / l) S_wet of 02 §2.3.1; the trailing segments of
+  // a body continue their parent's boundary layer (spike physics-2, B4).
+  const kt15 = 0.665 * rho * Math.sqrt(NU_WATER) * (swet / l) * (Math.sqrt(run + l) - Math.sqrt(run));
   out[o] = kt1; out[o + 1] = kn1; out[o + 2] = kt15; out[o + 3] = kt2; out[o + 4] = kn2;
+}
+
+/**
+ * Boundary-layer run length at the base of each segment: a capsule hung from an end of its
+ * parent and roughly in line with it (within 30 degrees, either way round) continues the
+ * parent's boundary layer; fins, side branches and the root start their own.
+ */
+export function boundaryRuns(specs: readonly SegmentSpec[]): Float64Array {
+  const run = new Float64Array(specs.length);
+  for (let k = 1; k < specs.length; k++) {
+    const s = specs[k]!;
+    const p = s.parent;
+    if (p < 0 || s.plate || specs[p]!.plate) continue;
+    const c = cos(s.restAngle);
+    if (Math.abs(s.attachU) >= 0.45 && c * c > 0.75) run[k] = run[p]! + specs[p]!.length;
+  }
+  return run;
 }
 
 /** Write segment rows for creature `slot` from its phenotype. The segment range must be set. */
@@ -102,6 +126,7 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
   const scale = ledger > 0 && mGeo > 0 ? ledger / mGeo : 1;
   const hasChild = new Uint8Array(n);
   for (let k = 1; k < n; k++) if (specs[k]!.parent >= 0) hasChild[specs[k]!.parent] = 1;
+  const run = boundaryRuns(specs);
   for (let k = 0; k < n; k++) {
     const s = specs[k]!;
     const i = s0 + k;
@@ -118,7 +143,7 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
     wk.muscleFrac[i] = s.muscleFrac;
     wk.subtype[i] = subtypes ? subtypes[k]! : 0;
     if (!keepPose || wk.restInit[i] === 0) { wk.restPrev[i] = s.restAngle; wk.restInit[i] = 1; }
-    dragCoeffs(s.plate, s.length, s.radius, s.span, k === 0 || hasChild[k] === 0, sg.drag, i * 5);
+    dragCoeffs(s.plate, s.length, s.radius, s.span, k === 0 || hasChild[k] === 0, sg.drag, i * 5, run[k]!);
     if (s.parent >= 0) {
       const p = specs[s.parent]!;
       const rMin = Math.min(p.radius, s.radius);

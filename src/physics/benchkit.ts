@@ -3,7 +3,75 @@
  */
 import { createPhysics, type PhysicsOptions } from './index.js';
 import { StokesReference, type RefLink } from './reference.js';
-import { com, makePhenotype, makeWorld, nextTick, purcell, spawn } from './testkit.js';
+import { workFor } from './work.js';
+import { bodyMass, com, elastic, fish, kinetic, makePhenotype, makeWorld, nextTick, purcell, spawn, type PartDef } from './testkit.js';
+
+// ---------------------------------------------------------------- anguilliform at high Re (B4)
+export interface Gait { f: number; amp: number[]; lag: number }
+export interface SwimResult {
+  U: number; Re: number; St: number; P: number; cot: number; wNet: number; dragW: number; dE: number; tipAmp: number;
+  /** Metabolic economy U / P, m/J. */
+  econ: number;
+  /**
+   * Froude efficiency proxy: the drag of the straight body gliding at U (from its own drag
+   * coefficients) times U, over the net mechanical muscle power. The standard self-propelled
+   * estimate; it ignores the extra drag of the bent body, so it errs low.
+   */
+  eta: number;
+  /** Glide drag of the straight body at U, N. */
+  dGlide: number;
+}
+
+/**
+ * Self-propelled swimming of a body driven by its own muscles with `cmd_j = A_j sin(2 pi f t - lag j)`.
+ * Speed is the centre-of-mass speed over the second half of the run; St = f * (peak-to-peak tail
+ * excursion) / U.
+ */
+export function swim(gait: Gait, over: Partial<PhysicsOptions> = {}, seconds = 8, body: PartDef[] = fish(), L = 0.2): SwimResult {
+  const tw = makeWorld();
+  const phys = createPhysics({ gravity: false, contacts: false, diagnostics: true, ...over });
+  const slot = spawn(tw, phys.loadBody, makePhenotype(body), 16, 9);
+  const w = tw.world; const sg = w.seg.c; const c = w.cr.c; const s0 = c.segStart[slot]!; const n = c.segCount[slot]!;
+  const wk = workFor(w);
+  const dt = phys.opts.dt;
+  const ticks = Math.round(seconds / dt);
+  const half = Math.round(ticks / 2);
+  // the tail tip is the last leaf of the main chain: the last segment that is not a side fin
+  let tail = n - 1;
+  while (tail > 0 && body[tail]!.kind !== undefined && body[tail]!.kind !== 0 && body[tail]!.restAngle !== 0) tail--;
+  let xA = 0; let tA = 0; let P = 0; let wNet = 0; let dragW = 0; let E0 = 0;
+  let tipMin = Infinity; let tipMax = -Infinity;
+  for (let k = 0; k < ticks; k++) {
+    const t = k * dt;
+    for (let j = 1; j < n; j++) sg.cmd[s0 + j] = (gait.amp[j - 1] ?? gait.amp[0]!) * Math.sin(2 * Math.PI * gait.f * t - gait.lag * j);
+    phys.step(w, tw.ctx); nextTick(tw);
+    if (k === half) { xA = com(w, slot)[0]; tA = t; E0 = kinetic(w, slot) + elastic(w, slot); }
+    if (k > half) {
+      P += c.powerW[slot]! * dt;
+      for (let q = 0; q < n; q++) { wNet += wk.netWork[s0 + q]!; dragW += wk.dragWork[s0 + q]!; }
+      // lateral tail-tip excursion (y, since the fish swims along +x)
+      const i = s0 + tail;
+      const tipY = sg.posY[i]! + Math.sin(sg.angle[i]!) * 0.5 * sg.len[i]! - com(w, slot)[1];
+      tipMin = Math.min(tipMin, tipY); tipMax = Math.max(tipMax, tipY);
+    }
+  }
+  const T = (ticks - 1) * dt - tA;
+  const dx = com(w, slot)[0] - xA;
+  const U = dx / T;
+  const m = bodyMass(w, slot);
+  const tipAmp = 0.5 * (tipMax - tipMin);
+  const dE = kinetic(w, slot) + elastic(w, slot) - E0;
+  const Ua = Math.abs(U);
+  let dGlide = 0;
+  for (let q = 0; q < n; q++) {
+    const d = sg.drag; const o = (s0 + q) * 5;
+    dGlide += d[o]! * Ua + d[o + 2]! * Ua * Math.sqrt(Ua) + d[o + 3]! * Ua * Ua;
+  }
+  return {
+    U, Re: Math.abs(U) * L / 2e-5, St: gait.f * 2 * tipAmp / Math.abs(U), P: P / T, cot: P / T / (m * 9.81 * Math.abs(U)),
+    wNet, dragW, dE, tipAmp, econ: U / (P / T), eta: dGlide * U / (wNet / T), dGlide,
+  };
+}
 
 // Purcell (B3) at low Re
 const PL = 5e-4; // link length, m

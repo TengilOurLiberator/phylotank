@@ -54,6 +54,7 @@ function inv3(M: Float64Array, o: number): void {
  */
 export function solveTree(
   wk: Work, sg: World['seg']['c'], s0: number, n: number, h: number, mir: number, frac: number, prescribed: boolean,
+  fixAngular = true,
 ): void {
   ensure(wk.cap);
   const { th, thp, am } = wk;
@@ -66,11 +67,12 @@ export function solveTree(
     const lp = sg.attachU[i]! * sg.len[p]!; const lc = -0.5 * sg.len[i]!;
     const rpx = lp * cp; const rpy = lp * sp; const rcx = lc * cc; const rcy = lc * sc;
     const o = i * 9;
+    const gx = posX[p]! + rpx - posX[i]! - rcx; const gy = posY[p]! + rpy - posY[i]! - rcy;
     // rows: d_x, d_y (gap P_p - P_c), bend
     JP[o] = 1; JP[o + 1] = 0; JP[o + 2] = -rpy; JP[o + 3] = 0; JP[o + 4] = 1; JP[o + 5] = rpx; JP[o + 6] = 0; JP[o + 7] = 0; JP[o + 8] = -1;
     JC[o] = -1; JC[o + 1] = 0; JC[o + 2] = rcy; JC[o + 3] = 0; JC[o + 4] = -1; JC[o + 5] = -rcx; JC[o + 6] = 0; JC[o + 7] = 0; JC[o + 8] = 1;
-    CJ[i * 3] = posX[p]! + rpx - posX[i]! - rcx;
-    CJ[i * 3 + 1] = posY[p]! + rpy - posY[i]! - rcy;
+    CJ[i * 3] = gx;
+    CJ[i * 3 + 1] = gy;
     const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
     const rest = mir * (restB + wrapAngle(restA - restB) * frac);
     let Cb = wrapAngle(th[i]! - th[p]! - rest);
@@ -180,11 +182,56 @@ export function solveTree(
     const i = s0 + k;
     posX[i] = posX[i]! + XB[i * 3]!; posY[i] = posY[i]! + XB[i * 3 + 1]!; th[i] = th[i]! + XB[i * 3 + 2]!;
   }
+  if (fixAngular && n > 1) angularFix(wk, sg, s0, n);
   if (!prescribed) {
     for (let k = 1; k < n; k++) {
       const i = s0 + k; const p = s0 + sg.parent[i]!;
       const dCafter = DCB[i]! + XB[i * 3 + 2]! - XB[p * 3 + 2]!;
       wk.tauReal[i] = wk.tau[i]! - wk.cm[i]! * dCafter / h;
     }
+  }
+}
+
+/**
+ * Remove the net angular impulse that the linearised joint solve leaves behind. The joint
+ * impulses g_i = A_i dq_i are internal (they sum to zero), but their lever arms are evaluated at
+ * the predicted pose while the discrete angular momentum sum m x_old x v_new is taken about the
+ * start-of-substep positions, so each substep leaves an angular impulse of order h^2 v x F
+ * (spike physics-2: the whole C1 error of spike 1). A rigid rotation of the creature about its
+ * centre of mass, which closes no joint and opens none, cancels it exactly.
+ */
+function angularFix(wk: Work, sg: World['seg']['c'], s0: number, n: number): void {
+  const { am, xp, yp, th } = wk;
+  const posX = sg.posX; const posY = sg.posY;
+  // centre of mass of the corrected pose (body mass: a rotation about it moves no momentum)
+  let m = 0; let cx = 0; let cy = 0;
+  const ox = posX[s0]!; const oy = posY[s0]!;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k; const mi = sg.mass[i]!;
+    m += mi; cx += mi * (posX[i]! - ox); cy += mi * (posY[i]! - oy);
+  }
+  cx /= m; cy /= m;
+  let S = 0; let K = 0;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k; const a = i * 6; const b = i * 3;
+    const d0 = XB[b]!; const d1 = XB[b + 1]!; const d2 = XB[b + 2]!;
+    const g0 = am[a]! * d0 + am[a + 1]! * d1 + am[a + 2]! * d2;
+    const g1 = am[a + 1]! * d0 + am[a + 3]! * d1 + am[a + 4]! * d2;
+    const g2 = am[a + 2]! * d0 + am[a + 4]! * d1 + am[a + 5]! * d2;
+    const qx = xp[i]! - ox - cx; const qy = yp[i]! - oy - cy;
+    S += qx * g1 - qy * g0 + g2;
+    // the same sum for a unit rigid rotation e_i = (-(y_i - c_y), x_i - c_x, 1)
+    const ex = -(posY[i]! - oy - cy); const ey = posX[i]! - ox - cx;
+    const h0 = am[a]! * ex + am[a + 1]! * ey + am[a + 2]!;
+    const h1 = am[a + 1]! * ex + am[a + 3]! * ey + am[a + 4]!;
+    const h2 = am[a + 2]! * ex + am[a + 4]! * ey + am[a + 5]!;
+    K += qx * h1 - qy * h0 + h2;
+  }
+  if (!(K > 0)) return;
+  const dth = -S / K;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k;
+    const ex = -(posY[i]! - oy - cy); const ey = posX[i]! - ox - cx;
+    posX[i] = posX[i]! + dth * ex; posY[i] = posY[i]! + dth * ey; th[i] = th[i]! + dth;
   }
 }

@@ -48,11 +48,19 @@ export interface PhysicsOptions {
   solver: 'tree' | 'gs';
   /** Exploit watchdog (R9). */
   watchdog: boolean;
+  /**
+   * Lighthill's reactive force at free trailing tips (02 §2.3.3), as a multiple of the
+   * elongated-body value; 0 turns it off. Spike physics-2 (B4) turned it on.
+   */
+  trailingEdge: number;
+  /** Cancel the joint solve's spurious net angular impulse each substep (C1; spike physics-2). */
+  angularFix: boolean;
 }
 
 export const DEFAULT_OPTIONS: PhysicsOptions = {
   fluid: true, gravity: true, addedMass: true, nSub: 0, minSub: 4, dt: DT, prescribed: false, walls: true,
   contacts: true, iterations: 1, linearDrag: false, diagnostics: false, solver: 'tree', watchdog: true,
+  trailingEdge: 1, angularFix: true,
 };
 
 const LN2_Q10 = log(Q10_MUSCLE);
@@ -129,7 +137,9 @@ export function beginCreature(
     if (sp > vMax) vMax = sp;
     if (sg.cmd[i] !== 0 || sg.act[i] !== 0) active = true;
     wk.netWork[i] = 0; wk.dragWork[i] = 0; sg.work[i] = 0;
+    wk.leaf[i] = k > 0 ? 1 : 0;
   }
+  for (let k = 1; k < n; k++) wk.leaf[s0 + sg.parent[s0 + k]!] = 0;
   const L = c.length[slot]! > 0 ? c.length[slot]! : lenTot;
   // c_a(Re) from the rms segment speed relative to the water
   let ca = 0;
@@ -216,6 +226,38 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
         const fux = D00 * ux + D01 * uy; const fuy = D01 * ux + D11 * uy;
         r0 += h * fux; r1 += h * fuy; r2 += h * (-ry * fux + rx * fuy);
       }
+      if (ca > 0 && opts.trailingEdge > 0 && wk.leaf[i] === 1) {
+        // Lighthill's elongated-body reactive force at a free trailing tip (Lighthill 1971):
+        // F = 1/2 m w^2 tau - m w u n, with m the added mass per length at the tip, tau the
+        // headward tangent (-t), u and w the tip velocity relative to the water along tau and n.
+        // Its power is -1/2 m w^2 u: it only sheds energy into the wake. The lateral part is
+        // linearised into A (a damping m u n n^T at the tip); the thrust part is explicit. When the
+        // tip leads (u < 0) nothing is shed there: the lateral part is dropped and the thrust part
+        // fades out, so the term never adds energy.
+        const sp = span > 0 ? span : 2 * r;
+        const mte = opts.trailingEdge * ca * RHO_WATER * PI * 0.25 * sp * sp * wk.phi[i]!;
+        const rx = 0.5 * l * cs; const ry = 0.5 * l * sn;
+        const relx = v0 - om * ry - ux; const rely = v1 + om * rx - uy;
+        const u = -(relx * cs + rely * sn); const wn = -relx * sn + rely * cs;
+        let g = 1;
+        if (u < 0) {
+          const vr = Math.sqrt(relx * relx + rely * rely);
+          g = 1 + 4 * u / (vr + 1e-30); if (g < 0) g = 0;
+        } else {
+          // lateral damping m u n n^T at the tip point (n = (-sn, cs))
+          const cn = mte * u;
+          const D00 = cn * sn * sn; const D01 = -cn * cs * sn; const D11 = cn * cs * cs;
+          const d3x = -D00 * ry + D01 * rx; const d3y = -D01 * ry + D11 * rx;
+          a00 += h * D00; a01 += h * D01; a11 += h * D11; a02 += h * d3x; a12 += h * d3y;
+          a22 += h * (-ry * d3x + rx * d3y);
+          const fux = D00 * ux + D01 * uy; const fuy = D01 * ux + D11 * uy;
+          r0 += h * fux; r1 += h * fuy; r2 += h * (-ry * fux + rx * fuy);
+        }
+        // thrust 1/2 m w^2 along -t, through the tip on the axis: no torque about the centre
+        const T = 0.5 * mte * wn * wn * g;
+        r0 -= h * T * cs; r1 -= h * T * sn;
+        wk.teF[i] = T;
+      } else wk.teF[i] = 0;
     }
     // explicit forces: buoyancy (constant over the tick) and cilia
     let fx = 0; let fy = 0;
@@ -281,7 +323,7 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
   // Gauss-Seidel over the joints; with more than one pass, alternate the direction
   // (symmetric GS), which carries corrections from the tips back to the root.
   if (opts.solver === 'tree') {
-    solveTree(wk, sg, s0, n, h, mir, frac, opts.prescribed);
+    solveTree(wk, sg, s0, n, h, mir, frac, opts.prescribed, opts.angularFix);
     for (let k = 1; k < n; k++) solveLimit(wk, sg, s0 + k, s0 + sg.parent[s0 + k]!, mir, frac);
   } else for (let it = 0; it < opts.iterations; it++) {
     const fwd = (it & 1) === 0;
@@ -342,6 +384,17 @@ export function substepCreatureEnd(world: World, ct: CreatureTick, wk: Work, opt
         const cn = 0.5 * (dr[i * 5 + 1]! + lin * dr[i * 5 + 4]! * wk.phi[i]! * Math.abs(vn));
         const fx = -(ct * vt * cs - cn * vn * sn); const fy = -(ct * vt * sn + cn * vn * cs);
         P += fx * pvx + fy * pvy;
+      }
+      if (wk.leaf[i] === 1 && ct.ca > 0 && opts.trailingEdge > 0) {
+        // trailing-edge term: thrust T along -t (as applied) and the lateral part -m u w n
+        const sp = sg.span[i]! > 0 ? sg.span[i]! : 2 * sg.radius[i]!;
+        const mte = opts.trailingEdge * ct.ca * RHO_WATER * PI * 0.25 * sp * sp * wk.phi[i]!;
+        const rx = 0.5 * l * cs; const ry = 0.5 * l * sn;
+        const pvx = vx[i]! - w[i]! * ry; const pvy = vy[i]! + w[i]! * rx;
+        const relx = pvx - wk.ux[i]!; const rely = pvy - wk.uy[i]!;
+        const u = -(relx * cs + rely * sn); const wn = -relx * sn + rely * cs;
+        P += -wk.teF[i]! * (pvx * cs + pvy * sn);
+        if (u > 0) P += -mte * u * wn * (-pvx * sn + pvy * cs);
       }
       wk.dragWork[i] = wk.dragWork[i]! + P * h;
     }

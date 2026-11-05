@@ -38,6 +38,10 @@ export interface Work {
   subtype: Uint8Array;
   /** Diagnostics, per segment, accumulated over the last tick: net muscle work, drag work by the water. */
   netWork: Float64Array; dragWork: Float64Array;
+  /** 1 on leaf segments (free tips) this tick. */
+  leaf: Uint8Array;
+  /** Trailing-edge thrust (N) on each leaf this substep (diagnostics). */
+  teF: Float64Array;
   /** Diagnostics per creature over the last tick: contact heat (J). */
   contactHeat: Float64Array;
 }
@@ -53,7 +57,7 @@ export function workFor(world: World): Work {
       cap, th: f(), vx: f(), vy: f(), w: f(), xp: f(), yp: f(), thp: f(), ai: f(6), am: f(6), mm: f(3), ie: f(),
       rhs: f(3), tau: f(), cm: f(), tauReal: f(), lam: f(), ux: f(), uy: f(), phi: f(), restPrev: f(), restInit: new Uint8Array(cap),
       muscleFrac: new Float32Array(cap).fill(0.3), subtype: new Uint8Array(cap), netWork: f(), dragWork: f(),
-      contactHeat: new Float64Array(world.cr.capacity),
+      contactHeat: new Float64Array(world.cr.capacity), leaf: new Uint8Array(cap), teF: f(),
     };
     works.set(world, wk);
   }
