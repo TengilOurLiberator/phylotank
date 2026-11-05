@@ -213,7 +213,7 @@ describe('site: static pages', () => {
   });
   it('use British English without em-dashes, and links point at the real repo', () => {
     const text = [...pages, 'site/README.md', 'site/style.css'].map(read).join('\n');
-    expect(text).not.toMatch(/—/);
+    expect(text).not.toMatch(/\u2014/);
     const index = read('site/index.html');
     expect(index).toContain('https://github.com/TengilOurLiberator/phylotank/releases');
     expect(index).toContain('https://github.com/TengilOurLiberator/phylotank/blob/main/docs/INSTALL.md');
