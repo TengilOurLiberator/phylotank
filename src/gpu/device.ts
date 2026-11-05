@@ -130,14 +130,27 @@ export async function readBuffer(device: GPUDevice, src: GPUBuffer, bytes: numbe
   return out;
 }
 
+export type BindKind = 'uniform' | 'read' | 'rw';
+
+/** An explicit layout, so several entry points of one module can share one bind group. */
+export function explicitLayout(device: GPUDevice, kinds: readonly BindKind[]): GPUPipelineLayout {
+  const bgl = device.createBindGroupLayout({
+    entries: kinds.map((k, binding) => ({
+      binding, visibility: 4 /* COMPUTE */,
+      buffer: { type: k === 'uniform' ? 'uniform' : k === 'read' ? 'read-only-storage' : 'storage' },
+    })),
+  });
+  return device.createPipelineLayout({ bindGroupLayouts: [bgl] });
+}
+
 /** Compile a compute pipeline and fail loudly with the WGSL compiler's messages. */
-export async function computePipeline(device: GPUDevice, code: string, entry: string, label = entry): Promise<GPUComputePipeline> {
+export async function computePipeline(device: GPUDevice, code: string, entry: string, label = entry, layout?: GPUPipelineLayout): Promise<GPUComputePipeline> {
   const module = device.createShaderModule({ code, label });
   const info = await module.getCompilationInfo();
   const errs = info.messages.filter((m) => m.type === 'error');
   if (errs.length) throw new Error(`WGSL ${label}: ${errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`);
   device.pushErrorScope('validation');
-  const p = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: entry }, label });
+  const p = device.createComputePipeline({ layout: layout ?? 'auto', compute: { module, entryPoint: entry }, label });
   const e = await device.popErrorScope();
   if (e) throw new Error(`pipeline ${label}: ${e.message}`);
   return p;
