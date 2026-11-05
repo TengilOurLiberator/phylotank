@@ -1,7 +1,7 @@
 /** God window styles: calm, dark, translucent panels; motion at most 150 ms, no bounce (07 §0.1). */
 export const GOD_CSS = `
 :root{--bg:#04080c;--panel:rgba(7,15,21,.93);--panel2:rgba(12,24,32,.96);--line:rgba(120,190,210,.16);--line2:rgba(120,190,210,.3);
---text:#d3e7ee;--dim:#8fb0bb;--faint:#5f7d87;--accent:#62d2e8;--accent2:#9be7a8;--warn:#e8c06a;--bad:#ef8c72;--good:#8ee0a0;
+--text:#d3e7ee;--dim:#8fb0bb;--faint:#6f8c96;--accent:#62d2e8;--accent2:#9be7a8;--warn:#e8c06a;--bad:#ef8c72;--good:#8ee0a0;
 --r:6px;--font:13px/1.45 system-ui,"Segoe UI",Roboto,sans-serif}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font:var(--font)}

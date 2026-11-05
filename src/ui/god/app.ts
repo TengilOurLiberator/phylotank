@@ -102,7 +102,11 @@ export class GodApp {
     root.appendChild(h('style', null, GOD_CSS + GOD_CSS2));
     this.client = new GodClient(link);
     this.overlay = h('canvas', { style: 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:5' });
-    root.appendChild(this.overlay);
+    // the tank view and its overlay are the main landmark (axe "region"); panels have their own
+    const main = h('main', { 'aria-label': t('a11y.viewport') });
+    canvas.replaceWith(main);
+    main.append(canvas, this.overlay);
+    root.appendChild(main);
     root.appendChild(this.chrome);
     this.cast = new CastController({
       cast: (power, target, intensity, duration, seed) => { this.castsSent++; return this.client.send({ t: 'cast', power, target, intensity, ...(duration ? { duration } : {}), seed }); },
@@ -189,7 +193,7 @@ export class GodApp {
     this.timeEl = h('footer', { class: 'pt-time' }, this.timeCanvas, h('div', { class: 'chips', role: 'group', 'aria-label': t('timeline.title') },
       h('div', { class: 'row', style: 'gap:3px' }, ...(['god', 'life', 'death'] as EvFilter[]).map((f) => this.chip(f))),
       h('div', { class: 'row', style: 'gap:3px' }, ...(['disease', 'records'] as EvFilter[]).map((f) => this.chip(f)))));
-    this.mini = h('div', { class: 'pt-mini' }, this.miniCanvas);
+    this.mini = h('div', { class: 'pt-mini', role: 'region', 'aria-label': t('map.title') }, this.miniCanvas);
     this.describeBtn.textContent = t('a11y.describe');
     this.describeBtn.onclick = () => { this.describeLive.textContent = this.describeView(); this.toast(this.describeLive.textContent); };
     this.placeDescribe();
