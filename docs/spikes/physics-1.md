@@ -100,6 +100,10 @@ T2 (tick rate): 30 Hz x 4 against 60 Hz x 4: speed -2.0%, power +5.1%. At equal 
 
 Jaw-locked and grabbed prey (links solved inside a shared 8-substep loop for the linked pair, `tests/physics-links.test.ts`): a 6-segment prey thrashing for 3 s in a claw keeps the pair's kinetic energy below its start value plus the prey's muscle work, and the watchdog stays silent. The end-of-tick link stretch is under 10% of a segment, set by tick-rate contacts of the neighbouring segments pushing against the link.
 
+### 3.5b Far-LOD swimmer card consistency (L1-style)
+
+Card measured on a 2 x 2 grid (amplitude 0.2, 0.4; frequency 1.5, 3 Hz; lag 0.8) of full-physics runs. At a grid cell the card is the full-physics result by construction. Between cells (amplitude 0.3, 2.25 Hz) the bilinear card gives 0.115 m/s against 0.124 m/s from full physics (-7.2%) and 0.975 W against 0.969 W (+0.6%). The 5% L1 mark needs a finer grid in amplitude; the key changes for any part that changes length, radius, span, muscle, lipid or armour by more than a 5% bin (R7).
+
 ### 3.6 CPU throughput (one core, CPU time, contended box)
 
 Population with a size spectrum (log-uniform 1 mm to 12 cm, 4 to 8 segments), muscles active, flow sampled, watchdog on.

@@ -13,6 +13,7 @@ describe('physics: swimmer cards', () => {
     // an in-between gait: speed within 20% of full physics, power within 30%
     const mid = runGait(ph, 0.3, 2.25, 0.8, 4);
     const est = cardLookup(card, 0.3, 2.25);
+    if (process.env.PT_SPIKE) console.log(`SPIKE card ${JSON.stringify({ fullU: mid.U, cardU: est.U, errU: (est.U - mid.U) / mid.U, fullP: mid.P, cardP: est.P, errP: (est.P - mid.P) / mid.P })}`);
     expect(Math.abs(est.U - mid.U) / mid.U).toBeLessThan(0.2);
     expect(Math.abs(est.P - mid.P) / mid.P).toBeLessThan(0.3);
     expect(mid.U).toBeGreaterThan(0);
