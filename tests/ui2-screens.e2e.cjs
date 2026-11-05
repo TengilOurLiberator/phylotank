@@ -14,6 +14,7 @@ const { chromium } = require('playwright');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const dist = path.join(root, 'dist');
@@ -51,7 +52,7 @@ const report = { onboarding: {}, axe: [], tv: {}, failures: [] };
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(`${base}${url}`);
+    await page.goto(url.startsWith('http') ? url : `${base}${url}`);
     return { page, ctx, errors };
   };
   const god = (page, fn, arg) => page.evaluate(fn, arg);
@@ -302,6 +303,44 @@ const report = { onboarding: {}, axe: [], tv: {}, failures: [] };
       for (const v of tvAxe) if (v.impact === 'serious' || v.impact === 'critical') failures.push(`axe tv: ${v.id} (${v.impact})`);
       if (tvErr.length) failures.push(`tv errors: ${tvErr.join(' | ')}`);
       await c.close();
+    }
+    // ---------------- the real host link (dist/host.mjs on this branch) ----------------
+    if (want('host')) {
+      const host = spawn(process.execPath, [path.join(dist, 'host.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'inherit'] });
+      try {
+        const port = await new Promise((resolve, reject) => {
+          host.stdout.on('data', (d) => { const m = /127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); });
+          host.on('exit', () => reject(new Error('host exited')));
+          setTimeout(() => reject(new Error('host did not start')), 5000);
+        });
+        // pages are served by the host itself: it refuses WebSocket upgrades from other origins
+        const hb = `http://127.0.0.1:${port}`;
+        const { page: p, ctx: c, errors: he } = await newPage(`${hb}/god.html?lang=en&host=${encodeURIComponent(`ws://127.0.0.1:${port}/ws/v1`)}`);
+        await p.waitForTimeout(3500);
+        const st = await p.evaluate(() => { const g = window.__phylotankGod; return { link: g.client.link.kind, mock: g.client.isMock, welcome: !!g.client.welcome, species: g.client.species.length, dust: !!g.client.dust }; });
+        report.host = { god: st };
+        if (st.link !== 'socket' || st.mock || !st.welcome) failures.push(`host: god window did not attach: ${JSON.stringify(st)}`);
+        // a knob the host does not know is reported per knob, not pretended
+        await p.evaluate(() => window.__phylotankGod.openPanel('settings'));
+        await p.waitForTimeout(400);
+        report.host.knob = await p.evaluate(() => window.__phylotankGod.client.send({ t: 'setting', key: 'eco.plankton', value: 2 }));
+        report.host.autosave = await p.evaluate(() => window.__phylotankGod.client.send({ t: 'setting', key: 'autosaveMin', value: 10 }));
+        report.host.rename = await p.evaluate(() => window.__phylotankGod.client.rename(0, { genus: 'Willia', epithet: 'hospes' }));
+        report.host.renamedLocally = await p.evaluate(() => window.__phylotankGod.client.names.get(0)?.genus === 'Willia');
+        if (!report.host.renamedLocally) failures.push('host: the rename was not kept on this viewer');
+        await shot(p, 'host-god');
+        for (const v of ['stats']) { await p.evaluate((x) => window.__phylotankGod.openPanel(x), v); await p.waitForTimeout(500); }
+        await shot(p, 'host-stats');
+        if (he.length) failures.push(`host god errors: ${he.join(' | ')}`);
+        await c.close();
+        const { page: tp, ctx: tc, errors: te } = await newPage(`${hb}/tv.html?lang=en&host=${encodeURIComponent(`ws://127.0.0.1:${port}/ws/v1`)}`, { width: 1920, height: 1080 });
+        await tp.waitForTimeout(2500);
+        await tp.keyboard.press('Enter');
+        await tp.waitForTimeout(400);
+        await shot(tp, 'host-tv');
+        if (te.length) failures.push(`host tv errors: ${te.join(' | ')}`);
+        await tc.close();
+      } finally { host.kill(); }
     }
   } catch (e) {
     failures.push(`exception: ${e && e.stack || e}`);

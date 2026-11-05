@@ -11,7 +11,7 @@ Measured on 2026-11-05 in the build container (headless Chromium from Playwright
 | 1x | 1,739 ms | 2,785 ms |
 | 4x throttle (CDP `Emulation.setCPUThrottlingRate`) | 2,730 ms | 3,560 ms |
 
-Both are far inside the 10 s (PC) and 60 s (weak laptop) budgets of 07 §5.1. Caveat: the mock warms up 90 s of toy world in the page before its first frame; the real Founding Waters snapshot and the dream-tank worker will have their own load cost, which this does not measure. The keyboard-only tour (Enter, C, Target the view centre, Cast, Esc, D, Enter) and the skip path both pass.
+A second full run gave 1,375 / 2,524 ms at 1x and 2,885 / 3,788 ms at 4x. Both runs are far inside the 10 s (PC) and 60 s (weak laptop) budgets of 07 §5.1. Caveat: the mock warms up 90 s of toy world in the page before its first frame; the real Founding Waters snapshot and the dream-tank worker will have their own load cost, which this does not measure. The keyboard-only tour (Enter, C, Target the view centre, Cast, Esc, D, Enter) and the skip path both pass.
 
 ## axe-core 4.14.0 (UX-T34)
 

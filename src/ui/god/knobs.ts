@@ -125,7 +125,7 @@ export class KnobsPanel {
     this.status.set(k.id, { s: 'sending' });
     this.renderStatus(k);
     let r = await this.client.send({ t: 'setting', key: k.id, value: v });
-    if (!r.ok && r.reason === 'unknown-setting' && k.hostKey) r = await this.client.send({ t: 'setting', key: k.hostKey, value: v });
+    if (!r.ok && (r.reason === 'unknown-setting' || r.reason === 'not-implemented') && k.hostKey) r = await this.client.send({ t: 'setting', key: k.hostKey, value: v });
     this.status.set(k.id, r.ok ? { s: 'applied' } : { s: 'refused', reason: r.reason ?? '?' });
     this.renderStatus(k);
     this.renderPresetRow();
@@ -145,7 +145,7 @@ export class KnobsPanel {
     el.className = `kst ${s?.s === 'refused' ? 'warn' : 'faint'}`;
     el.textContent = !s ? (k.live ? '' : t('knobs.newWorld'))
       : s.s === 'sending' ? t('knobs.sending') : s.s === 'applied' ? t('knobs.applied')
-        : s.reason === 'unknown-setting' ? t('knobs.unsupported') : t('knobs.refused', { reason: s.reason });
+        : s.reason === 'unknown-setting' || s.reason === 'not-implemented' ? t('knobs.unsupported') : t('knobs.refused', { reason: s.reason });
   }
   private renderPresetRow(): void {
     const cur = matchPreset(this.values());
