@@ -7,6 +7,7 @@ import { ORGAN, type World } from '../src/core/index.js';
 import { createPhysics } from '../src/physics/index.js';
 import { chain, fish, makePhenotype, makeWorld, nextTick, purcell, setCmds, spawn, type TestWorld } from '../src/physics/testkit.js';
 import { GpuPhysicsEngine, createGpuPhysics } from '../src/gpu/physics.js';
+import { genome, TEMPLATE_IDS } from '../src/genome/index.js';
 import { gpuContext } from './gpu-helpers.js';
 
 const gpu = await gpuContext();
@@ -62,7 +63,40 @@ function compare(a: World, b: World): Err {
   return e;
 }
 
+/** One adult of every genome template, grown by genome.develop (fins, cilia, jets, mouths, real limits). */
+function templateScene(): TestWorld {
+  const tw = makeWorld();
+  const cpu = createPhysics({ contacts: false });
+  TEMPLATE_IDS.forEach((id, k) => {
+    const ph = genome.develop(genome.template(id), 1, { depth01: 0.5, tempC: 12 }, { maxParts: 12, lCeilingM: 2 });
+    if (ph.nParts === 0) return;
+    spawn(tw, cpu.loadBody, ph, 4 + 3.5 * k, 6 + (k % 3) * 3, 0.4 * k, 12);
+  });
+  return tw;
+}
+
 describe.skipIf(!gpu)('gpu physics vs cpu', () => {
+  it('genome templates grown by develop(): 60 ticks inside the bands', async () => {
+    const A = templateScene(); const B = templateScene();
+    const cpu = createPhysics({ contacts: false });
+    const g = await createGpuPhysics(gpu!, { contacts: false });
+    let e = compare(A.world, B.world);
+    for (let t = 0; t < 60; t++) {
+      for (const w of [A.world, B.world]) {
+        drive(w, t);
+        const c = w.cr.c;
+        for (let s = 0; s < w.cr.highWater; s++) for (let k = 0; k < c.segCount[s]!; k++) w.seg.c.cmd2[c.segStart[s]! + k] = 0.5 + 0.5 * Math.sin(t * 0.2 + k);
+      }
+      cpu.step(A.world, A.ctx); await g.step(B.world, B.ctx);
+      nextTick(A); nextTick(B);
+      e = compare(A.world, B.world);
+    }
+    console.log('templates 60 ticks', A.world.cr.highWater, 'creatures', e);
+    expect(A.world.cr.highWater).toBeGreaterThan(4);
+    expect(e.pos).toBeLessThan(1e-3);
+    expect(e.nSubDiff).toBe(0);
+  });
+
   it('one tick from the same state agrees within the f32 bands', async () => {
     const A = scene(); const B = scene();
     const cpu = createPhysics({ contacts: false });

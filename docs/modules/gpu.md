@@ -59,6 +59,8 @@ Scene: two fish (20 cm and 5 cm), a 0.6 m 12-segment fish, a three-segment cilia
 | segment angle error, rad | 4.8e-7 | 1e-4 | 1.75e-5 | (not banded) |
 | substep count differences | 0 | 0 | 0 | (not banded) |
 
+A second scene grows one adult of each of the 8 genome templates with `genome.develop` (fins, cilia, mouths, the templates' own joint limits and stiffnesses) and drives `cmd` and `cmd2` for 60 ticks: position error 1.8e-5 body lengths, angle 8.5e-5 rad, no substep differences, inside the same 60-tick band. A third runs the scene 30 ticks GPU-resident (re-anchoring and the rest history on the GPU, one download): 2.0e-6 body lengths.
+
 Reasoning: one tick is 4 to 16 substeps of a direct solve whose rounding is a few `u` per operation, amplified by the conditioning of the drag-augmented system (largest for the low-Re swimmers); 1e-5 body lengths is 160 `u` and 100 times the measurement. Over 60 ticks the swimming gait is a driven, dissipative system, so errors grow roughly linearly (1.25e-5 after 60 ticks, about 2e-7 per tick); 1e-3 body lengths is 80 times the measurement and still below a hash cell or a contact margin. Longer runs diverge as any chaotic system does and are compared statistically, not per segment. Equal substep counts matter because `nSub` changes the discretisation: a mismatch would be a logic error, not rounding.
 
 ### 3.2 Spatial hash (`tests/gpu-hash.test.ts`)
