@@ -71,6 +71,14 @@ export class StoryBook {
   /** boom counters: key -> [count, tFirst] */
   private readonly booms = new Map<string, [number, number]>();
   evictions = 0;
+  /** primary subject id -> keys of the stories it leads (for deaths mid-story). */
+  private readonly bySubject = new Map<Id, string[]>();
+  private index(s: Story): void {
+    const id = s.subjects[0];
+    if (id === undefined) return;
+    const l = this.bySubject.get(id);
+    if (l) { if (!l.includes(s.key)) l.push(s.key); } else this.bySubject.set(id, [s.key]);
+  }
 
   constructor(readonly opts: BookOptions) {}
 
@@ -113,6 +121,7 @@ export class StoryBook {
     };
     if (base.tFire !== undefined) s.tFire = base.tFire;
     this.stories.set(key, s);
+    this.index(s);
     this.bound();
     return s;
   }
@@ -151,9 +160,16 @@ export class StoryBook {
     for (let i = 0; i < drop && i < all.length; i++) { this.stories.delete(all[i]!.key); this.evictions++; }
   }
 
-  /** Drop stories that ended long ago (sim seconds). */
-  prune(nowS: number, keepS = 1800): void {
-    for (const [k, s] of this.stories) if (s.ended && nowS - s.tLast > keepS) this.stories.delete(k);
+  /** Drop stories that ended long ago (sim seconds), or idle past `staleS(story)` without news. */
+  prune(nowS: number, staleS?: (s: Story) => number): void {
+    for (const [k, s] of this.stories) {
+      const age = nowS - s.tLast;
+      if ((s.ended && age > 1800) || (staleS && age > Math.min(1800, staleS(s)) && s.type !== 'lastOfSpecies')) this.stories.delete(k);
+    }
+    if (this.bySubject.size > 4 * this.opts.maxStories) {
+      this.bySubject.clear();
+      for (const s of this.stories.values()) this.index(s);
+    }
     for (const [k, b] of this.booms) if (nowS - b[1] > 20) this.booms.delete(k);
   }
 
@@ -210,10 +226,15 @@ export class StoryBook {
         } else if (this.isGiant(ev.id)) {
           touched = this.spawnKill(ev.id, undefined, ev.pos, tS, ev.size);
         }
-        for (const s of this.stories.values()) {
-          if (!s.ended && s.subjects[0] === ev.id && s.type !== 'kill') {
-            s.ended = true; s.tLast = tS; s.pos[0] = ev.pos[0]; s.pos[1] = ev.pos[1];
+        const keys = this.bySubject.get(ev.id);
+        if (keys) {
+          for (const k of keys) {
+            const s = this.stories.get(k);
+            if (s && !s.ended && s.subjects[0] === ev.id && s.type !== 'kill') {
+              s.ended = true; s.tLast = tS; s.pos[0] = ev.pos[0]; s.pos[1] = ev.pos[1];
+            }
           }
+          this.bySubject.delete(ev.id);
         }
         return touched;
       }

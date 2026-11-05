@@ -19,8 +19,16 @@ class DecayMap<K> {
     e.v = e.v * exp(-this.k * (now - e.t)) + amount;
     e.t = now;
   }
-  prune(now: number, below: number): void {
-    for (const [key, e] of this.m) if (e.v * exp(-this.k * (now - e.t)) < below) this.m.delete(key);
+  private it: Iterator<[K, { v: number; t: number }]> | null = null;
+  /** Amortised pruning: look at up to n entries, resuming where the last call stopped. */
+  prune(now: number, below: number, n = 64): void {
+    for (let i = 0; i < n; i++) {
+      if (!this.it) this.it = this.m.entries();
+      const r = this.it.next();
+      if (r.done) { this.it = null; return; }
+      const [key, e] = r.value;
+      if (e.v * exp(-this.k * (now - e.t)) < below) this.m.delete(key);
+    }
   }
   get size(): number { return this.m.size; }
 }

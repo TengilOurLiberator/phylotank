@@ -5,7 +5,7 @@
  * the seed, the config and the wall-clock deltas it is given (DESIGN R19).
  */
 import {
-  clamp, exp, log, log2, RNG_STREAM, RngStream, sin, TAU, TICK_HZ, VIEW_PROFILES,
+  clamp, exp, log, log2, RNG_STREAM, RngStream, sin, TAU, TICK_HZ,
   type Camera, type DirectorModule, type Id, type SimEvent, type V2, type ViewMode,
 } from '../core/index.js';
 import { boxesOverlap, captionBox, captionFor, speciesName, type CaptionState, type SpeciesName } from './captions.js';
@@ -90,6 +90,8 @@ export class Director implements DirectorModule {
   readonly exposure: ExposureMemory;
   readonly shots: ShotRecord[] = [];
   readonly dips: number[] = [];
+  /** Whether each dip was taken to catch a god event (those may break the 20 s spacing). */
+  readonly dipForGod: boolean[] = [];
   private readonly rng: RngStream;
   private readonly drift: DriftPlanner;
   private readonly cfg: Required<Pick<DirectorConfig, 'tankW' | 'tankH' | 'viewWpx' | 'viewHpx'>>;
@@ -108,7 +110,7 @@ export class Director implements DirectorModule {
   private path: ZoomPath | null = null;
   private pathT0 = 0; private pathT = 0;
   private pathOff = { vx: 0, vy: 0, vz: 0 };
-  private dipT0 = 0; private dipDown = 1.2; private dipJumped = false;
+  private dipT0 = 0; private dipDown = 1.2; private dipJumped = false; private dipFrom = 1;
   private dimV = 1;
   private shot: Shot | null = null;
   private lowSince: number | null = null;
@@ -202,9 +204,11 @@ export class Director implements DirectorModule {
     let left = Math.min(dt, 1);
     while (left > 1e-9) {
       const h = Math.min(left, 1 / 30);
+      this.rigClock += h;
       this.rigStep(h);
       left -= h;
     }
+    this.rigClock = this.wall;
     if (dt > 0) this.accumulateExposure(dt);
     this.updateCaption();
     if (this.shot) this.shot.rec.tEnd = this.wall;
@@ -286,7 +290,7 @@ export class Director implements DirectorModule {
       this.drift.target(t, this.driftDt, (x, y) => this.exposure.regionLoad(x, y, this.wall), tg);
       this.driftDt = 0;
       tg.omega = 0.4;
-      this.finishTarget(false);
+      this.finishTarget();
       return;
     }
     const s = sh.story;
@@ -338,7 +342,7 @@ export class Director implements DirectorModule {
     if (this.p.captions) cy += 0.1 * visH;
     tg.x = cx; tg.y = cy; tg.zeta = z;
     if (s.type === 'disaster' && kind === 'establish') this.frameUnionOfDisasters();
-    this.finishTarget(true);
+    this.finishTarget();
   }
 
   /** Two disasters at once: frame them together (06 §6.8.2 property 8). */
@@ -361,9 +365,11 @@ export class Director implements DirectorModule {
     tg.zeta = Math.min(tg.zeta, this.zetaForVisH(visH));
   }
 
-  private finishTarget(_story: boolean): void {
+  private finishTarget(): void {
     const tg = this.tgt;
-    tg.zeta = clamp(tg.zeta, this.zMin(), this.zMax());
+    // Targets stop 0.05 octaves short of the whole-habitat view, so the corridor the centre may
+    // move in never closes to a point (it would stop any lateral motion dead, D9).
+    tg.zeta = clamp(tg.zeta, this.zMin() + 0.05, this.zMax());
     const o = { x: 0, y: 0 };
     // clamp for the wider of the current and the target view, so the way there stays inside too
     this.clampCentre(tg.x, tg.y, Math.min(tg.zeta, this.z), o);
@@ -391,11 +397,12 @@ export class Director implements DirectorModule {
     let W = tp.w;
     if (s.type !== 'disaster') W *= this.p.weightScale;
     if (this.halved.has(s.type) && s.type !== 'disaster') W *= 0.5;
-    const base = W * (1 + this.p.a * log(1 + Math.max(0, s.magnitude) / tp.m0));
     const tLast = s.tFire !== undefined ? Math.max(s.tLast, s.tFire) : s.tLast;
     const tau = tp.tau === Infinity ? (s.ended ? 30 : Infinity) : tp.tau;
     const age = Math.max(0, this.sim - tLast);
+    if (age > 12 * tau) return 0; // A < 1e-5: not worth the exposure lookups
     const A = tau === Infinity ? 1 : exp(-age / tau);
+    const base = W * (1 + this.p.a * log(1 + Math.max(0, s.magnitude) / tp.m0));
     // Disasters are exempt from novelty as well as travel: every god event must be filmed.
     const N = s.type === 'disaster' ? 1 : this.exposure.novelty(s.subjects, s.species, s.type, s.pos[0], s.pos[1], this.wall);
     const V = s.ended && !AFTERMATH_TYPES.has(s.type) && s.type !== 'disaster' ? 0.5 : 1;
@@ -432,9 +439,13 @@ export class Director implements DirectorModule {
   }
 
   // ---------------- decisions (2 Hz) ----------------
-  private decide(): void {
+  /** One director tick (normally called by step at 2 Hz; public for the cost test). */
+  decide(): void {
     this.decisions++;
-    if ((this.decisions & 127) === 0) { this.exposure.prune(this.wall); this.book.prune(this.sim); }
+    this.exposure.prune(this.wall);
+    if ((this.decisions & 127) === 0) {
+      this.book.prune(this.sim, (st) => 12 * (TYPE_PARAMS[st.type].tau === Infinity ? 30 : TYPE_PARAMS[st.type].tau));
+    }
     this.updateDiversity();
     const cur = this.shot;
     const curStory = cur?.story ?? null;
@@ -454,6 +465,7 @@ export class Director implements DirectorModule {
     // order, stopping once S0 falls below the candidate cut, which no later story can reach.
     const pre = this.pre;
     pre.length = 0;
+    let np = 0;
     for (const s of this.book.stories.values()) {
       n++;
       const isCur = s === curStory;
@@ -462,7 +474,10 @@ export class Director implements DirectorModule {
       s.score = S0;
       if (isCur) { curS = S0; continue; }
       if (S0 < 1e-3 || this.repeatBlocked(s)) continue;
-      pre.push({ s, S: S0 });
+      let slot = this.prePool[np];
+      if (!slot) { slot = { s, S: S0 }; this.prePool[np] = slot; } else { slot.s = s; slot.S = S0; }
+      np++;
+      pre.push(slot);
     }
     pre.sort((a, b) => b.S - a.S || a.s.id - b.s.id);
     let evals = 0;
@@ -489,7 +504,16 @@ export class Director implements DirectorModule {
       if (pendingGod) {
         const cs = curStory;
         const curPending = cs && cs.type === 'disaster' && cs.tFire !== undefined && cs.tFire + 2 >= this.sim && cur!.rec.kind === 'establish';
-        if (curPending) continue; // the establishing shot frames every pending disaster together
+        if (curPending) {
+          // the establishing shot frames every pending disaster together; re-plan the move once
+          if (!this.unionSeen.has(c.s.id)) {
+            this.unionSeen.add(c.s.id);
+            this.shotTarget(cur!, this.wall);
+            this.planTransition(false, Math.max(0.3, c.s.tFire! - this.sim), c.s.pos);
+            cur!.rec.transition = this.lastTransition;
+          }
+          continue;
+        }
         if (!intr || intr.s.type !== 'disaster' || (c.s.tFire! < (intr.s.tFire ?? Infinity))) intr = c;
         continue;
       }
@@ -583,10 +607,7 @@ export class Director implements DirectorModule {
     this.shot = { rec, story: null, seq: 0, dur: Infinity, tSettle: this.wall, r: 1, z0: this.z, revealDelta: 0, driftOx: 0, holdX: 0, holdY: 0, hasHold: false };
     this.shotTarget(this.shot, this.wall);
     this.planTransition(false);
-    this.rec(rec);
   }
-
-  private rec(rec: ShotRecord): void { void rec; }
 
   private closeSeg(): void {
     const cur = this.shot;
@@ -628,6 +649,7 @@ export class Director implements DirectorModule {
     this.shotTarget(sh, this.wall);
     if (kind === 'aftermath' && !sameStory) sh.z0 = this.tgt.zeta;
     const deadline = s.type === 'disaster' && s.tFire !== undefined ? Math.max(0.3, s.tFire - this.sim) : null;
+    if (s.type === 'disaster') { this.unionSeen.add(s.id); if (this.unionSeen.size > 256) this.unionSeen.clear(); }
     this.planTransition(sameStory, deadline);
     rec.transition = this.lastTransition;
     if (this.cap && this.cap.storyId !== s.id && this.wall < this.cap.tShow) this.cap = null;
@@ -640,78 +662,89 @@ export class Director implements DirectorModule {
   /** Until this wall time the springs run at least at omega 2 (a god event is due). */
   private urgentUntil = -Infinity;
   private readonly pre: { s: Story; S: number }[] = [];
+  private readonly prePool: { s: Story; S: number }[] = [];
   private readonly cands: { s: Story; S: number }[] = [];
   private readonly w: number[] = [];
+  private readonly unionSeen = new Set<number>();
 
   /** Choose glide, zoom path or dip for the move to the new shot (06 §6.2.6). */
-  private planTransition(sameStory: boolean, deadline: number | null = null): void {
+  private planTransition(sameStory: boolean, deadline: number | null = null, focusPos: V2 | null = null): void {
     const tg = this.tgt;
-    let path = new ZoomPath(this.x, this.y, this.swM(), tg.x, tg.y, this.swM(tg.zeta), this.p.rho);
-    const u = path.S;
-    // The optimal path may rise above the whole-tank view; flatten it (smaller rho) until every
-    // view along it stays inside the habitat, or give up on the path (a dip or a glide instead).
-    let pathOk = this.pathInside(path);
-    for (const rho of [1.0, 0.7, 0.5, 0.35]) {
-      if (pathOk) break;
-      path = new ZoomPath(this.x, this.y, this.swM(), tg.x, tg.y, this.swM(tg.zeta), rho);
-      pathOk = this.pathInside(path);
-    }
+    const u = new ZoomPath(this.x, this.y, this.swM(), tg.x, tg.y, this.swM(tg.zeta), this.p.rho).S;
     const sh = this.shot!;
-    const canDip = this.wall - (this.dips[this.dips.length - 1] ?? -Infinity) >= this.p.dipMinGapS;
+    const focus = focusPos ?? (sh.story ? sh.story.pos : null);
+    const lastDip = this.dips[this.dips.length - 1] ?? -Infinity;
+    // A god event overrides the dip spacing once the previous dip has fully faded back in
+    // (decision D7): it is the one thing the director must not miss.
+    const canDip = this.wall - lastDip >= this.p.dipMinGapS || deadline !== null;
     let tr: Transition = 'glide';
-    let pathT = 0;
+    let plan: { path: ZoomPath; T: number } | null = null;
     if (this.rigMode === 'dip' && !this.dipJumped) {
       tr = 'dip'; // already dipping: the jump will land on the new target
-    } else if (deadline !== null && sh.story && !this.inView(sh.story.pos[0], sh.story.pos[1], 0.05) && (this.urgentUntil = this.wall + deadline + 2) > 0 &&
-        this.glideEta(sh.story.pos[0], sh.story.pos[1], tg.zeta) > deadline - 0.3 && (canDip || !this.p.glidesOnly)) {
-      // a god event would be missed by a glide: dip if allowed, else the quickest zoom path
+    } else if (deadline !== null && focus && (this.urgentUntil = this.wall + deadline + 2) > 0 &&
+        (this.rigMode === 'path' || !this.glideSees(focus[0], focus[1], tg.zeta, deadline - 0.2))) {
+      // a god event would be missed by a glide: dip if allowed, else the zoom path (it rises
+      // early, so the event is usually in view long before the path ends), else a fast glide
       if (canDip) tr = 'dip';
-      else { tr = 'zoomPath'; pathT = clamp(deadline - 0.2, 1.5, this.p.pathMaxS); }
+      else if (!this.p.glidesOnly && (plan = this.bestPath(this.p.pathMaxS * 1.5))) tr = 'zoomPath';
     } else if (sameStory || u < this.p.glideMaxU) {
-      tr = 'glide';
+      // a path in flight to another story is re-planned from here, carrying its velocity; one
+      // that cannot be re-planned (or one for the same story) finishes first: it ends at rest
+      if (!sameStory && this.rigMode === 'path' && (plan = this.bestPath(this.p.pathMaxS * 1.5))) tr = 'zoomPath';
     } else {
-      const ls = this.p.pathLimitScale;
-      const pk = path.peakRates();
-      const warp = trapezoidPeak(0.3);
-      const S = path.S;
-      // speed limits at the peak rates, and acceleration limits on the ramps (0.3 T) and from
-      // the turn of the zoom rate mid-path (rho^2 sdot^2 / ln 2 octaves/s^2)
-      const la = this.p.pathAccelScale;
-      const rho = path.rho;
-      pathT = Math.max(S / this.p.pathV, this.p.pathMinS,
-        (S * warp * pk.zoom) / (Math.LN2 * this.p.zoomLimit * ls),
-        (S * warp * pk.pan) / (this.p.panLimit * ls),
-        Math.sqrt((S * warp * pk.zoom) / (0.3 * Math.LN2 * this.p.zoomAccelLimit * la * 0.8)),
-        Math.sqrt((S * warp * pk.pan) / (0.3 * this.p.accelLimit * la * 0.8)),
-        (S * warp * rho) / Math.sqrt(Math.LN2 * this.p.zoomAccelLimit * la * 0.8));
-      const fits = pathOk && !this.p.glidesOnly && u <= this.p.zoomPathMaxU && pathT <= this.p.pathMaxS && (deadline === null || pathT <= deadline + 0.5);
-      if (fits) tr = 'zoomPath';
+      plan = !this.p.glidesOnly && u <= this.p.zoomPathMaxU ? this.bestPath(this.p.pathMaxS) : null;
+      if (plan && (deadline === null || plan.T <= deadline + 0.5)) tr = 'zoomPath';
       else if (canDip) tr = 'dip';
-      else if (pathOk && !this.p.glidesOnly && u <= this.p.zoomPathMaxU * 1.5 && pathT <= this.p.pathMaxS * 1.5) tr = 'zoomPath';
+      else if (!this.p.glidesOnly && u <= this.p.zoomPathMaxU * 1.5 && (plan = this.bestPath(this.p.pathMaxS * 1.5))) tr = 'zoomPath';
       else tr = 'glide';
     }
+    const pathT = plan ? plan.T : 0;
+    const path = plan ? plan.path : null;
     this.lastTransition = tr;
-    if (tr === 'zoomPath') {
+    if (tr === 'zoomPath' && path) {
       this.rigMode = 'path';
       this.path = path;
-      this.pathT0 = this.wall;
+      this.pathT0 = this.rigClock;
       this.pathT = pathT;
       this.pathOff = { vx: this.vx, vy: this.vy, vz: this.vz };
       sh.tSettle = this.wall + pathT;
     } else if (tr === 'dip') {
-      if (this.rigMode !== 'dip') {
+      if (this.rigMode !== 'dip' || this.dipJumped) {
+        this.dipFrom = this.dimV; // a god dip may start while the last one is still fading in
         this.rigMode = 'dip';
-        this.dipT0 = this.wall;
+        this.dipT0 = this.rigClock;
         this.dipJumped = false;
         this.dipDown = deadline !== null ? clamp(deadline - 0.3, 0.4, this.p.dipDownS) : this.p.dipDownS;
         this.dips.push(this.wall);
+        this.dipForGod.push(deadline !== null);
       }
       sh.tSettle = this.dipT0 + this.dipDown + 0.5;
     } else {
-      // a path already in flight finishes (it ends at rest); the springs then take the new target
+      // a path in flight for the same story finishes (it ends at rest); then the springs take over
       const lead = Math.max(u / Math.max(0.05, this.p.panLimit), 0);
       sh.tSettle = this.wall + Math.min(8, lead * 0.5);
     }
+  }
+
+  /**
+   * Duration of a zoom path: speed limits at the peak rates, and acceleration limits on the
+   * ramps (0.3 T) and from the turn of the zoom rate mid-path (rho^2 sdot^2 / ln 2 octaves/s^2).
+   */
+  private pathTime(path: ZoomPath): number {
+    const ls = this.p.pathLimitScale;
+    const la = this.p.pathAccelScale;
+    const pk = path.peakRates();
+    const warp = trapezoidPeak(0.3);
+    const S = path.S;
+    // the carried velocity reverses through v0 (1 - t) e^-t, adding up to 0.14 v0 against the path
+    const zl = Math.max(0.3 * this.p.zoomLimit * ls, this.p.zoomLimit * ls - 0.2 * Math.abs(this.vz));
+    const pl = Math.max(0.3 * this.p.panLimit * ls, this.p.panLimit * ls - 0.2 * Math.sqrt(this.vx * this.vx + this.vy * this.vy));
+    return Math.max(S / this.p.pathV, this.p.pathMinS,
+      (S * warp * pk.zoom) / (Math.LN2 * zl * 0.95),
+      (S * warp * pk.pan) / (pl * 0.95),
+      Math.sqrt((S * warp * pk.zoom) / (0.3 * Math.LN2 * this.p.zoomAccelLimit * la * 0.55)),
+      Math.sqrt((S * warp * pk.pan) / (0.3 * this.p.accelLimit * la * 0.55)),
+      (S * warp * path.rho) / Math.sqrt(Math.LN2 * this.p.zoomAccelLimit * la * 0.8));
   }
 
   /** Whether a point is inside the current view, with an inset fraction on each side. */
@@ -721,52 +754,91 @@ export class Director implements DirectorModule {
     return Math.abs(x - this.x) <= hw && Math.abs(y - this.y) <= hh;
   }
 
-  /** Rough time for a glide to bring (x, y) on screen: pan and zoom at their limits plus spring lag. */
-  private glideEta(x: number, y: number, z: number): number {
-    const zOut = Math.max(0, this.z - z);
-    // while zooming out the view widens; find when the view covers the point on both axes
-    const W0 = this.swM();
+  /** Whether a glide (a pessimistic model: slow zoom, fast pan) has (fx, fy) on screen at time T. */
+  private glideSees(fx: number, fy: number, tz: number, T: number): boolean {
+    let x = this.x; let y = this.y; let z = this.z;
+    const tx = this.tgt.x; const ty = this.tgt.y;
     const aspect = this.cfg.viewHpx / this.cfg.viewWpx;
-    let dx = Math.abs(x - this.x);
-    let dy = Math.abs(y - this.y);
-    let t = 0;
-    for (let i = 0; i < 100; i++) {
-      const zt = Math.min(zOut, this.p.zoomLimit * 0.7 * Math.max(0, t - 0.5));
-      const w = W0 * exp2(zt);
-      if (dx <= 0.42 * w && dy <= 0.42 * w * aspect) return t + 0.3;
-      const step = this.p.panLimit * 0.7 * w * 0.1 * (t > 0.5 ? 1 : 0.3);
+    const n = Math.max(1, Math.ceil(T / 0.1));
+    for (let i = 0; i < n; i++) {
+      const t = i * 0.1;
+      const w = this.cfg.viewWpx / exp2(z);
+      const k = t > 0.5 ? 0.7 : 0.2;
+      const dz = tz - z;
+      z += Math.sign(dz) * Math.min(Math.abs(dz), this.p.zoomLimit * k * 0.1);
+      const dx = tx - x; const dy = ty - y;
       const d = Math.sqrt(dx * dx + dy * dy);
-      if (d > 0) { dx = Math.max(0, dx - (step * dx) / d); dy = Math.max(0, dy - (step * dy) / d); }
-      t += 0.1;
+      const step = Math.min(d, this.p.panLimit * 1.2 * w * 0.1); // pans may run fast: pessimistic
+      if (d > 0) { x += (dx * step) / d; y += (dy * step) / d; }
     }
-    return 10;
+    const w = this.cfg.viewWpx / exp2(z);
+    return Math.abs(fx - x) <= 0.42 * w && Math.abs(fy - y) <= 0.42 * w * aspect;
   }
 
-  private pathInside(path: ZoomPath): boolean {
+  /**
+   * The flattest-needed van Wijk path to the target: rho 1.4 first, then smaller (a lower rho
+   * rises less above the endpoints), keeping the first whose clamped, velocity-carrying course
+   * stays within the path limits and takes at most maxT seconds.
+   */
+  private bestPath(maxT: number): { path: ZoomPath; T: number } | null {
+    const tg = this.tgt;
+    for (const rho of [this.p.rho, 0.7, 0.35]) {
+      const path = new ZoomPath(this.x, this.y, this.swM(), tg.x, tg.y, this.swM(tg.zeta), rho);
+      const T = this.pathTime(path);
+      if (T <= maxT && this.pathFits(path, T)) return { path, T };
+    }
+    return null;
+  }
+
+  /**
+   * Simulate following `path` over T seconds at 30 Hz the way rigStep does (carried velocity,
+   * then the habitat clamp) and check speeds and accelerations against the path limits.
+   */
+  private pathFits(path: ZoomPath, T: number): boolean {
     const o = { x: 0, y: 0, w: 0 };
     const c = { x: 0, y: 0 };
-    const zmin = this.zMin() - 1e-9;
-    for (let i = 1; i < 24; i++) {
-      path.at((path.S * i) / 24, o);
-      const z = log2(this.cfg.viewWpx / o.w);
-      if (z < zmin) return false;
-      this.clampCentre(o.x, o.y, z, c);
-      if (Math.abs(c.x - o.x) > 1e-6 * o.w || Math.abs(c.y - o.y) > 1e-6 * o.w) return false;
+    const p = this.p;
+    const zmin = this.zMin();
+    const vMax = p.panLimit * p.pathLimitScale * 0.97;
+    const zMax = p.zoomLimit * p.pathLimitScale * 0.97;
+    const aMax = p.accelLimit * p.pathAccelScale * 0.9;
+    const azMax = p.zoomAccelLimit * p.pathAccelScale * 0.9;
+    let px = this.x; let py = this.y; let pz = this.z;
+    let pvx = this.vx; let pvy = this.vy; let pvz = this.vz;
+    const dt = 1 / 30; // the clamp's kinks last one frame, so check at the frame rate
+    const n = Math.ceil(T / dt) + 1;
+    for (let i = 1; i <= n; i++) {
+      const t = Math.min(T, i * dt);
+      path.at(path.S * trapezoid(t, T, 0.3), o);
+      const k = t * exp(-t / 1.5);
+      let z = log2(this.cfg.viewWpx / o.w) + this.vz * k;
+      if (z < zmin) z = zmin;
+      this.clampCentre(o.x + this.vx * k * o.w, o.y + this.vy * k * o.w, z, c);
+      const W = this.cfg.viewWpx / exp2(pz);
+      const vx = (c.x - px) / W / dt; const vy = (c.y - py) / W / dt; const vz = (z - pz) / dt;
+      if (Math.sqrt(vx * vx + vy * vy) > vMax || Math.abs(vz) > zMax) return false;
+      const ax = (vx - pvx) / dt; const ay = (vy - pvy) / dt;
+      if (Math.sqrt(ax * ax + ay * ay) > aMax * 1.5 || Math.abs((vz - pvz) / dt) > azMax * 1.5) return false;
+      if (Math.abs(Math.sqrt(vx * vx + vy * vy) - Math.sqrt(pvx * pvx + pvy * pvy)) / dt > aMax || Math.abs(vz - pvz) / dt > azMax) return false;
+      px = c.x; py = c.y; pz = z; pvx = vx; pvy = vy; pvz = vz;
     }
     return true;
   }
 
   // ---------------- rig (every frame) ----------------
   private driftDt = 0;
+  /** The rig's own clock: the end of the substep being integrated (paths and dips use it). */
+  private rigClock = 0;
   private rigStep(dt: number): void {
     const sh = this.shot;
     if (!sh) return;
     this.driftDt = dt;
     if (this.rigMode === 'path' && this.path) {
-      const t = this.wall - this.pathT0;
+      const t = this.rigClock - this.pathT0;
       const pt = this.path.at(this.path.S * trapezoid(t, this.pathT, 0.3));
-      // the velocity carried in decays as an impulse response v0 t e^(-t), so there is no jerk
-      const k = exp(-t);
+      // the velocity carried in decays as an impulse response v0 t e^(-t / 1.5): no jerk, and its
+      // initial deceleration (2 v0 / 1.5) stays inside the path acceleration limits
+      const k = exp(-t / 1.5);
       const sw = this.cfg.viewWpx / pt.w;
       const zeta = log2(sw);
       const ox = this.pathOff.vx * t * k * pt.w;
@@ -774,9 +846,11 @@ export class Director implements DirectorModule {
       const oz = this.pathOff.vz * t * k;
       const nx = pt.x + ox; const ny = pt.y + oy; const nz = zeta + oz;
       const W = this.swM();
-      this.vx = (nx - this.x) / W / dt; this.vy = (ny - this.y) / W / dt; this.vz = (nz - this.z) / dt;
+      const px = this.x; const py = this.y; const pz = this.z;
       this.x = nx; this.y = ny; this.z = nz;
       this.clampView();
+      // velocities from the actual (clamped) motion, so a re-plan carries what the eye saw
+      this.vx = (this.x - px) / W / dt; this.vy = (this.y - py) / W / dt; this.vz = (this.z - pz) / dt;
       if (t >= this.pathT) { this.rigMode = 'spring'; this.path = null; }
       this.shotTarget(sh, this.wall);
       this.dimV = 1;
@@ -784,15 +858,15 @@ export class Director implements DirectorModule {
     }
     this.shotTarget(sh, this.wall);
     if (this.rigMode === 'dip') {
-      const t = this.wall - this.dipT0;
+      const t = this.rigClock - this.dipT0;
       if (!this.dipJumped) {
         const f = clamp(t / this.dipDown, 0, 1);
-        this.dimV = 1 - (1 - this.p.dipFloor) * f * f * (3 - 2 * f);
+        this.dimV = this.dipFrom - (this.dipFrom - this.p.dipFloor) * f * f * (3 - 2 * f);
         if (t >= this.dipDown) {
           this.dipJumped = true;
           this.x = this.tgt.x; this.y = this.tgt.y; this.z = this.tgt.zeta;
           this.vx = 0; this.vy = 0; this.vz = 0;
-          this.dipT0 = this.wall;
+          this.dipT0 = this.rigClock;
           this.clampView();
           return;
         }
@@ -852,21 +926,49 @@ export class Director implements DirectorModule {
       const c = softCap(sp, panLim);
       if (c < sp) { nvx *= c / sp; nvy *= c / sp; limited = true; }
     }
-    const ax = nvx - this.vx; const ay = nvy - this.vy;
-    const am = Math.sqrt(ax * ax + ay * ay);
-    const amax = p.accelLimit * dt;
-    if (am > amax) { nvx = this.vx + (ax * amax) / am; nvy = this.vy + (ay * amax) / am; limited = true; }
     // soft walls: never approach the habitat edge faster than the camera can stop within its limit
     {
-      const bx = this.wallBrake(this.x, nvx, W, dt, true);
-      const by = this.wallBrake(this.y, nvy, W, dt, false);
+      const bx = this.wallBrake(this.x, nvx, W, dt, true, this.vz);
+      const by = this.wallBrake(this.y, nvy, W, dt, false, this.vz);
       if (bx !== nvx || by !== nvy) { nvx = bx; nvy = by; limited = true; }
     }
+    const ax = nvx - this.vx; const ay = nvy - this.vy;
+    const am = Math.sqrt(ax * ax + ay * ay);
+    // 10% inside the limit: the speed a viewer sees also changes with the zoom (W changes)
+    const amax = 0.9 * p.accelLimit * dt;
+    if (am > amax) { nvx = this.vx + (ax * amax) / am; nvy = this.vy + (ay * amax) / am; limited = true; }
     if (limited) { dx = 0.5 * (this.vx + nvx) * dt; dy = 0.5 * (this.vy + nvy) * dt; }
     let zl = false;
     const cz = softCap(nvz, zoomLim);
     if (cz !== nvz) { nvz = cz; zl = true; }
-    const zmax = p.zoomAccelLimit * dt;
+    // soft floor and ceiling for the zoom: brake towards zMin / zMax within the zoom accel limit
+    {
+      const room = nvz < 0 ? this.z - this.zMin() : this.zMax() - this.z;
+      const vmax = Math.sqrt(2 * p.zoomAccelLimit * 0.5 * Math.max(0, room - Math.abs(nvz) * dt));
+      if (Math.abs(nvz) > vmax) {
+        const floor = Math.max(vmax, Math.abs(nvz) - p.zoomAccelLimit * dt);
+        nvz = Math.sign(nvz) * floor; zl = true;
+      }
+    }
+    // zooming out closes the habitat walls on the camera (0.5 ln 2 |vz| screen widths/s each):
+    // the zoom yields so no wall closes faster than the pan can brake for it (D9)
+    if (nvz < 0) {
+      const m = p.marginFrac * this.cfg.tankH;
+      const hw = this.cfg.viewWpx / exp2(this.z) / 2;
+      const hh = this.cfg.viewHpx / exp2(this.z) / 2;
+      const aspect = this.cfg.viewHpx / this.cfg.viewWpx;
+      const walls: [number, number, number][] = [
+        [(this.cfg.tankW + m - hw - this.x) / W, nvx, 1], [(this.x - (hw - m)) / W, -nvx, 1],
+        [(this.cfg.tankH + m - hh - this.y) / W, nvy, aspect], [(this.y - (hh - m)) / W, -nvy, aspect],
+      ];
+      let vzMin = -Infinity;
+      for (const [d, toward, k] of walls) {
+        const wsMax = Math.max(0, Math.sqrt(2 * p.accelLimit * 0.35 * Math.max(0, d)) - Math.max(0, toward));
+        vzMin = Math.max(vzMin, -wsMax / (0.5 * Math.LN2 * k));
+      }
+      if (nvz < vzMin) { nvz = vzMin; zl = true; }
+    }
+    const zmax = 0.9 * p.zoomAccelLimit * dt;
     if (Math.abs(nvz - this.vz) > zmax) { nvz = this.vz + Math.sign(nvz - this.vz) * zmax; zl = true; }
     if (zl) dz = 0.5 * (this.vz + nvz) * dt;
     this.x += dx * W; this.y += dy * W; this.z += dz;
@@ -874,18 +976,29 @@ export class Director implements DirectorModule {
     this.clampView();
   }
 
-  /** Cap a velocity (screen widths/s) towards a wall to the braking curve v = sqrt(2 a d). */
-  private wallBrake(c: number, v: number, W: number, dt: number, isX: boolean): number {
-    if (v === 0) return v;
+  /**
+   * Cap the velocity (screen widths/s) on one axis so the camera never meets a habitat wall
+   * faster than it can stop: the braking curve v = sqrt(a d), counting the walls' own approach
+   * while the camera zooms out (each wall closes at 0.5 ln 2 |vz| screen widths/s).
+   */
+  private wallBrake(c: number, v: number, W: number, dt: number, isX: boolean, vz: number): number {
     const m = this.p.marginFrac * this.cfg.tankH;
     const half = (isX ? this.cfg.viewWpx : this.cfg.viewHpx) / exp2(this.z) / 2;
     const extent = isX ? this.cfg.tankW : this.cfg.tankH;
-    const d = v > 0 ? (extent + m - half - c) / W : (c - (half - m)) / W;
-    const vmax = Math.sqrt(2 * this.p.accelLimit * 0.9 * Math.max(0, d - Math.abs(v) * dt * 0.5));
-    const a = Math.abs(v);
-    if (a <= vmax) return v;
-    const floor = Math.max(vmax, a - this.p.accelLimit * dt);
-    return v > 0 ? floor : -floor;
+    const ws = vz < 0 ? 0.5 * Math.LN2 * -vz * (isX ? 1 : this.cfg.viewHpx / this.cfg.viewWpx) : 0;
+    const a = this.p.accelLimit;
+    let out = v;
+    for (const dir of [1, -1]) {
+      const d = dir > 0 ? (extent + m - half - c) / W : (c - (half - m)) / W;
+      const vmax = Math.sqrt(2 * a * 0.35 * Math.max(0, d - 2 * (Math.abs(v) + ws) * dt)) - ws;
+      const toward = dir * out;
+      if (toward > vmax) {
+        const want = dir * vmax;
+        const lim = a * dt;
+        out = out + clamp(want - out, -lim, lim);
+      }
+    }
+    return out;
   }
 
   // ---------------- exposure and captions ----------------
@@ -984,6 +1097,5 @@ function exp2(z: number): number { return exp(z * Math.LN2); }
 
 /** Make a director for a view mode. The wallpaper's director is idle drift only (William's Q10). */
 export function createDirector(cfg: DirectorConfig): Director {
-  void VIEW_PROFILES;
   return new Director(cfg);
 }

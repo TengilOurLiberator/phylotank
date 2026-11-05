@@ -211,8 +211,11 @@ export function storm(seed: number, perS: number, durS: number): EventLog {
   for (let s = 0; s < durS; s++) {
     for (let k = 0; k < perS; k++) {
       const t = Math.round((s + k / perS) * TICK_HZ);
-      const pred = g.id();
-      g.push({ k: 'hunt', t, phase: 'start', pred, prey: pred + 1, pos: g.pos(1) } as EvIn);
+      const id = g.id();
+      // long-lived kinds, so the book stays full of live stories for minutes
+      if (k % 3 === 0) g.push({ k: 'hunt', t, phase: 'start', pred: id, prey: g.id(), pos: g.pos(1) } as EvIn);
+      else if (k % 3 === 1) g.push({ k: 'speciation', t, parent: id, child: id + 1, founders: [g.id()], pos: g.pos(1) } as EvIn);
+      else g.push({ k: 'school', t, phase: 'start', species: id, n: 40, centroid: g.pos(2), radius: 1.5, polarisation: 0.8, sample: [g.id()] } as EvIn);
     }
   }
   return { name: 'storm', tankW: 32, tankH: 18, lCeilingM: 0.126, durationS: durS, events: g.sort(), census: [] };
