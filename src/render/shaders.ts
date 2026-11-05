@@ -290,7 +290,7 @@ void main() {
   float halo = dAll > 0.0 ? exp(-dAll / haloW) : 1.0 - cover;
   // banded glow: the pattern genes modulate the light as well as the pigment
   float band = mix(1.0, stripe * spot, 0.7);
-  vec3 e = v_emit.rgb * ((rim * cover * 0.8 + 0.14 * th * cover) * band + 0.4 * halo + finRim * 0.35) + eyeEmit;
+  vec3 e = v_emit.rgb * ((rim * cover * 0.8 + 0.24 * th * cover) * band + 0.4 * halo + finRim * 0.35) + eyeEmit;
   int flags = int(v_fade.w + 0.5);
   if ((flags & 8) != 0) { // diseased: mottled darkening of the light
     float m = cells(p / lenM * 9.0 + u_time * 0.05);

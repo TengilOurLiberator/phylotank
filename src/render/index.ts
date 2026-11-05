@@ -46,7 +46,7 @@ export interface RenderSettings {
 export function settingsFor(mode: ViewMode, outW: number, outH: number, opts: { cast?: boolean; tvLocal?: boolean } = {}): RenderSettings {
   const big = Math.max(outW, outH);
   const base: RenderSettings = {
-    renderScale: 1, bloomLevels: 6, bloomStrength: 0.9, trailTau: 0.9, trailGain: 1, snow: 1, caps: TIER_CAPS.screensaver,
+    renderScale: 1, bloomLevels: 6, bloomStrength: 0.9, trailTau: 0.9, trailGain: 0.55, snow: 1, caps: TIER_CAPS.screensaver,
     ditherAmp: 1.2, staticDither: false, blackLift: 0, minSpeckPx: 1.0, hazeMax: 0.15, emissionGain: 1,
   };
   switch (mode) {

@@ -91,7 +91,7 @@ const SCENES: Record<string, () => Scene> = {
   'tank-whole': () => ({ cam: { cx: 32, cy: 18, zeta: Math.log2(1280 / 64) }, tank: [64, 36], actors: TANK_ACTORS, sun: 0.9 }),
   'tank-mid': () => ({ cam: { cx: 30, cy: 17, zeta: Math.log2(1280 / 12) }, tank: [64, 36], actors: TANK_ACTORS, sun: 0.9 }),
   'tank-close': () => ({ cam: { cx: 31, cy: 18.2, zeta: Math.log2(1280 / 2.6) }, tank: [64, 36], actors: TANK_ACTORS, sun: 0.9 }),
-  'tank-micro': () => ({ cam: { cx: 20, cy: 12, zeta: Math.log2(1280 / 0.14) }, tank: [64, 36], actors: TANK_ACTORS, sun: 0.9 }),
+  'tank-micro': () => ({ cam: { cx: 20.03, cy: 12, zeta: Math.log2(1280 / 0.05) }, tank: [64, 36], actors: TANK_ACTORS, sun: 0.9 }),
   'surface': () => ({ cam: { cx: 9, cy: 1.7, zeta: Math.log2(1280 / 4.5) }, tank: [64, 36], actors: TANK_ACTORS, sun: 1 }),
   'night': () => ({ cam: { cx: 9, cy: 1.7, zeta: Math.log2(1280 / 4.5) }, tank: [64, 36], actors: TANK_ACTORS, sun: 0.02 }),
 };
@@ -107,6 +107,7 @@ function actorState(a: Actor, t: number, i: number, tank: [number, number]): { x
   const v = a.speed * a.lenM;
   let x = a.x + v * t * Math.cos(a.heading) - (a.wander * v / 0.37) * Math.sin(a.heading) * (Math.cos(i * 1.7) - Math.cos(t * 0.37 + i * 1.7)) * 0.3;
   let y = a.y + v * t * Math.sin(a.heading) + (a.wander * v / 0.37) * Math.cos(a.heading) * (Math.cos(i * 1.7) - Math.cos(t * 0.37 + i * 1.7)) * 0.3;
+  x += 0.012 * t * (a.speed > 0 ? 1 : 0); // the water carries everyone that swims with it (the renderer's default current)
   x = ((x % tank[0]) + tank[0]) % tank[0];
   y = Math.min(tank[1] - 0.5, Math.max(0.2, y));
   const hz = tpl.strokeHz * Math.min(2, 0.5 + a.speed);
