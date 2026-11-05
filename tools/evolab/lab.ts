@@ -85,7 +85,10 @@ export function runLab(engine: EvoEngine, o: RunOptions): RunResult {
       vMaxStartMps: v0, vMaxEndMps: v1, vMaxRatio: v1 / v0,
       vMaxBlStart: bl0, vMaxBlEnd: bl1, vMaxBlRatio: bl1 / bl0,
       realisedSpeedStartMps: first(rows, 'speedMean'), realisedSpeedEndMps: meanOver(rows, 'speedMean', simH * 0.8),
-      percentPerGeneration: Number.isFinite(genEnd) && genEnd > 0 ? (Math.pow(v1 / v0, 1 / genEnd) - 1) * 100 : NaN,
+      swimIndexStart: first(rows, 'swimIndexMean'), swimIndexEnd: meanOver(rows, 'swimIndexMean', simH * 0.8),
+      swimIndexRatio: meanOver(rows, 'swimIndexMean', simH * 0.8) / first(rows, 'swimIndexMean'),
+      /** Size-free improvement per generation, from the swim index. */
+      percentPerGeneration: Number.isFinite(genEnd) && genEnd > 0 ? (Math.pow(meanOver(rows, 'swimIndexMean', simH * 0.8) / first(rows, 'swimIndexMean'), 1 / genEnd) - 1) * 100 : NaN,
     },
     size: {
       lengthMedianStartMm: first(rows, 'lengthMedianMm'), lengthMedianEndMm: meanOver(rows, 'lengthMedianMm', simH * 0.8),
@@ -151,6 +154,7 @@ export function writeOutputs(dir: string, res: RunResult, png = true): string[] 
   put('population.png', renderChart({ title: 'POPULATION BY SPECIES', xLabel: x, yLabel: 'CREATURES', series: spSeries, yMin: 0 }));
   put('species.png', renderChart({ title: 'SPECIES COUNT (>= 5 MEMBERS)', xLabel: x, yLabel: 'SPECIES', series: [seriesOf(R, 'species', 'PHENOTYPE'), ...(R[0]?.speciesGenotype !== undefined ? [seriesOf(R, 'speciesGenotype', 'GENOTYPE')] : [])], yMin: 0 }));
   put('speed.png', renderChart({ title: 'SWIM SPEED', xLabel: x, yLabel: 'M/S', series: [seriesOf(R, 'speedMean', 'REALISED MEAN'), ...(R[0]?.vMaxMean !== undefined ? [seriesOf(R, 'vMaxMean', 'POTENTIAL MEAN'), seriesOf(R, 'vMaxP90', 'POTENTIAL P90')] : [])], yMin: 0 }));
+  if (R[0]?.swimIndexMean !== undefined) put('swim-index.png', renderChart({ title: 'SWIM INDEX (SIZE-FREE)', xLabel: x, yLabel: 'SPEED / REFERENCE DESIGN', series: [seriesOf(R, 'swimIndexMean', 'MEAN')], yMin: 0 }));
   if (R[0]?.vMaxBlMean !== undefined) put('speed-bl.png', renderChart({ title: 'POTENTIAL SWIM SPEED', xLabel: x, yLabel: 'BODY LENGTHS / S', series: [seriesOf(R, 'vMaxBlMean', 'MEAN')], yMin: 0 }));
   put('size.png', renderChart({ title: 'BODY LENGTH', xLabel: x, yLabel: 'MM', series: [seriesOf(R, 'lengthMedianMm', 'MEDIAN'), seriesOf(R, 'lengthMeanMm', 'MEAN'), seriesOf(R, 'lengthMaxMm', 'MAX')], logY: true }));
   const roleKeys = Object.keys(R[0] ?? {}).filter((k) => k.startsWith('role_') && R.some((r) => r[k]! > 0));

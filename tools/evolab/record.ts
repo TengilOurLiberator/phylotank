@@ -103,6 +103,11 @@ export class Recorder {
       r.vMaxBlMean = o.n ? vmb / o.n : NaN;
       r.vMaxP90 = quantile(sortedCopy(o.vMaxMps), 0.9);
     }
+    if (o.swimIndex) {
+      let si = 0, nm = 0;
+      for (let i = 0; i < o.n; i++) if (!o.sessile[i]) { si += o.swimIndex[i]!; nm++; }
+      r.swimIndexMean = nm ? si / nm : NaN;
+    }
     // size
     const len = sortedCopy(o.lengthM);
     let lsum = 0, mmax = 0;

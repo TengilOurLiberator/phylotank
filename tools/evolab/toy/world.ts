@@ -144,15 +144,17 @@ export interface ToyEvent {
 const T = {
   aspect: 0, fin: 1, muscle: 2, cruise: 3, sprint: 4, wFood: 5, wFlee: 6, wHunt: 7, wWander: 8, filter: 9,
   ePlant: 10, eMeat: 11, eDet: 12, sen: 13, lifeMult: 14, sessile: 15, clutch: 16, birthFrac: 17, lAdult: 18,
-  mAdult: 19, vMax: 20, aPlant: 21, aMeat: 22, aDet: 23,
+  mAdult: 19, vMax: 20, aPlant: 21, aMeat: 22, aDet: 23, swimIdx: 24,
 } as const;
-const NT = 24;
+const NT = 25;
 /** Carry lanes (CONTRACT 9.1). */
 const CL = { burn: 0, inP: 1, inD: 2, inC: 3, growth: 4, absP: 5, absM: 6, absD: 7 } as const;
 const NCL = 8;
 const F_PHYTO = 0.6;
 const F_DET = 0.3;
 const DIET_TAU_S = DAY_S;
+/** Reference swimmer design for the size-free swim index. */
+export const REF_DESIGN = { aspect: 0.4, finArea: 0.1, muscle: 0.15 } as const;
 
 // ---------------------------------------------------------------- the world
 export class ToyWorld {
@@ -410,6 +412,8 @@ export class ToyWorld {
     const mA = bodyMass(body);
     t[b + T.mAdult] = mA;
     t[b + T.vMax] = t[b + T.sessile] ? 0 : steadySpeed(body, 1);
+    // size-free swimming quality: speed relative to the reference design at the same adult length
+    t[b + T.swimIdx] = t[b + T.vMax]! / steadySpeed({ lengthM: lA, ...REF_DESIGN }, 1);
     // maturity reference clock: growth from birth mass to adult plus filling the first clutch, at a
     // net surplus of one basal power (dm/dt = B0 m^0.75 / (E_B C_G)); lifespan = LIFESPAN_MULT x that
     const k1 = (B0_KLEIBER * prm.b0Mult) / (E_B * C_G);

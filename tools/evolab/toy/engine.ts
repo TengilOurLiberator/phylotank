@@ -36,7 +36,7 @@ export class ToyEngine implements EvoEngine {
     const id = new Float64Array(n), species = new Uint32Array(n), lengthM = new Float32Array(n), massKg = new Float32Array(n);
     const speedMps = new Float32Array(n), ageS = new Float32Array(n), lifespanS = new Float32Array(n), tMatureS = new Float32Array(n);
     const role = new Uint8Array(n), sessile = new Uint8Array(n), generation = new Uint32Array(n);
-    const workInJ = new Float32Array(n), workOutJ = new Float32Array(n), vMaxMps = new Float32Array(n);
+    const workInJ = new Float32Array(n), workOutJ = new Float32Array(n), vMaxMps = new Float32Array(n), swimIndex = new Float32Array(n);
     const traits: Record<string, Float32Array> = {};
     const traitBounds: Record<string, readonly [number, number]> = {};
     for (const g of GENES) { traits[g.name] = new Float32Array(n); traitBounds[g.name] = [g.lo, g.hi]; }
@@ -47,7 +47,7 @@ export class ToyEngine implements EvoEngine {
       id[k] = w.id[s]!; species[k] = w.species[s]!; lengthM[k] = w.len[s]!; massKg[k] = w.massKg(s);
       speedMps[k] = w.realSpeed[s]!; ageS[k] = w.tS - w.birthT[s]!; lifespanS[k] = w.lifespan[s]!; tMatureS[k] = w.tMature[s]!;
       role[k] = w.role(s); sessile[k] = w.traitOf(s, 'sessile') > 0 ? 1 : 0; generation[k] = w.gen[s]!;
-      workInJ[k] = w.workIn[s]!; workOutJ[k] = w.workOut[s]! + w.ke[s]!; vMaxMps[k] = w.traitOf(s, 'vMax');
+      workInJ[k] = w.workIn[s]!; workOutJ[k] = w.workOut[s]! + w.ke[s]!; vMaxMps[k] = w.traitOf(s, 'vMax'); swimIndex[k] = w.traitOf(s, 'swimIdx');
       for (let i = 0; i < NG; i++) tArr[i]![k] = decodeGene(i, w.genes[s * NG + i]!);
       k++;
     }
@@ -58,7 +58,7 @@ export class ToyEngine implements EvoEngine {
     for (const v of cnt.values()) if (v >= 5) speciesG++;
     return {
       tS: w.tS, n, id, species, lengthM, massKg, speedMps, ageS, lifespanS, tMatureS, role, sessile, generation,
-      workInJ, workOutJ, vMaxMps, traits, traitBounds, agents: w.liveCount, agentCap: w.cap,
+      workInJ, workOutJ, vMaxMps, swimIndex, traits, traitBounds, agents: w.liveCount, agentCap: w.cap,
       extra: {
         phytoKg: f.phyto, dissolvedKg: f.dissolved, detritusKg: f.detritus, carcassKg: f.carcass,
         speciesGenotype: speciesG, speciesEver: w.spRep.length,

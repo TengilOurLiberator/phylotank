@@ -34,6 +34,8 @@ export interface Observation {
   workOutJ?: Float32Array;
   /** Potential swim speed at full effort (body property), m/s. */
   vMaxMps?: Float32Array;
+  /** Size-free swimming quality: potential speed over a reference design's at the same length. */
+  swimIndex?: Float32Array;
   /** Genome traits in decoded units, by name, with their schema bounds. */
   traits: Record<string, Float32Array>;
   traitBounds: Record<string, readonly [number, number]>;
