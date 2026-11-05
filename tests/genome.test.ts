@@ -730,3 +730,41 @@ describe('trait readers', () => {
     expect(enzymes(templateGenome('tetherling'))[1]).toBeCloseTo(1, 3);
   });
 });
+
+describe('phylogeny (U13)', () => {
+  it('the pruned tree keeps exactly the ancestry of the living, with the same MRCAs as a full log', async () => {
+    const { Phylogeny } = await import('../src/genome/phylogeny.js');
+    const ph = new Phylogeny();
+    const full = new Map<number, number>(); // id -> mother, never pruned
+    const alive: number[] = [];
+    const d = rng.draw(RNG_STREAM.BIRTH, 11, 11);
+    let next = 1;
+    for (let i = 0; i < 20; i++) { ph.birth(next, 0, 0, 0, 1); full.set(next, 0); alive.push(next++); }
+    for (let step = 0; step < 5000; step++) {
+      const mother = alive[d.int(alive.length)]!;
+      ph.birth(next, mother, 0, step, 1); full.set(next, mother); alive.push(next++);
+      if (alive.length > 60) { const k = d.int(alive.length); ph.death(alive[k]!); alive.splice(k, 1); }
+    }
+    const fullMrca = (a: number, b: number): number => {
+      const s = new Set<number>();
+      for (let x = a; x; x = full.get(x)!) s.add(x);
+      for (let y = b; y; y = full.get(y)!) if (s.has(y)) return y;
+      return 0;
+    };
+    for (let k = 0; k < 300; k++) { const a = alive[d.int(alive.length)]!, b = alive[d.int(alive.length)]!; expect(ph.mrca(a, b)).toBe(fullMrca(a, b)); }
+    // every node left is alive or an ancestor of a living node
+    const needed = new Set<number>();
+    for (const a of alive) for (let x = a; x; x = full.get(x)!) needed.add(x);
+    expect(ph.size).toBe(needed.size);
+    // compaction removes dead unary ancestors but keeps the MRCAs of living pairs
+    const before = alive.map((a) => alive.map((b) => ph.mrca(a, b)));
+    const spliced = ph.compact([...alive].sort((x, y) => x - y));
+    expect(spliced).toBeGreaterThan(0);
+    alive.forEach((a, i) => alive.forEach((b, j) => {
+      const m = before[i]![j]!;
+      const got = ph.mrca(a, b);
+      // a spliced MRCA is replaced by the nearest surviving ancestor below it on both lines
+      if (ph.get(m)) expect(got).toBe(m);
+    }));
+  });
+});

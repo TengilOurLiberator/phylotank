@@ -64,3 +64,4 @@ export function createGenomeModule(registry = new InnovationRegistry()): GenomeM
 /** The default module instance (one registry per process; worlds should use createGenomeModule). */
 export const genome = createGenomeModule();
 export { enzymes, lookOf, packedColour, type Look } from './look.js';
+export { Phylogeny, type PhyloNode } from './phylogeny.js';
