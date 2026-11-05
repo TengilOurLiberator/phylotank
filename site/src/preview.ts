@@ -3,7 +3,7 @@
  * then genome.develop(), then the local schematic. A missing or unimplemented module is the
  * normal phase-1 state, so every failure falls through quietly to the next source.
  */
-import { MAX_PARTS, NotImplementedError, PRESETS, type Genome } from '../../src/core/index.js';
+import { MAX_PARTS, NotImplementedError, PRESETS, type Genome, type GenomeModule } from '../../src/core/index.js';
 import { genome as genomeModule } from '../../src/genome/index.js';
 import * as ui from '../../src/ui/index.js';
 import { paintBody, phenotypeBody, schematicBody, type Body } from './body.js';
@@ -17,7 +17,7 @@ export function uiPreviewHook(mod: unknown = ui): DesignPreviewHook | null {
 }
 
 /** develop() if it works, else the schematic. */
-export function bodyFor(g: Genome, dev: typeof genomeModule = genomeModule): Body {
+export function bodyFor(g: Genome, dev: Pick<GenomeModule, 'develop'> = genomeModule): Body {
   try {
     const ph = dev.develop(g, 1, { depth01: 0.5, tempC: 14 }, { maxParts: MAX_PARTS, lCeilingM: PRESETS.small.lCeilingM });
     if (ph && ph.nParts > 0) return phenotypeBody(ph, g);

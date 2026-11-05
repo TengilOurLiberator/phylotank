@@ -173,7 +173,7 @@ describe('site: preview', () => {
   });
   it('falls back to the schematic while develop() is a stub, and uses develop() once it works', () => {
     const g = exampleGenome();
-    expect(bodyFor(g).source).toBe('schematic'); // the phase-0 stub throws NotImplementedError
+    expect(bodyFor(g).source).toBe('develop'); // the real genome module since the mod/genome merge
     const stub = { ...genomeModule, develop: () => { throw new NotImplementedError('x'); } } as GenomeModule;
     expect(bodyFor(g, stub).source).toBe('schematic');
     const ph = {
