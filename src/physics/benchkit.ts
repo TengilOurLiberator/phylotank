@@ -26,12 +26,12 @@ export function purcellShape(t: number, ang: Float64Array, rate: Float64Array, r
   ang[1] = a1; ang[2] = Math.PI + a2; rate[1] = r1; rate[2] = r2;
 }
 
-export function runPurcellSim(nSub: number, cycles: number, reciprocal = false, scale = 1, opts: Partial<PhysicsOptions> = {}): { dx: number; dy: number; L: number } {
+export function runPurcellSim(nSub: number, cycles: number, reciprocal = false, scale = 1, opts: Partial<PhysicsOptions> = {}, at: [number, number] = [16, 9]): { dx: number; dy: number; L: number } {
   const tw = makeWorld();
   const phys = createPhysics({ nSub, gravity: false, prescribed: true, contacts: false, ...opts });
   const ang = new Float64Array(3); const rate = new Float64Array(3);
   purcellShape(0, ang, rate, reciprocal);
-  const slot = spawn(tw, phys.loadBody, makePhenotype(purcell(PL * scale, PR * scale, ang[1]!, ang[2]! - Math.PI)), 16, 9);
+  const slot = spawn(tw, phys.loadBody, makePhenotype(purcell(PL * scale, PR * scale, ang[1]!, ang[2]! - Math.PI)), at[0], at[1]);
   const sg = tw.world.seg.c;
   const [x0, y0] = com(tw.world, slot);
   const ticks = Math.round(cycles * PT / phys.opts.dt);

@@ -88,6 +88,23 @@ T2 (tick rate): 30 Hz x 4 against 60 Hz x 4: speed -2.0%, power +5.1%. At equal 
 | R9: passive 1 mm microbe in a 0.25 m/s plume for 60 s | no watchdog flag; it drifts at the water speed. An injected 0.05 m/s per tick is flagged and clamped |
 | B5 Stokes settling of a near-spherical dense segment | within 5% of `(2/9) Delta rho g r^2 / mu` |
 
+### 3.4b Coasting (B7) and precision (T6)
+
+A 4-segment body of length L (radius 6% of L) launched at U along its axis, then passive for 10 s:
+
+| L | U (BL/s) | Re | Coasting distance (BL) |
+|---|---|---|---|
+| 1 mm | 1 / 3 | 0.05 / 0.15 | 1.4e-4 / 4.0e-4 |
+| 3 mm | 1 / 3 | 0.45 / 1.35 | 1.2e-3 / 3.4e-3 |
+| 1 cm | 1 / 3 | 5 / 15 | 0.012 / 0.033 |
+| 3 cm | 1 / 3 | 45 / 135 | 0.087 / 0.21 |
+| 10 cm | 1 / 3 | 500 / 1,500 | 0.56 / 1.17 |
+| 20 cm | 1 / 3 | 2,000 / 6,000 | 1.35 / 2.59 |
+
+Below Re 1 the coasting distance is proportional to Re (slope 1.0), as B7 asks. Above Re 1,000 it still grows (1.2 to 2.6 body lengths from Re 1,500 to 6,000) instead of levelling off, because the linear and laminar terms still matter at these sizes; the tank's largest bodies (1 m, Re about 5e4) were not run. The design's "about 6 body lengths to half speed" for the 20 cm fish is not reached (it glides about 1.4 body lengths in total at 1 BL/s).
+
+T6: the Purcell swimmer at (31.5, 17.5) m and at (0.5, 0.5) m swims the same displacement per cycle to 4e-10 relative (positions are f64 on the CPU backend).
+
 ### 3.5 Exploit transfer (R6)
 
 (1+6)-ES with the one-fifth rule, 200 generations, fitness = distance swum in 3 s from rest. Ratio = speed of the champion at the evaluation `n_sub` over its speed at the training `n_sub`.

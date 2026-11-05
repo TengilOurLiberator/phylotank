@@ -151,7 +151,8 @@ export function kineticEff(w: World, slot: number, mm: Float64Array, ie: Float64
 /** The 20 cm, 8-segment reference fish (tapered capsules, the last one a little fin-like). */
 export function fish(n = 8, len = 0.2): PartDef[] {
   const seg = len / n;
-  return chain(n, seg, (k) => 0.012 * (1 - 0.6 * k / n), { muscleFrac: 0.5 });
+  // radius 6% of the body length at the head (12 mm for the 20 cm fish), tapering to 40%
+  return chain(n, seg, (k) => 0.06 * len * (1 - 0.6 * k / n), { muscleFrac: 0.5 });
 }
 
 export function setCmds(w: World, slot: number, f: (k: number) => number): void {

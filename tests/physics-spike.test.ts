@@ -25,6 +25,14 @@ describe('physics spike: low Re (Purcell, scallop)', () => {
     expect(err).toBeLessThan(0.03);
   });
 
+  it('T6: a microbe in the far corner swims the same distance per cycle as near the origin', () => {
+    const near = runPurcellSim(4, 1, false, 1, {}, [0.5, 0.5]);
+    const far = runPurcellSim(4, 1, false, 1, {}, [31.5, 17.5]);
+    const rel = Math.hypot(far.dx - near.dx, far.dy - near.dy) / Math.hypot(near.dx, near.dy);
+    log('precision', { rel });
+    expect(rel).toBeLessThan(1e-3);
+  });
+
   it('B1: a reciprocal stroke gives (almost) no net displacement at low Re', () => {
     const sim = runPurcellSim(16, 2, true);
     const per = Math.hypot(sim.dx, sim.dy) / sim.L;

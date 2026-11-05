@@ -106,6 +106,27 @@ describe('physics spike: high Re', () => {
   });
 });
 
+describe('physics spike: coasting (B7)', () => {
+  it.runIf(LONG)('coasting distance in body lengths against Re', { timeout: 600_000 }, () => {
+    const rows = [];
+    for (const L of [0.001, 0.003, 0.01, 0.03, 0.1, 0.2]) {
+      for (const blps of [1, 3]) {
+        const tw = makeWorld();
+        const phys = createPhysics({ gravity: false, contacts: false, nSub: 4 });
+        const slot = spawn(tw, phys.loadBody, makePhenotype(fish(4, L)), 16, 9, 0);
+        const sg = tw.world.seg.c; const c = tw.world.cr.c;
+        const U = blps * L;
+        for (let q = 0; q < 4; q++) sg.velX[c.segStart[slot]! + q] = U;
+        const x0 = com(tw.world, slot)[0];
+        for (let k = 0; k < 300; k++) { phys.step(tw.world, tw.ctx); nextTick(tw); }
+        const d = com(tw.world, slot)[0] - x0;
+        rows.push({ L, U, Re: U * L / 2e-5, coastBL: d / L, vEndOverU: c.velX[slot]! / U });
+      }
+    }
+    log('coast', rows);
+  });
+});
+
 // ---------------------------------------------------------------- B2 Gray-Hancock flagellum, T1 at low Re
 const FN = 24; const FDS = 1e-4; const FR = 2e-6; const FB = 0.3 / (2 * Math.PI / (FN * FDS / 2)); // bk = 0.3
 const FK = 2 * Math.PI / (FN * FDS / 2); // two wavelengths along the body
