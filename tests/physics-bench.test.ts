@@ -128,7 +128,8 @@ describe('physics spike: coasting (B7)', () => {
 });
 
 // ---------------------------------------------------------------- B2 Gray-Hancock flagellum, T1 at low Re
-const FN = 24; const FDS = 1e-4; const FR = 2e-6; const FB = 0.3 / (2 * Math.PI / (FN * FDS / 2)); // bk = 0.3
+// radius 5 µm: toSegmentSpecs floors radii at 5 µm (solver safety), so thinner links are not comparable
+const FN = 24; const FDS = 1e-4; const FR = 5e-6; const FB = 0.3 / (2 * Math.PI / (FN * FDS / 2)); // bk = 0.3
 const FK = 2 * Math.PI / (FN * FDS / 2); // two wavelengths along the body
 const FT = 1; // period
 

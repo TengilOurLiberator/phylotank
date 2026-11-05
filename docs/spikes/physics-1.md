@@ -23,9 +23,9 @@ Owner: physics. Review spike 1 (REVIEW §9, R4 to R7); CONTRACT §17 says it dec
 
 | Finding | Evidence | Change |
 |---|---|---|
-| Constraint projection weighted by bare mass gives vacuum-like motion at low Re | (design analysis; microbe drag time 35 µs against a 8 ms substep) | Every XPBD projection uses the inverse of the drag-augmented generalised mass `A = M3 + h C` (3x3 per segment), the linearly implicit drag inside the constraint solve |
+| Constraint projection weighted by bare mass gives vacuum-like motion at low Re | (design analysis; microbe drag time 35 µs against an 8 ms substep) | Every XPBD projection uses the inverse of the drag-augmented generalised mass `A = M3 + h C` (3x3 per segment), the linearly implicit drag inside the constraint solve |
 | The velocity-capped explicit motor of 02 §2.2.5 makes gaits depend on `n_sub` | 2-segment joint driven at 0.3 activation: deflection 0.006, 0.025, 0.10, 0.34 rad at `n_sub` 2, 8, 32, 128 (the cap `omega_max / (h * mobility)` scales the torque with 1/h) | Muscles are implicit: torque `amax (1 - w/w_max)` (linear force-velocity through Hill's end points) enters the bend row as a rest offset `amax * compliance` plus extra XPBD damping `amax / w_max`. Deflection then 0.42, 0.43, 0.43 rad at 4, 16, 64. A curved Hill law fed back from the start-of-substep velocity chattered on 8-segment chains |
-| One Gauss-Seidel pass per substep does not converge on long drag-dominated chains | 24-segment flagellum, prescribed wave: speed error against the reference -101% (`n_sub` 4), -92% (16), -57% (64); 32 passes at 4 substeps still -42% | Joints of a creature are solved **exactly** each substep by a linear-time tree solve (Baraff 1996, 3x3 blocks, no fill-in, `src/physics/tree.ts`); GS stays available as `solver: 'gs'` |
+| One Gauss-Seidel pass per substep does not converge on long drag-dominated chains | 24-segment flagellum, prescribed wave: speed error against the reference -101% (`n_sub` 4), -90% (16), -50% (64); 32 passes at 4 substeps still -32% | Joints of a creature are solved **exactly** each substep by a linear-time tree solve (Baraff 1996, 3x3 blocks, no fill-in, `src/physics/tree.ts`); GS stays available as `solver: 'gs'` |
 | f32 angle storage turns rounding into velocity in the next tick | gap of `l * 1e-7` corrected over one substep gives `l * 1e-7 / h` | at store, children are shifted so every joint gap is exactly the f64 one |
 
 ### 3.2 Low Re (B1, B3, B2, T1)
@@ -39,17 +39,18 @@ Purcell three-link swimmer: links 0.5 mm, radius 30 µm, square stroke of amplit
 | T1, error against reference, `n_sub` 1 / 2 / 4 / 8 / 16 / 32 | 0.16% / 0.11% / 0.10% / 0.095% / 0.094% / 0.094% (GS: 8.3% / 1.5% / 1.1% / 0.97% / 0.61% / 0.34%) |
 | B1 scallop (reciprocal flap of the same body) | 3.5e-8 body lengths per cycle (GS: 4.7e-5); pass mark 0.005 |
 
-Gray-Hancock flagellum (B2): 24 links of 0.1 mm, radius 2 µm, two wavelengths, `bk = 0.3`, linear drag only, prescribed wave.
+Gray-Hancock flagellum (B2): 24 links of 0.1 mm, radius 5 µm, two wavelengths, `bk = 0.3`, linear drag only, prescribed wave. (A first run used 2 µm links, which `toSegmentSpecs` silently floors to 5 µm as a solver-safety clamp, so sim and reference had different drag coefficients and disagreed by 14%. The floor is now stated in the benchmark.)
 
 | Quantity | Value |
 |---|---|
 | Drag anisotropy `gamma = k_n1 / k_t1` | 1.52 |
-| Gray-Hancock estimate `U = (gamma - 1)(bk)^2 V / 2` | 2.82e-5 m/s |
-| Independent reference | 2.72e-5 m/s (-3.6% against Gray-Hancock: the reference is right) |
-| Sim, tree solver, `n_sub` 1 / 4 / 16 / 64 | 2.32e-5 m/s at every `n_sub` (-14.4% against the reference, -17.4% against Gray-Hancock) |
-| Sim, GS | see 3.1 |
+| Gray-Hancock estimate `U = (gamma - 1)(bk)^2 V / 2` (infinite, small amplitude) | 2.82e-5 m/s |
+| Independent reference (finite, free body) | 2.35e-5 m/s (-17% against Gray-Hancock) |
+| Sim, tree solver, `n_sub` 1 / 4 / 16 / 64 at 30 Hz | -1.1% / -0.8% / -0.7% / -0.7% against the reference |
+| Sim, tree solver, `n_sub` 4 at 60 / 120 / 240 Hz ticks | -0.2% / -0.07% / -0.02% (the rest is the per-tick linear interpolation of the prescribed angles) |
+| Sim, GS, `n_sub` 4 / 16 / 64; 8 passes at 16; 32 passes at 4 | -101% / -90% / -50%; -33%; -32% |
 
-The tree solver converges in `n_sub` but sits 14% below the reference. This is **open**: B2's 10% pass mark is not met. It is not the per-tick linear interpolation of the prescribed joint angles (with 60, 120 and 240 Hz ticks the error is -14.0%, -13.9% and -13.8%) and not the substep count; the remaining suspect is the kinematic set-up of a 24-link chain in one of the two codes. Purcell (3 links) agrees to 0.09%, so the drag law and the projection are right for short chains.
+The integrator reproduces resistive-force theory for a long flagellum to under 1%. Both it and the reference swim 17% slower than the Gray-Hancock asymptote, which assumes an infinite, small-amplitude wave; a free two-wavelength body recoils (yaws and heaves), which costs speed. B2's "within 10% of Gray-Hancock" is therefore not met by the model itself, not by the integrator; a longer body or a smaller `bk` would close it.
 
 ### 3.3 High Re (B4, T1, T2)
 
@@ -145,4 +146,4 @@ At 4 substeps one core does about 4 x 1.17 + 0.65 = 5.3 µs per segment-tick, ab
 4. **Contacts**: on the CPU the hash is a counting sort ordered by (cell hash, slot); queries are bounded by cells visited (at most 72), never by objects found; position corrections are fixed point (2^-20 m) and add no velocity. The GPU per-workgroup append question (R5) is not measurable on the CPU and moves to spike 2.
 5. **Perception**: skip hash levels whose items subtend under about 0.02 rad and cap the cell visits; budget perception in cell visits (about 200 per query). This is for the brain module to adopt.
 6. **Links** (grabs, jaw locks, latches) are solved inside the substep loop of the linked island at 8 substeps (R6); contacts use a speculative margin `|v| dt` so a 2 m/s ram cannot tunnel.
-7. **Open**: B2 (-14%), B4 Strouhal, C1 angular momentum (5e-2 against 1e-6), and CPU throughput (about 1.5 to 2x short of v0.1 for 5-segment bodies).
+7. **Open**: B2 against Gray-Hancock (-17%, a property of the finite free body, matched to 0.7% by the reference), B4 Strouhal, C1 angular momentum (5e-2 against 1e-6), and CPU throughput (about 1.5 to 2x short of v0.1 for 5-segment bodies).

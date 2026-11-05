@@ -9,8 +9,8 @@
  *   [-J  -alpha] [ l] = [C]
  * on the body-joint tree. Bodies and joints are eliminated leaves first (BFS order reversed),
  * then substituted back from the root. Spike 1 found that one Gauss-Seidel pass per substep
- * does not converge on long drag-dominated chains (a 24-segment flagellum swam at 8% of the
- * reference speed); this solve is exact per substep.
+ * does not converge on long drag-dominated chains (a 24-segment flagellum swam at 10% of the
+ * reference speed at 16 substeps); this solve is exact per substep.
  */
 import { wrapAngle, type World } from '../core/index.js';
 import { SC, sincos } from './sincos.js';
