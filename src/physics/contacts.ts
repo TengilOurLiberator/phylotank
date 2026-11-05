@@ -236,8 +236,8 @@ export function contactState(world: World): ContactState {
   let s = states.get(world);
   if (!s) {
     s = {
-      acc: new Float64Array(world.seg.capacity * 6), biteArmed: new Uint8Array(world.seg.capacity),
-      biteCooldown: new Float32Array(world.cr.capacity), bites: [], terrainCheckedTick: -1, terrain: false,
+      acc: new Float64Array(world.seg.capacity * 6), biteArmed: world.seg.c.biteArmed,
+      biteCooldown: world.cr.c.biteCooldown, bites: [], terrainCheckedTick: -1, terrain: false,
     };
     states.set(world, s);
   }
@@ -384,7 +384,7 @@ function tryBite(world: World, ctx: StepContext, st: ContactState, i: number, j:
   const c = world.cr.c;
   if (sg.kind[i] !== KIND.MOUTH && (sg.organs[i]! & ORGAN.MOUTH) === 0) return false;
   if (depth <= 0) return false;
-  const drive = sg.cmd2[i]!;
+  const drive = sg.cmd3[i * 2]!;
   if (st.biteArmed[i] === 0) { if (drive >= BITE_ON) st.biteArmed[i] = 1; else return false; }
   if (drive < BITE_OFF) { st.biteArmed[i] = 0; return false; }
   const a = sg.owner[i]!; const b = sg.owner[j]!;

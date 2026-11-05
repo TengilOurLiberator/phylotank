@@ -55,6 +55,12 @@ export interface BrainModule {
   free(world: World, slot: number): void;
   sense(world: World, ctx: StepContext): void;
   think(world: World, ctx: StepContext): void;
+  /**
+   * Rebuild derived per-brain constants for a creature whose pools were restored from a
+   * snapshot (request B2). Called by the sim for every brained creature after a load, before
+   * the next tick. Modules with no derived state may omit it.
+   */
+  rehydrate?(world: World, slot: number, ph: Phenotype, g: Genome): void;
 }
 
 export interface EcosystemModule {

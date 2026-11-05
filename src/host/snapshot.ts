@@ -10,7 +10,7 @@ import {
   PTK_FLAG, PTK_SCHEMA_VERSION, readPtk, TYPE_BYTES, TYPE_CODE, utf8Encode, writePtk, type AnyTypedArray, type CborValue,
   type Codec, type CodecTable, type PtkHeader, type SectionIn, type World, type WorldConfig,
 } from '../core/index.js';
-import type { JournalEntry } from '../sim/index.js';
+import { exportSimState, sim as defaultSim, type JournalEntry, type SavedSim, type SimCoreWithModules } from '../sim/index.js';
 import { hashChunks, worldChunks } from './hasher.js';
 import { migrateSections } from './migrations.js';
 
@@ -44,7 +44,7 @@ export const HOST_CODECS: CodecTable = { [CODEC.DEFLATE_RAW]: deflate };
 /** Every section a v1 world may carry; anything else must be `required = 0` to be skipped. */
 export const KNOWN_SECTIONS: ReadonlySet<string> = new Set([
   'META', 'GLOB', 'CREA', 'SEGS', 'BRN0', 'BRN1', 'BRN2', 'BRN3', 'BRN4', 'FLDS', 'GENO', 'SPEC', 'LINE', 'GBNK',
-  'PARA', 'EVTQ', 'JRNL', 'CAMR', 'THMB',
+  'PARA', 'EVTQ', 'JRNL', 'CAMR', 'THMB', 'SIMS',
 ]);
 /** Raw-size cap for untrusted files (05 §5.9: 8 GB default). */
 export const MAX_RAW_BYTES = 8 * 1024 ** 3;
@@ -121,6 +121,9 @@ export function prepareSnapshot(world: World, o: EncodeOptions): PreparedSnapsho
     ...world.brains.map((b, i) => ({ fourcc: `BRN${i}`, data: encodeColumns(b) })),
     { fourcc: 'FLDS', data: encodeFields(world) },
     { fourcc: 'EVTQ', data: cborEncode(o.pending as unknown as CborValue) },
+    // the sim's non-SoA state (genome store, species, request queues, registry); pending
+    // journal entries travel in EVTQ, so they are left out here
+    { fourcc: 'SIMS', data: cborEncode({ ...exportSimState(world), pending: [] } as unknown as CborValue) },
   ];
   const header: PtkHeader = {
     container: PTK_CONTAINER_VERSION, schema: PTK_SCHEMA_VERSION, flags: PTK_FLAG.FULL, tick: world.g.tick,
@@ -153,16 +156,16 @@ function validConfig(v: unknown): WorldConfig {
 }
 
 /** Decode and verify a `.ptk`. Throws FormatError on any corruption; never returns a half world. */
-export function decodeWorld(bytes: Uint8Array): DecodedWorld {
+export function decodeWorld(bytes: Uint8Array, core: SimCoreWithModules = defaultSim): DecodedWorld {
   try {
-    return decodeWorldUnchecked(bytes);
+    return decodeWorldUnchecked(bytes, core);
   } catch (e) {
     if (e instanceof FormatError) throw e;
     throw new FormatError(`unreadable world file: ${(e as Error).message}`);
   }
 }
 
-function decodeWorldUnchecked(bytes: Uint8Array): DecodedWorld {
+function decodeWorldUnchecked(bytes: Uint8Array, core: SimCoreWithModules): DecodedWorld {
   const file = readPtk(bytes, { codecs: HOST_CODECS, knownSections: KNOWN_SECTIONS, maxRawBytes: MAX_RAW_BYTES });
   const migratedFrom = file.header.schema;
   const sections = migrateSections(file.header.schema, file.sections);
@@ -188,5 +191,8 @@ function decodeWorldUnchecked(bytes: Uint8Array): DecodedWorld {
   if (typeof meta.stateHash === 'string' && migratedFrom === PTK_SCHEMA_VERSION && BigInt(`0x${meta.stateHash}`) !== hashWorld(world)) {
     throw new FormatError('world state hash mismatch after load');
   }
+  const simsRaw = sections.get('SIMS');
+  const saved = simsRaw ? (cborDecode(simsRaw, { maxDepth: 32 }) as unknown as SavedSim) : null;
+  core.adopt(world, saved);
   return { world, meta: { ...meta, config }, pending, header: file.header, skipped: file.skipped, migratedFrom };
 }

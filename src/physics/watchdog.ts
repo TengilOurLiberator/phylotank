@@ -21,7 +21,8 @@ export function watchState(world: World): WatchState {
   let s = states.get(world);
   if (!s) {
     const n = world.cr.capacity;
-    s = { e0: new Float64Array(n).fill(-1), input: new Float64Array(n), ticks: new Uint16Array(n), flagged: [] };
+    void n;
+    s = { e0: world.cr.c.wdE0, input: world.cr.c.wdIn, ticks: world.cr.c.wdTicks, flagged: [] };
     states.set(world, s);
   }
   return s;

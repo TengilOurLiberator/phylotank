@@ -224,7 +224,7 @@ function stepLife(world: World, ctx: StepContext): void {
         const mv = c.qReserve[s]! - capKeep;
         c.qReserve[s]! -= mv; c.qRepro[s]! += mv;
       }
-      const cost = offspringCost(newbornKg(world, c.genome[s]!), feeKg).total;
+      const cost = offspringCost(newbornKg(world, c.genome[s]!), feeKg, st.store.entry(c.genome[s]!).bytes.length).total;
       if (c.qRepro[s]! >= cost) {
         const d = ctx.rng.draw(RNG_STREAM.BIRTH, ctx.tick, c.idHi[s]! * 4294967296 + c.idLo[s]!);
         let mate = -1;

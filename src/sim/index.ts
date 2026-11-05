@@ -16,6 +16,7 @@ import {
   type World, type WorldConfig,
 } from '../core/index.js';
 import { commitBirthsAndDeaths, release, type ReleaseResult } from './commit.js';
+import { adoptWorld, type SavedSim } from './persist.js';
 import { fallbackBrain } from './fallback/brain.js';
 import { withFallbackLife } from './fallback/ecology.js';
 import { fallbackGenome } from './fallback/genome.js';
@@ -29,6 +30,7 @@ export { allocCreature, compactSegments, freeCreature, killNow, offspringCost, r
 export { entityId, requestBirth, requestDeath, requestRestage, requestsOf } from './requests.js';
 export type { BirthRequest, DeathRequest } from './requests.js';
 export { stateOf } from './state.js';
+export { adoptWorld, exportSimState, SIM_STATE_VERSION, type SavedSim } from './persist.js';
 
 /** Founders seeded at world creation (a sim-local extension of WorldConfig, see the contract request). */
 export interface FounderSpec { template: TemplateId; count: number; genome?: Uint8Array }
@@ -135,22 +137,36 @@ function actuate(world: World): void {
     if (a !== a) sg.cmd[k] = 0; else if (a > 1) sg.cmd[k] = 1; else if (a < -1) sg.cmd[k] = -1;
     const b = sg.cmd2[k]!;
     if (b !== b) sg.cmd2[k] = 0; else if (b > 1) sg.cmd2[k] = 1; else if (b < -1) sg.cmd2[k] = -1;
+    for (let l = 2 * k; l < 2 * k + 2; l++) {
+      const d = sg.cmd3[l]!;
+      if (d !== d) sg.cmd3[l] = 0; else if (d > 1) sg.cmd3[l] = 1; else if (d < -1) sg.cmd3[l] = -1;
+    }
   }
 }
 
 /** Build a SimCore over a module set; missing modules take the local fallbacks. */
-export function createSim(modules: Partial<SimModules> = {}): SimCore {
+/** A SimCore with its module set and snapshot adoption (see persist.ts). */
+export interface SimCoreWithModules extends SimCore {
+  readonly modules: SimModules;
+  /** Attach sim state to a world restored from a snapshot (pools already loaded). */
+  adopt(world: World, saved?: SavedSim | null): void;
+}
+
+export function createSim(modules: Partial<SimModules> = {}): SimCoreWithModules {
   const mods: SimModules = { ...fallbackModules(), ...modules };
   return {
+    modules: mods,
+    adopt(world: World, saved?: SavedSim | null): void { adoptWorld(world, mods, saved); },
     create(config: WorldConfig): World {
       const cfg = config as SimConfig;
       const world = allocWorld(config);
-      const st = initState(world, mods, cfg.hashCheckpoints ? HASH_EVERY : 0);
+      const perWorld: SimModules = mods.genomeFor ? { ...mods, genome: mods.genomeFor() } : mods;
+      const st = initState(world, perWorld, cfg.hashCheckpoints ? HASH_EVERY : 0);
       const ctx = contextFor(world);
-      mods.ecosystem.initWorld(world, ctx);
+      perWorld.ecosystem.initWorld(world, ctx);
       const founders: FounderSpec[] = cfg.founders ?? (cfg.skeletonMotes ? [{ template: 'motefly', count: cfg.skeletonMotes }] : []);
       founders.forEach((f, i) => {
-        const g = f.genome ?? encodeGenome(mods.genome.template(f.template));
+        const g = f.genome ?? encodeGenome(perWorld.genome.template(f.template));
         // one species per founder group, spread over the upper half; mass from the dissolved N under them
         const W = world.preset.widthM;
         const H = world.preset.heightM;
@@ -200,7 +216,7 @@ export function createSim(modules: Partial<SimModules> = {}): SimCore {
 }
 
 /** The default SimCore over the local fallback modules. */
-export const sim: SimCore = createSim();
+export const sim: SimCoreWithModules = createSim();
 
 /**
  * Digest of the non-SoA sim state that the contract hash does not cover: the genome store,
@@ -234,6 +250,8 @@ export function census(world: World): { species: number; count: number; biomassK
 }
 
 export { dayPhase, yearPhase } from './clocks.js';
+/** Re-exported for the host, which may import only src/sim (CONTRACT 16). */
+export { ecosystem } from '../ecosystem/index.js';
 export type { SimEventKind };
 export { encodeViewFrames, envFrameFor } from './frames.js';
 export { CF };

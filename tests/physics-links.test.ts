@@ -55,7 +55,7 @@ describe('physics: links', () => {
     const par = spawn(tw, physics.loadBody, ph, 10, 5, 0);
     const host = spawn(tw, physics.loadBody, makePhenotype(fish(4, 0.06)), 10.0045, 5.0, Math.PI / 2);
     const w = tw.world; const sg = w.seg.c; const c = w.cr.c;
-    sg.cmd2[c.segStart[par]!] = 1;
+    sg.cmd3[c.segStart[par]! * 2 + 1] = 1; // LATCH lane
     physics.step(w, tw.ctx); nextTick(tw);
     expect(latches(w)).toEqual([{ parasite: par, host, hostSeg: latches(w)[0]!.hostSeg }]);
     expect(drainBites(w)).toEqual([]); // a proboscis does not bite
@@ -74,12 +74,12 @@ describe('physics: links', () => {
     const a = spawn(tw, physics.loadBody, makePhenotype(predBody), 10, 5, 0);
     spawn(tw, physics.loadBody, makePhenotype(chain(2, 0.02, () => 0.004)), 10.012, 5, Math.PI / 2);
     const w = tw.world; const sg = w.seg.c;
-    sg.cmd2[w.cr.c.segStart[a]!] = 1;
+    sg.cmd3[w.cr.c.segStart[a]! * 2] = 1; // BITE lane
     physics.step(w, tw.ctx); nextTick(tw);
     expect(linkState(w).links.map((l) => l.type)).toEqual([LINK.JAW]);
     for (let k = 0; k < 10; k++) { physics.step(w, tw.ctx); nextTick(tw); }
     expect(linkState(w).links.length).toBe(1);
-    sg.cmd2[w.cr.c.segStart[a]!] = 0.1;
+    sg.cmd3[w.cr.c.segStart[a]! * 2] = 0.1;
     physics.step(w, tw.ctx); nextTick(tw);
     expect(linkState(w).links.length).toBe(0);
   });

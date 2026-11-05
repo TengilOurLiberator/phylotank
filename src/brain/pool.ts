@@ -40,7 +40,7 @@ export interface BrainWorldState {
   statics: (BrainStatic | undefined)[][];
   lastDiv: number;
   nanResets: number;
-  /** BITE and LATCH commands per segment (2 lanes), until the contract gives them a column. */
+  /** BITE and LATCH commands per segment: the segment column `cmd3` (2 lanes, CONTRACT 5.2). */
   segAux: Float32Array;
 }
 
@@ -50,7 +50,7 @@ export function brainState(world: World): BrainWorldState {
   if (!s) {
     s = {
       statics: world.brains.map(() => []), lastDiv: world.g.brainDiv, nanResets: 0,
-      segAux: new Float32Array(world.seg.capacity * 2),
+      segAux: world.seg.c.cmd3,
     };
     states.set(world, s);
   }
