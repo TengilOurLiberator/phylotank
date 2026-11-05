@@ -1,6 +1,6 @@
 # Spike 3 (ecosystem part): evolvability toy, ledger precision and the cap tax
 
-Status: partial. The ledger and cap-tax questions are answered; the evolutionary trajectories are not, because the overnight machine ran the toy at about half of real time. Integrator: this file is the ecosystem half of `03-evolvability.md` (spikes README); rename or merge it there.
+Status: partial. The ledger precision question is answered; the cap-tax comparison and the evolutionary trajectories are not, because the overnight runs reached at most 30 sim minutes (four generations) and never came near the agent cap. Integrator: this file is the ecosystem half of `03-evolvability.md` (spikes README); rename or merge it there.
 
 ## 1. Question
 
@@ -48,13 +48,33 @@ Over the first 600 s: population 400 to 383 to 387, two births (from 1 to 3 cm f
 
 **Cap tax.** With 400 to 1,000 agents against the 4,096 CPU cap, `n_agents / N_cap` never passed 0.5, so neither rule charged anything (cap-tax active fraction 0.000 in all runs) and the additive and multiplicative runs are identical to the last digit, as they should be. The comparison under a binding cap needs a longer run; the analytic case is in `tests/ledger.test.ts` and `tests/ecosystem.test.ts` (at 90% of the cap the additive fee is 0.64 x 3.1e-5 kg per offspring: over 100 newborn bodies of a 2 mm microbe, 4% of a newborn at the 0.126 m ceiling).
 
-### 3.3 Longer runs
+### 3.3 Longer runs: 30 sim min (54,000 ticks), x1, seed 2
 
-Two runs of 54,000 ticks (30 sim min, x1, additive and multiplicative, seed 2, founders started at 0.85 maturity with `REPRO_RESERVE` 0.3 so they breed sooner) were still running when this report was written; their output goes to the scratchpad and is not reported.
+Founders started at 0.85 maturity with `REPRO_RESERVE` 0.3 so they breed at once. The machine's load had fallen (load average about 14), so these ran at 2.56x real time (702 s wall for 1,800 sim s, with 400 to 1,734 creatures).
+
+| run | births | audit failures | max generation | deaths (cause) | cap-tax active |
+|---|---|---|---|---|---|
+| additive | 1,579 | 0 | 4 | 98 hypoxia, 147 age | 0.000 |
+| multiplicative | 1,574 | 0 | 4 | 100 hypoxia, 147 age | 0.000 |
+
+Additive run, sampled every 0.19 sim day:
+
+| day | population | births | max mass kg | mean log10 L (m) | SENESCENCE | LIFESPAN_MULT | SESSILE | CLUTCH_SIZE | producers kg | consumers kg |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0.00 | 400 | 0 | 3.01e-3 | -2.098 | 0.500 | 4.000 | 0.000 | 2.000 | 8.2 | 0.119 |
+| 0.38 | 1,074 | 693 | 3.15e-3 | -1.959 | 0.500 | 4.001 | 0.002 | 2.005 | 7.9 | 0.126 |
+| 0.75 | 1,319 | 987 | 3.18e-3 | -1.943 | 0.500 | 4.001 | 0.002 | 2.003 | 8.3 | 0.114 |
+| 1.13 | 1,491 | 1,260 | 3.12e-3 | -1.942 | 0.500 | 4.006 | 0.002 | 2.003 | 7.7 | 0.101 |
+| 1.50 | 1,734 | 1,579 | 3.07e-3 | -1.989 | 0.500 | 4.002 | 0.002 | 2.004 | 8.2 | 0.100 |
+
+- Size spectrum: births fill the small end. At day 0 the 2^-26 to 2^-11 kg bins held 10 to 32 creatures each; at day 1.5 the 2^-25 to 2^-15 kg bins hold 100 to 162 each and the 2^-28 to 2^-26 bins (newborns of millimetre parents) have appeared. Largest sustained mass stayed about 3e-3 kg (the largest founders, 4 to 5 cm); nothing evolved larger in four generations, as expected.
+- Trait means did not move (four generations, 1,579 births, mutation step 0.04): no trait walks to a bound at this horizon. R10's question needs on the order of 10^5 to 10^6 births.
+- Median age at first observed clutch (a parent's age when its first child appeared, founders included, so the small-bin figure is the only one dominated by offspring): 2 to 8 mm 213 s (17 generations per sim hour at most); 8 to 30 mm 21 s and 30 to 130 mm 40 s are founders spending their starting reserve, not generation times.
+- Multiplicative and additive runs differ only after the third decimal: the cap never bound (1,734 agents against the 4,096 cap is 42%, under the 50% where the additive fee starts).
 
 ## 4. Decision
 
 - **R8**: no contract change. The integer ledger with carries is exact to a quantum for 0.5 mm to 1 m bodies; f32 stocks are ruled out (0.3% biased drift per day for large bodies). GPU backends must keep u64 pool totals (CONTRACT 1), as written.
 - **R11**: keep the additive fee (CONTRACT 9.6). The toy did not reach the cap, so there is no measured spectrum comparison yet; to be repeated in a multi-day headless run on an idle machine.
-- **R2, R10, R12**: not decided by this spike. The toy is now ready (`evolve` mode, with mutation, budding, trait trajectories, spectrum and generation timing); it needs about 2 sim days per configuration, which is 7 wall hours at 0.5x or about 2 wall hours per configuration on an idle core. Recommended next run: `evolve 1 1728000 additive 1` (16 sim hours) and the same with `multiplicative`, overnight on the dev PC.
+- **R2, R10, R12**: not decided by this spike. The toy is ready (`evolve` mode, with mutation, budding, trait trajectories, spectrum and generation timing) and ran at 2.6x real time with 400 to 1,700 creatures on a partly loaded core; a useful horizon is several sim days and 10^5 births per configuration, a few wall hours each on an idle machine. Recommended next run: `evolve 1 1728000 additive 1` (16 sim hours) and the same with `multiplicative`, overnight on the dev PC.
 - **Tuning observations from the runs** (hand tuning, review R13): deaths in the first 10 minutes were from age (founders' Gompertz clock starts at zero but the hazard is not zero) and hypoxia in pits and caves of the Basin floor, where remineralisation of settled detritus outruns the slow deep mixing (Kz 1e-4 m^2/s). Both are intended mechanisms; the hypoxia rate should be watched in the 8-hour acceptance run.
