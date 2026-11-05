@@ -316,7 +316,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
 
   /** Births, deaths and bites reach views only as aggregates (CONTRACT 11). */
   const notable = (ev: SimEvent): boolean => ev.k !== 'birth' && ev.k !== 'death' && ev.k !== 'bite';
-  const detectors = new Detectors();
+  const detectors = new Detectors({ clock: () => performance.now() });
   const stamp = (o: DerivedEvent): SimEvent => ({ ...o, t: hw.tick, eid: ++hostEventId, epoch: hw.epoch }) as SimEvent;
   hw.onEvents((evs) => {
     const keep = evs.filter(notable);
@@ -512,6 +512,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
     if (typeof pc.maxBodies === 'number' && pc.maxBodies >= 0) caps.maxBodies = Math.min(pc.maxBodies, 20_000);
     if (typeof pc.maxDust === 'number' && pc.maxDust >= 0) caps.maxDust = Math.min(pc.maxDust, 300_000);
     if (typeof pc.maxBytesPerSec === 'number' && pc.maxBytesPerSec > 0) caps.maxBytesPerSec = pc.maxBytesPerSec;
+    if (typeof pc.proto === 'number' && pc.proto >= 0x0100 && pc.proto <= 0x01ff) caps.proto = pc.proto; // 0x0101: BODY_FRAME deltas
     if (lan) caps.maxBytesPerSec = Math.min(caps.maxBytesPerSec ?? 1_000_000, 1_000_000); // 8 Mbps hard cap on the LAN
     const stream = new InterestStream(caps);
     const c: HostClient = {

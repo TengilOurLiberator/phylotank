@@ -3,14 +3,16 @@
  * They read world state and primitive events and never write sim state, so they may use any
  * arithmetic. Windows are in sim ticks, so the same world and events give the same output.
  *
- * Implemented: giant, record (size, age), endangered, extinction, massDeath, hunt (from bites
- * and kills), migration, school (same-species groups with aligned headings, from a 1 m grid),
- * carcass and frenzy. The rest of the CONTRACT 11 table needs systems that do not exist yet
- * (outbreaks need disease, newRole and novelty need species clustering, bloomFront needs the
- * producer fields to move).
+ * Here: giant, endangered, extinction, massDeath, hunt (from bites and kills) and school
+ * (same-species groups with aligned headings, from a 1 m grid). The rest of CONTRACT 11 comes
+ * from the sim's event suite (`src/sim/events`, docs/modules/events.md), run on the same
+ * timer: carcass (whale falls) and frenzy, migration, bloom and bloomFront, record (size, speed,
+ * age), novelty, outbreak and epidemicFront, newRole and the lineage stories. Pass a `clock`
+ * to have the suite measure its cost per detector (`costs()`).
  */
 import { G_REL, LIFE, TICK_HZ, type SimEvent, type V2, type World } from '../core/index.js';
 import { entityId } from './interest.js';
+import { EventSuite, type DetectorCost, type SuiteOptions } from '../sim/events/index.js';
 
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type DerivedEvent = DistOmit<SimEvent, 'eid' | 'epoch' | 't'>;
@@ -33,30 +35,41 @@ export interface DetectorOptions {
   frenzyMin?: number;
   /** Carcasses at least this fraction of L_ceiling are reported. */
   carcassRel?: number;
+  /** Wall clock (ms) for the suite's cost accounting. */
+  clock?: () => number;
+  /** Further options for the event suite. */
+  suite?: SuiteOptions;
 }
 
 export class Detectors {
-  private readonly o: Required<DetectorOptions>;
+  private readonly o: Required<Omit<DetectorOptions, 'clock' | 'suite'>>;
+  readonly suite: EventSuite;
   private giants = new Set<number>();
-  private records = { size: 0, age: 0 };
-  private lastRecordTick = { size: -Infinity, age: -Infinity };
   private species = new Map<number, SpeciesSeen>();
   private deaths: { tick: number; pos: V2 }[] = [];
   private windowCounts: number[] = [];
   private lastMassDeath = -Infinity;
   private hunts = new Map<string, { pred: number; prey: number; start: number; last: number; pos: V2 }>();
   private lastRun = -Infinity;
-  private carcasses = new Set<number>();
-  private frenzies = new Map<number, number>();
   private schools = new Map<number, { centroid: V2; lastUpdate: number }>();
 
   constructor(opts: DetectorOptions = {}) {
+    const { clock, suite, ...rest } = opts;
     this.o = {
       every: TICK_HZ, endangeredBelow: 5, endangeredFrom: 10, massDeathWindowTicks: 10 * TICK_HZ, massDeathMin: 10,
       huntTimeoutTicks: 10 * TICK_HZ, migrationWindowTicks: 60 * TICK_HZ, migrationFraction: 0.15,
-      schoolMin: 8, schoolPolarisation: 0.7, frenzyMin: 5, carcassRel: 0.25, ...opts,
+      schoolMin: 8, schoolPolarisation: 0.7, frenzyMin: 5, carcassRel: 0.25, ...rest,
     };
+    const everyS = this.o.every / TICK_HZ;
+    this.suite = new EventSuite({
+      every: this.o.every, ...(clock ? { clock } : {}), ...suite,
+      carcass: { carcassRel: this.o.carcassRel, frenzyMin: this.o.frenzyMin, ...suite?.carcass },
+      migration: { windowS: this.o.migrationWindowTicks / TICK_HZ, fraction: this.o.migrationFraction, everyS, ...suite?.migration },
+    });
   }
+
+  /** Measured cost of the event suite per detector (empty without a clock). */
+  costs(): DetectorCost[] { return this.suite.costs(); }
 
   /** Feed primitive events from the step. Returns derived events they complete. */
   onPrimitive(world: World, evs: readonly SimEvent[]): Out[] {
@@ -77,7 +90,7 @@ export class Detectors {
         else { this.hunts.set(key, { pred: e.attacker, prey: e.target, start: e.t, last: e.t, pos: e.pos }); out.push({ k: 'hunt', phase: 'start', pred: e.attacker, prey: e.target, pos: e.pos }); }
       }
     }
-    void world;
+    out.push(...(this.suite.observe(world, evs) as unknown as Out[]));
     return out;
   }
 
@@ -90,14 +103,10 @@ export class Detectors {
     const c = world.cr.c;
     const counts = new Map<number, { n: number; id: number; pos: V2; ySum: number }>();
     const lengths: number[] = [];
-    let maxLen = 0; let maxLenSlot = -1; let maxAge = 0; let maxAgeSlot = -1;
     for (let s = 0; s < world.cr.highWater; s++) {
       if (c.life[s] !== LIFE.ALIVE) continue;
       const len = c.length[s]!;
       if (c.maturity[s]! >= 0.99) lengths.push(len); // the percentile rule counts adults only
-      if (len > maxLen) { maxLen = len; maxLenSlot = s; }
-      const age = t - c.birthTick[s]!;
-      if (age > maxAge) { maxAge = age; maxAgeSlot = s; }
       const sp = c.species[s]!;
       const row = counts.get(sp) ?? { n: 0, id: 0, pos: [0, 0] as V2, ySum: 0 };
       row.n++; row.id = entityId(world, s); row.pos = [c.posX[s]!, c.posY[s]!]; row.ySum += c.posY[s]!;
@@ -116,17 +125,7 @@ export class Detectors {
       const below = lengths.findIndex((x) => x >= len);
       out.push({ k: 'giant', id, species: c.species[s]!, size: len, percentile: lengths.length ? (100 * Math.max(0, below)) / lengths.length : 100 });
     }
-    // records, at most one per kind per minute of sim time, and only for a 5% improvement
-    const rec = (kind: 'size' | 'age', slot: number, value: number): void => {
-      const prev = this.records[kind];
-      if (slot < 0 || value <= prev * 1.05 || t - this.lastRecordTick[kind] < 60 * TICK_HZ) return;
-      if (prev > 0) out.push({ k: 'record', kind, id: entityId(world, slot), value, prev });
-      this.records[kind] = value; this.lastRecordTick[kind] = t;
-    };
-    rec('size', maxLenSlot, maxLen);
-    rec('age', maxAgeSlot, maxAge / TICK_HZ);
-    // endangered and extinction per species; migration by mean depth over a window
-    const H = world.preset.heightM;
+    // endangered and extinction per species
     for (const [sp, row] of counts) {
       let s = this.species.get(sp);
       if (!s) { s = { count: 0, peak: 0, endangered: false, lastId: row.id, lastPos: row.pos, meanY: [] }; this.species.set(sp, s); }
@@ -137,16 +136,6 @@ export class Detectors {
         for (let k = 0; k < world.cr.highWater && ids.length < 5; k++) if (c.life[k] === LIFE.ALIVE && c.species[k] === sp) ids.push(entityId(world, k));
         out.push({ k: 'endangered', species: sp, remaining: row.n, ids });
       } else if (s.endangered && row.n >= this.o.endangeredFrom) s.endangered = false;
-      s.meanY.push(row.ySum / row.n);
-      const keep = Math.max(2, Math.round(this.o.migrationWindowTicks / this.o.every));
-      if (s.meanY.length > keep) s.meanY.shift();
-      if (s.meanY.length === keep) {
-        const d = (s.meanY[s.meanY.length - 1]! - s.meanY[0]!) / H;
-        if (Math.abs(d) >= this.o.migrationFraction) {
-          out.push({ k: 'migration', species: sp, direction: d < 0 ? 'up' : 'down', fraction: Math.abs(d) });
-          s.meanY = [s.meanY[s.meanY.length - 1]!];
-        }
-      }
     }
     for (const [sp, s] of this.species) {
       if (counts.has(sp)) continue;
@@ -169,6 +158,7 @@ export class Detectors {
     this.windowCounts.push(n);
     if (this.windowCounts.length > 120) this.windowCounts.shift();
     this.groups(world, out);
+    out.push(...(this.suite.run(world, true) as unknown as Out[]));
     // hunts that went quiet end as escapes
     for (const [key, h] of this.hunts) {
       if (t - h.last > this.o.huntTimeoutTicks) { out.push({ k: 'hunt', phase: 'end', pred: h.pred, prey: h.prey, pos: h.pos, outcome: 'escape' }); this.hunts.delete(key); }
@@ -176,7 +166,7 @@ export class Detectors {
     return out;
   }
 
-  /** Schools (one per species: its largest aligned cluster), carcasses and feeding frenzies. */
+  /** Schools (one per species: its largest aligned cluster). */
   private groups(world: World, out: Out[]): void {
     const c = world.cr.c;
     const t = world.g.tick;
@@ -229,25 +219,5 @@ export class Detectors {
       out.push({ k: 'school', phase: 'end', species: sp, n: 0, centroid: known.centroid, radius: 0, polarisation: 0, sample: [] });
       this.schools.delete(sp);
     }
-    // carcasses worth a look, and frenzies around them
-    const live = new Set<number>();
-    for (const s of carc) {
-      const id = entityId(world, s);
-      live.add(id);
-      const len = c.length[s]!;
-      const r = Math.max(0.2, 5 * len);
-      const scav = near(c.posX[s]!, c.posY[s]!, r).length;
-      if (!this.carcasses.has(id) && len >= this.o.carcassRel * world.lCeilingM) {
-        this.carcasses.add(id);
-        out.push({ k: 'carcass', id, size: len, pos: [c.posX[s]!, c.posY[s]!], scavengers: scav });
-      }
-      const last = this.frenzies.get(id) ?? -Infinity;
-      if (scav >= this.o.frenzyMin && t - last >= 30 * TICK_HZ) {
-        this.frenzies.set(id, t);
-        out.push({ k: 'frenzy', carcass: id, n: scav, pos: [c.posX[s]!, c.posY[s]!] });
-      }
-    }
-    for (const id of this.carcasses) if (!live.has(id)) this.carcasses.delete(id);
-    for (const id of this.frenzies.keys()) if (!live.has(id)) this.frenzies.delete(id);
   }
 }

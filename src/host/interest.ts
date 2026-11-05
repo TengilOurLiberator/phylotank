@@ -11,8 +11,8 @@
  * which is what those renderers draw.
  */
 import {
-  ByteWriter, DUST_EMPTY, encodeBodyEnter, encodeBodyFrame, encodeBodyLeave, encodeDust, FRAME, HEADER_BYTES, LIFE,
-  quantRel, speedToByte, TAU, writeHeader, type BodyEnter, type BodyRecord, type DustFrame, type Rect, type Viewport,
+  BodyDeltaEncoder, ByteWriter, DUST_EMPTY, encodeBodyEnter, encodeBodyLeave, encodeDust, FRAME, HEADER_BYTES, LIFE,
+  PROTOCOL_VERSION_1_1, quantRel, speedToByte, TAU, TICK_HZ, writeHeader, type BodyEnter, type BodyRecord, type DustFrame, type Rect, type Viewport,
   type World,
 } from '../core/index.js';
 
@@ -26,7 +26,8 @@ export const GLOW_H = 72;
 /** Slots of headroom before a sparse slot range is compacted. */
 export const COMPACT_SLACK = 64;
 
-export interface Caps { maxBytesPerSec: number; maxBodies: number; maxDust: number }
+/** `proto`: the newest protocol the view decodes (0x0101 enables predictive BODY_FRAME deltas). */
+export interface Caps { maxBytesPerSec: number; maxBodies: number; maxDust: number; proto?: number }
 export const DEFAULT_CAPS: Caps = { maxBytesPerSec: 4_000_000, maxBodies: 2_000, maxDust: 150_000 };
 
 /** Stable slot allocator: lowest free first; freed slots become reusable only after `settle()`. */
@@ -174,7 +175,13 @@ export class InterestStream {
   private dustFrame: DustFrame | null = null;
   last: Classified = { body: [], dust: [], glow: [] };
 
-  constructor(caps: Partial<Caps> = {}) { this.caps = { ...DEFAULT_CAPS, ...caps }; }
+  /** BODY_FRAME keyframes, plus protocol 1.1 deltas for a view that asked for them. */
+  readonly bodyEncoder: BodyDeltaEncoder;
+
+  constructor(caps: Partial<Caps> = {}) {
+    this.caps = { ...DEFAULT_CAPS, ...caps };
+    this.bodyEncoder = new BodyDeltaEncoder(2 * TICK_HZ, (this.caps.proto ?? 0) >= PROTOCOL_VERSION_1_1);
+  }
 
   setViewport(v: Viewport, nowMs: number): void {
     const cx = (v.rect[0] + v.rect[2]) / 2; const cy = (v.rect[1] + v.rect[3]) / 2;
@@ -189,7 +196,7 @@ export class InterestStream {
   }
 
   /** Forget every slot (client resync, or after a freeze): the next frames re-enter everything. */
-  reset(): void { this.bodies.clear(); this.dust.clear(); this.dustFrame = null; }
+  reset(): void { this.bodies.clear(); this.dust.clear(); this.dustFrame = null; this.bodyEncoder.reset(); }
 
   rect(world: World): Rect {
     if (!this.viewport) return [0, 0, world.preset.widthM, world.preset.heightM];
@@ -248,9 +255,11 @@ export class InterestStream {
     const n = this.bodies.extent;
     const present = new Uint8Array(Math.ceil(n / 8));
     const recs: BodyRecord[] = new Array(n);
+    const ids: number[] = new Array(n);
     const c = world.cr.c;
     for (const s of this.last.body) {
-      const slot = this.bodies.slotOf(entityId(world, s));
+      const id = entityId(world, s);
+      const slot = this.bodies.slotOf(id);
       if (slot === undefined) continue;
       present[slot >> 3]! |= 1 << (slot & 7);
       const v = Math.hypot(c.velX[s]!, c.velY[s]!);
@@ -260,8 +269,10 @@ export class InterestStream {
         heading: Math.round((hd / TAU) * 256) & 255, speed: speedToByte(v, Math.log2), phase: 0, bend: 0,
         glow: Math.max(1, Math.min(255, Math.round(c.glow[s]! * 255))), flags: c.flags[s]! & 0xff,
       };
+      ids[slot] = id;
     }
-    return encodeBodyFrame({ tick: world.g.tick, rect, nSlots: n, present, records: recs.filter((r) => r !== undefined) });
+    const keep = recs.map((r, i) => (r !== undefined ? i : -1)).filter((i) => i >= 0);
+    return this.bodyEncoder.encode({ tick: world.g.tick, rect, nSlots: n, present, records: keep.map((i) => recs[i]!) }, keep.map((i) => ids[i]!));
   }
 
   dustFrameBytes(world: World): Uint8Array {
