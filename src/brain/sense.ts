@@ -144,15 +144,15 @@ function partInputsOf(L: FullLayout): Int32Array {
   return a;
 }
 
-// partPos() result registers
-let PX = 0, PY = 0, PA = 0;
-/** Position and angle of part p (its segment once grown, else the creature centre) into PX, PY, PA. */
+// partPos() result registers: a Float64Array, since module-level doubles are boxed on every write
+const PP = new Float64Array(3);
+/** Position and angle of part p (its segment once grown, else the creature centre) into PP. */
 function partPos(sgPosX: ArrayLike<number>, sgPosY: ArrayLike<number>, sgAngle: ArrayLike<number>, segStart: number, segCount: number, p: number, x: number, y: number, heading: number): void {
   if (segStart !== NONE_U32 && p >= 0 && p < segCount) {
     const sg = segStart + p;
-    PX = sgPosX[sg]!; PY = sgPosY[sg]!; PA = sgAngle[sg]!; return;
+    PP[0] = sgPosX[sg]!; PP[1] = sgPosY[sg]!; PP[2] = sgAngle[sg]!; return;
   }
-  PX = x; PY = y; PA = heading;
+  PP[0] = x; PP[1] = y; PP[2] = heading;
 }
 const depthBuf = new Float64Array(16);
 const objBuf = new Int32Array(16);
@@ -239,7 +239,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   inp[bI + IN.FATIGUE] = clamp01(1 - cr.anaerobic[k]!);
   inp[bI + IN.ITCH] = 0; // parasite latching arrives with disease (v0.4)
 
-  // part positions go through the module registers PX, PY, PA (partPos), no closures
+  // part positions go through the PP registers (partPos), no closures
   const sgPosX = seg.posX, sgPosY = seg.posY, sgAngle = seg.angle;
   const posX = cr.posX, posY = cr.posY, length = cr.length;
 
@@ -263,7 +263,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   for (const e of L.eyes) {
     if (ungrown && e.part >= segCount) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
     partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, e.part, x, y, heading);
-    const ex = PX, ey = PY;
+    const ex = PP[0]!, ey = PP[1]!;
     const R = e.receptors;
     const lanes = e.bands.length + 1;
     const axis = heading - mirror * e.mount;
@@ -329,7 +329,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   for (const ch of L.chemos) {
     if (ungrown && ch.part >= segCount) { inp.fill(0, bI + ch.base, bI + ch.base + 2 * ch.channels.length); continue; }
     partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, ch.part, x, y, heading);
-    const cx = PX, cy = PY;
+    const cx = PP[0]!, cy = PP[1]!;
     let at = bI + ch.base;
     for (const chan of ch.channels) {
       const lv = scentLevel(world, cx, cy, chan);
@@ -349,7 +349,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const i = pin[q]!, kind = pin[q + 1]!, p = pin[q + 2]!, slot = pin[q + 3]!;
     if (ungrown && p >= segCount) { inp[bI + i] = 0; continue; }
     partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, p, x, y, heading);
-    const px = PX, py = PY, pa = PA;
+    const px = PP[0]!, py = PP[1]!, pa = PP[2]!;
     const sg = segStart !== NONE_U32 && p < segCount ? segStart + p : -1;
     switch (kind) {
       case IN.LATERAL: {

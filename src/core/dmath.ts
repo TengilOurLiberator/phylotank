@@ -147,14 +147,10 @@ function cosPoly(r: number): number {
   return 1 - z * p;
 }
 
-// reduce() results, in module registers so sin and cos allocate nothing
-let redR = 0, redQ = 0;
-function reduce(x: number): void {
-  const k = Math.round(x * TWO_OVER_PI);
-  redR = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
-  // k & 3 is ((k % 4) + 4) % 4 for every int32 k (two's complement), without a float modulo
-  redQ = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
-}
+// Argument reduction r = x - k pi/2 (Cody-Waite, three parts), quadrant q = k mod 4. It is
+// written out in sin, cos and sinCos: a helper returning {r, q} or writing module-level doubles
+// allocates a heap number per call whenever the call is not inlined.
+// k & 3 is ((k % 4) + 4) % 4 for every int32 k (two's complement), without a float modulo.
 
 /**
  * sin(x) and cos(x) from one argument reduction: out[0] = sin(x), out[1] = cos(x), the same
@@ -162,10 +158,11 @@ function reduce(x: number): void {
  */
 export function sinCos(x: number, out: Float64Array): void {
   if (x !== x || x === Infinity || x === -Infinity) { out[0] = NaN; out[1] = NaN; return; }
-  reduce(x);
-  const r = redR;
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const q = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
   const s = sinPoly(r), c = cosPoly(r);
-  switch (redQ) {
+  switch (q) {
     case 0: out[0] = s; out[1] = c; return;
     case 1: out[0] = c; out[1] = -s; return;
     case 2: out[0] = -s; out[1] = -c; return;
@@ -175,8 +172,9 @@ export function sinCos(x: number, out: Float64Array): void {
 
 export function sin(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
-  reduce(x);
-  const r = redR, q = redQ;
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const q = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
   switch (q) {
     case 0: return sinPoly(r);
     case 1: return cosPoly(r);
@@ -187,8 +185,9 @@ export function sin(x: number): number {
 
 export function cos(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
-  reduce(x);
-  const r = redR, q = redQ;
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const q = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
   switch (q) {
     case 0: return cosPoly(r);
     case 1: return -sinPoly(r);

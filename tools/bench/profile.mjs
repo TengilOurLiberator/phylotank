@@ -54,3 +54,16 @@ if (filter) {
   console.log(`\nhot lines in "${filter}" (${tot} ticks)`);
   [...lines.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).forEach(([k, t]) => console.log(`${String(t).padStart(7)} ${(100 * t / tot).toFixed(1).padStart(5)}%  ${k}`));
 }
+
+// callers of the functions whose label contains the filter, by self time spent in them
+if (filter) {
+  const callers = new Map();
+  for (const n of prof.nodes) {
+    if (!label(n).includes(filter)) continue;
+    const p = parent.get(n.id);
+    const k = p === undefined ? '(none)' : label(byId.get(p));
+    callers.set(k, (callers.get(k) ?? 0) + (dt.get(n.id) ?? 0));
+  }
+  console.log(`\ncallers of "${filter}" (self time inside it)`);
+  [...callers.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).forEach(([k, t]) => console.log(`${(t / 1e3).toFixed(0).padStart(8)} ms  ${k}`));
+}
