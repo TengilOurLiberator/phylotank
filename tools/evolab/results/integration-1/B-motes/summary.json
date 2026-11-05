@@ -1,0 +1,135 @@
+{
+  "engine": {
+    "engine": "sim",
+    "config": {
+      "preset": "small",
+      "seedLo": 1,
+      "seedHi": 0,
+      "backend": "cpu",
+      "agentCap": 300,
+      "founders": [
+        {
+          "template": "motefly",
+          "count": 150,
+          "zone": "surface"
+        }
+      ]
+    },
+    "agentCap": 300
+  },
+  "simHours": 0.2833333333333333,
+  "wallSeconds": 2022.298255781,
+  "speedup": 0.5043766403319583,
+  "samples": 18,
+  "popFinal": 0,
+  "popMeanLast20pct": 0.75,
+  "extinct": true,
+  "births": 18,
+  "deaths": 161,
+  "deathsByCause": {
+    "starvation": 1,
+    "predation": 1,
+    "age": 148
+  },
+  "generationsMeanFinal": 1,
+  "generationsMaxFinal": 0,
+  "generationsPerSimHourBySizeClass": {
+    "lt2mm": 3.5294117647058822,
+    "2to5mm": null,
+    "5to20mm": null,
+    "20to50mm": null,
+    "ge50mm": null
+  },
+  "swim": {
+    "vMaxStartMps": null,
+    "vMaxEndMps": null,
+    "vMaxRatio": null,
+    "vMaxBlStart": null,
+    "vMaxBlEnd": null,
+    "vMaxBlRatio": null,
+    "realisedSpeedStartMps": 0.02905080472245337,
+    "realisedSpeedEndMps": 0.0010288461150291066,
+    "swimIndexStart": null,
+    "swimIndexEnd": null,
+    "swimIndexRatio": null,
+    "percentPerGeneration": null
+  },
+  "size": {
+    "lengthMedianStartMm": 0.6225238903425634,
+    "lengthMedianEndMm": 0.585322481735299,
+    "lengthMaxEverMm": 0.7999654626473784,
+    "massMaxEverKg": 9.316530054093164e-7
+  },
+  "diversity": {
+    "speciesMeanLast20pct": 0,
+    "speciesMax": 1,
+    "speciationsTotal": 0,
+    "hill1MeanLast20pct": 1,
+    "speciesGenotypeMeanLast20pct": null,
+    "rolesOccupiedMax": 1,
+    "roleMeansLast20pct": {
+      "none": 0,
+      "producer": 0,
+      "filter": 0.75,
+      "grazer": 0,
+      "predator": 0,
+      "scavenger": 0,
+      "parasite": 0,
+      "omnivore": 0
+    }
+  },
+  "traitsStartEnd": {
+    "length": [
+      0.0007999654626473784,
+      0.0007999654626473784
+    ],
+    "lifespanMult": [
+      3.0000052452087402,
+      3.0000052452087402
+    ]
+  },
+  "ledger": {
+    "allExact": true,
+    "worstEnergyResidual": 0
+  },
+  "detectors": {
+    "immortalBlobs": {
+      "available": false,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {}
+    },
+    "energyLeaks": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "worstMassDiffQ": 0,
+        "worstEnergyResidual": 0,
+        "energyTol": 0.000001
+      }
+    },
+    "microbeFlood": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "capFillMax": 0,
+        "capFillMean": null,
+        "smallShareEnd": null,
+        "clutchEnd": null,
+        "lengthMedianMmEnd": null
+      }
+    },
+    "degenerateSwimmers": {
+      "available": false,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {}
+    }
+  }
+}
