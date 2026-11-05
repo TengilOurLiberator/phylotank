@@ -31,6 +31,7 @@ export class Scanner {
     const start = this.cellStart; start.fill(0);
     const species = new Map<number, SpeciesAgg>();
     let nA = 0; let nC = 0; let nL = 0;
+    let lastSp = -1; let lastA: SpeciesAgg | undefined;
     for (let s = 0; s < hw; s++) {
       const life = c.life[s]!;
       if (life === LIFE.CARCASS) { this.carcass[nC++] = s; continue; }
@@ -44,8 +45,9 @@ export class Scanner {
       start[k + 1]!++;
       nA++;
       const sp = c.species[s]!;
-      let a = species.get(sp);
+      let a = sp === lastSp ? lastA : species.get(sp);
       if (!a) { a = { n: 0, adults: 0, sx: 0, sy: 0, maxLen: 0, first: s }; species.set(sp, a); }
+      lastSp = sp; lastA = a;
       a.n++; a.sx += x; a.sy += y;
       const L = c.length[s]!;
       if (L > a.maxLen) a.maxLen = L;

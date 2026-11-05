@@ -8,9 +8,11 @@
  *
  * A frenzy is a crowd at a carcass: at least `frenzyMin` live creatures within
  * max(0.2 m, 5 body lengths) of it and at least `frenzyOverBackground` times the count the local
- * density would put there by chance. Only carcasses at least `frenzyRel` of the ceiling or four
+ * density would put there by chance. Only carcasses at least `frenzyRel` of the ceiling and four
  * times the median adult are considered, at most `maxCarcasses` per run (biggest first), so a
- * plague's thousand small corpses cost a sort, not a thousand neighbour queries.
+ * plague's thousand small corpses cost a sort, not a thousand neighbour queries. A frenzy ends
+ * after two runs below half the minimum crowd, and the same carcass cannot start another within
+ * `frenzyCooldownS`, so a crowd milling at the threshold does not flap.
  */
 import { CF, entityIdOf, TICK_HZ, type V2, type World } from './util.js';
 import { forNear } from './scan.js';
@@ -24,10 +26,11 @@ export interface CarcassOptions {
   frenzyOverBackground?: number;
   updateS?: number;
   maxCarcasses?: number;
+  frenzyCooldownS?: number;
 }
 
 interface Tracked { id: number; first: number; lastEmit: number; scav: number; massKg: number; pos: V2; size: number; fall: boolean; big: boolean }
-interface Frenzy { first: number; lastEmit: number; n: number }
+interface Frenzy { first: number; lastEmit: number; n: number; low: number; ended: number }
 
 export class CarcassDetector implements Detector {
   readonly name = 'carcass';
@@ -36,7 +39,7 @@ export class CarcassDetector implements Detector {
   private readonly frenzies = new Map<number, Frenzy>();
 
   constructor(opts: CarcassOptions = {}) {
-    this.o = { carcassRel: 0.25, carcassKg: 10, frenzyRel: 0.1, frenzyMin: 5, frenzyOverBackground: 3, updateS: 30, maxCarcasses: 256, ...opts };
+    this.o = { carcassRel: 0.25, carcassKg: 10, frenzyRel: 0.05, frenzyMin: 5, frenzyOverBackground: 3, updateS: 30, maxCarcasses: 256, frenzyCooldownS: 60, ...opts };
   }
 
   run(scan: Scan, out: Derived[]): void {
@@ -45,7 +48,7 @@ export class CarcassDetector implements Detector {
     const area = w.preset.widthM * w.preset.heightM;
     const density = scan.nAlive / area;
     const bigL = this.o.carcassRel * lc;
-    const eligibleL = Math.min(this.o.frenzyRel * lc, scan.medianAdultM > 0 ? 4 * scan.medianAdultM : Infinity);
+    const eligibleL = Math.max(this.o.frenzyRel * lc, 4 * scan.medianAdultM);
     // candidates: big ones and frenzy-eligible ones, biggest first, bounded
     const cand: number[] = [];
     for (let i = 0; i < scan.nCarcass; i++) {
@@ -86,18 +89,20 @@ export class CarcassDetector implements Detector {
       const expected = density * Math.PI * r * r;
       const crowd = n >= this.o.frenzyMin && n >= this.o.frenzyOverBackground * expected;
       const f = this.frenzies.get(id);
-      if (crowd && !f) {
-        this.frenzies.set(id, { first: t, lastEmit: t, n });
+      if (crowd && (!f || f.ended >= 0)) {
+        if (f && t - f.ended < this.o.frenzyCooldownS * TICK_HZ) continue;
+        this.frenzies.set(id, { first: t, lastEmit: t, n, low: 0, ended: -1 });
         out.push({ k: 'frenzy', phase: 'start', carcass: id, n, pos, feeding, size: L, durationS: 0, novelty: Math.min(1, n / (4 * this.o.frenzyMin)) });
-      } else if (f && crowd) {
+      } else if (f && f.ended < 0 && crowd) {
+        f.low = 0;
         if (t - f.lastEmit >= 10 * TICK_HZ && n !== f.n) {
           f.lastEmit = t; f.n = n;
           out.push({ k: 'frenzy', phase: 'update', carcass: id, n, pos, feeding, size: L, durationS: (t - f.first) / TICK_HZ });
         }
-      } else if (f && n < Math.max(2, this.o.frenzyMin >> 1)) {
-        this.frenzies.delete(id);
+      } else if (f && f.ended < 0 && n < Math.max(2, this.o.frenzyMin >> 1) && ++f.low >= 2) {
+        f.ended = t;
         out.push({ k: 'frenzy', phase: 'end', carcass: id, n, pos, feeding, size: L, durationS: (t - f.first) / TICK_HZ });
-      }
+      } else if (f && f.ended < 0 && n >= Math.max(2, this.o.frenzyMin >> 1)) f.low = 0;
     }
     for (const [id, k] of [...this.tracked]) {
       if (seen.has(id)) continue;
@@ -107,7 +112,7 @@ export class CarcassDetector implements Detector {
     for (const [id, f] of [...this.frenzies]) {
       if (seen.has(id)) continue;
       this.frenzies.delete(id);
-      out.push({ k: 'frenzy', phase: 'end', carcass: id, n: 0, pos: [0, 0], durationS: (t - f.first) / TICK_HZ });
+      if (f.ended < 0) out.push({ k: 'frenzy', phase: 'end', carcass: id, n: 0, pos: [0, 0], durationS: (t - f.first) / TICK_HZ });
     }
   }
 }
