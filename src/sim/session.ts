@@ -27,7 +27,7 @@ export const DERIVED_PER_S = 20;
 
 export const DEFAULT_DREAM_CONFIG: SimConfig = {
   preset: 'small', seedLo: 0x5eed1234, seedHi: 0x0000beef, backend: 'cpu',
-  founders: [{ template: 'motefly', count: 600 }],
+  founders: [{ template: 'motefly', count: 2000 }],
 };
 
 export { paletteBytes };
