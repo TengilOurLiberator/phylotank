@@ -139,6 +139,8 @@ export interface HostOptions {
   /** God commands from LAN peers: a second, separate switch. */
   lanGod?: boolean;
   autosaveMs?: number;
+  /** Path of the host bundle (dist/host.mjs) to run the state-hash worker; inline hashing without it. */
+  hashWorker?: string;
   probe?: OsProbe;
   /** Start ticking immediately (default true). */
   autostart?: boolean;
@@ -172,6 +174,8 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
   const now = opts.now ?? (() => performance.now());
   const manifest = buildManifest(opts.staticDir);
   const hw = HostWorld.open({ ...(opts.worldDir ? { dir: opts.worldDir } : {}), config: opts.config ?? DEFAULT_DREAM_CONFIG });
+  const threaded = hw.useHashWorker(opts.hashWorker);
+  if (opts.hashWorker && !threaded) log('state hashes run inline (no worker thread)');
   const secretsDir = opts.secretsDir ?? opts.worldDir;
   const secrets = new Secrets(secretsDir);
   const pairing = new Pairing(secrets);

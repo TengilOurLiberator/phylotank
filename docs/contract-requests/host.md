@@ -71,3 +71,11 @@ The sim applies `release` at step 0 (develop, load, allocate, as for births in 9
 **What.** Snapshots (`.ptk`) store the SoA pools, the globals and the field grids. Any module that keeps per-world state elsewhere (a WeakMap cache that changes results) breaks exact resume.
 
 **Change.** Add to CONTRACT 4.2: "Every value that can change a later tick's result lives in the World (pools, fields, globals) or in the journal. Module-private caches must be rebuildable from those." The host's round-trip test (`tests/host-persistence.test.ts`) will catch violations for every module merged into the pipeline.
+
+## H9. A faster xxh64 in core
+
+**What.** `xxh64Parts` in `src/core/hash.ts` emulates 64-bit arithmetic in 16-bit pieces and runs at about 14 MB/s on this container (67.5 MB of Large-preset fields took 4.7 s).
+
+**Why.** CONTRACT 4.5 journals `hashWorld` every 256 ticks. Measured here (shared 4-vCPU machine, under load from other jobs): `hashWorld` takes about 420 ms on Small and 950 ms on Default with 3,000 motes, against about 2.5 to 3.1 s for the 256 ticks it covers, so 15 to 30% extra CPU. Saving computes it again (META `stateHash`) and `writePtk` hashes every section once more, so a Default snapshot takes 3.2 s to encode and 2.0 s to decode, Large 8.6 s and 8.2 s. The host already moves the journalled checkpoint hash to a worker thread (`src/host/hasher.ts`), but saves and loads stay on the main thread.
+
+**Change.** Keep the xxh64 definition (the output must not change, so golden hashes stay valid) and make the implementation faster: 32-bit limbs with `Math.imul` and an explicit high-word product (`mulhi32`, already in `rng.ts`), and reading u32 words through a `DataView` or an aligned `Uint32Array` instead of per-byte loads. Optionally, a WASM build with the TS one as the oracle. A 5 to 10x speed-up would make inline hashing acceptable on the Small and Default presets.

@@ -14,16 +14,25 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { HOST_PORT, toHex64, type PresetName, type WorldConfig } from '../core/index.js';
 import { sim } from '../sim/index.js';
 import { DEFAULT_DREAM_CONFIG } from '../sim/session.js';
 import { GpuDeviceManager, loadDawn } from './gpu.js';
+import { runHasherWorker } from './hasher.js';
 import { decodeWorld } from './snapshot.js';
 import { WorldStore } from './store.js';
 import { StubProbe, type ProbeSample } from './throttle.js';
 import { HostWorld } from './world-host.js';
 import { startHost } from './index.js';
 
+if (!isMainThread && (workerData as { ptkRole?: string } | null)?.ptkRole === 'hasher') {
+  runHasherWorker(parentPort!);
+} else {
+  await main();
+}
+
+async function main(): Promise<void> {
 const argv = process.argv.slice(2);
 const sub = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'serve';
 function arg(name: string): string | undefined {
@@ -92,7 +101,7 @@ if (flag('headless')) {
   const shell = flag('shell');
   const host = await startHost({
     port, staticDir, config, ...(worldDir ? { worldDir } : {}), lan: flag('lan'), lanGod: flag('lan-god'),
-    autosaveMs: Math.min(60, Math.max(2, autosaveMin)) * 60_000, probe,
+    autosaveMs: Math.min(60, Math.max(2, autosaveMin)) * 60_000, probe, hashWorker: fileURLToPath(import.meta.url),
     log: (m) => { if (shell) console.log(JSON.stringify({ log: m })); else console.error(m); },
   });
   const r = host.recovery;
@@ -115,4 +124,5 @@ if (flag('headless')) {
   const shutdown = (): void => { void host.stop().then(() => process.exit(0)); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
 }

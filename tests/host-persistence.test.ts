@@ -163,3 +163,13 @@ describe('world directory, journal and recovery', () => {
     b.close();
   });
 });
+
+describe('state hash worker input', () => {
+  it('hashes the same bytes in the same order as hashWorld', async () => {
+    const { hashChunks, worldChunks } = await import('../src/host/hasher.js');
+    const { toHex64 } = await import('../src/core/index.js');
+    const w = sim.create(CFG);
+    for (let i = 0; i < 20; i++) sim.step(w);
+    expect(hashChunks(worldChunks(w))).toBe(toHex64(hashWorld(w)));
+  });
+});

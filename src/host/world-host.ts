@@ -8,6 +8,7 @@ import {
   HASH_EVERY, hashWorld, toHex64, type CborValue, type GodEventScheduled, type SimEvent, type World, type WorldConfig,
 } from '../core/index.js';
 import { drainEvents, schedule as simSchedule, sim, type JournalEntry } from '../sim/index.js';
+import { AsyncHasher } from './hasher.js';
 import { decodeWorld, encodeWorld, SIM_BUILD_HASH, type DecodedWorld } from './snapshot.js';
 import { WorldStore, type JournalRecord, type Retention, type SnapshotInfo, type SnapshotKind } from './store.js';
 
@@ -52,6 +53,9 @@ export class HostWorld {
   lastStepError = '';
   private readonly listeners = new Set<(ev: SimEvent[]) => void>();
   private readonly wallIso: () => string;
+  private hasher: AsyncHasher | null = null;
+  /** Bumped when the world object is replaced (rewind), so late hashes of the old one are dropped. */
+  private worldGen = 0;
   /** Snapshot bytes of the newest save, kept in RAM for device-loss style resets. */
   lastSnapshot: { info: SnapshotInfo | null; bytes: Uint8Array } | null = null;
 
@@ -132,6 +136,15 @@ export class HostWorld {
     drainEvents(this.world);
   }
 
+  /** Hash checkpoints in a worker thread running `bundlePath` (dist/host.mjs); inline without one. */
+  useHashWorker(bundlePath: string | undefined): boolean {
+    if (!this.store) return false;
+    this.hasher = new AsyncHasher((tick, h, gen) => {
+      if (gen === this.worldGen && this.store) this.store.append({ kind: 'hash', tick, h });
+    }, bundlePath);
+    return this.hasher.threaded;
+  }
+
   get tick(): number { return this.world.g.tick; }
   get epoch(): number { return this.world.g.epoch; }
 
@@ -187,7 +200,8 @@ export class HostWorld {
       fails = 0;
       done++;
       if (this.store && this.world.g.tick % HASH_EVERY === 0) {
-        this.store.append({ kind: 'hash', tick: this.world.g.tick, h: toHex64(hashWorld(this.world)) });
+        if (this.hasher) this.hasher.submit(this.world, this.worldGen);
+        else this.store.append({ kind: 'hash', tick: this.world.g.tick, h: toHex64(hashWorld(this.world)) });
       }
     }
     const ev = drainEvents(this.world);
@@ -226,6 +240,7 @@ export class HostWorld {
     const before = this.save('beforeRewind');
     const maxEpoch = Math.max(this.world.g.epoch, ...this.store.listSnapshots().map((s) => s.epoch));
     this.world = d.world;
+    this.worldGen++;
     this.world.g.epoch = maxEpoch + 1;
     this.pending = [];
     for (const e of d.pending) this.queue(e);
@@ -233,5 +248,5 @@ export class HostWorld {
     return this.save('auto')!;
   }
 
-  close(): void { this.store?.close(); }
+  close(): void { void this.hasher?.close(); this.hasher = null; this.store?.close(); }
 }
