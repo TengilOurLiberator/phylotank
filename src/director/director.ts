@@ -302,7 +302,8 @@ export class Director implements DirectorModule {
       if (s.subjects.length >= 2 && (s.type === 'hunt' || s.type === 'giantKill' || s.type === 'mating')) {
         const b = this.subjectPos(s.subjects[1], s.pos);
         cx = (a[0] + b[0]) / 2; cy = (a[1] + b[1]) / 2;
-        r = Math.max(r, 0.5 * Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) + 0.3);
+        const ex = a[0] - b[0]; const ey = a[1] - b[1];
+        r = Math.max(r, 0.5 * Math.sqrt(ex * ex + ey * ey) + 0.3);
       } else { cx = a[0]; cy = a[1]; }
       // look-ahead 0.5 s and lead room in the heading direction
       cx += s.vel[0] * 0.5; cy += s.vel[1] * 0.5;

@@ -15,7 +15,7 @@ Owner: director and audio engineer. Design: 06 §6.2, DESIGN R7, R18, R19, R30, 
 | `src/director/captions.ts` | templates per story type, an original pseudo-Latin namer keyed by species id, caption boxes |
 | `src/director/replay.ts` | seeded synthetic logs (quiet reef, predator boom, god session, mixed, edge cases, storm) and the replay harness |
 
-Tests: `tests/director-properties.test.ts` (properties 1 to 9 over three seeds), `tests/director-cost.test.ts` (property 10), `tests/director-unit.test.ts` (springs, van Wijk path, scoring factors, StoryBook, captions).
+Tests: `tests/director-properties.test.ts` (properties 1 to 9 over three seeds of five logs), `tests/director-cost.test.ts` (property 10), `tests/director-unit.test.ts` (springs, van Wijk path, scoring factors, StoryBook, captions, heat-map drift).
 
 ## How to use it (for src/ui)
 

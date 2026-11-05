@@ -176,3 +176,27 @@ describe('captions', () => {
     expect(c.line2).not.toMatch(/\u2014/); // no em-dashes
   });
 });
+
+describe('idle drift (the wallpaper camera)', () => {
+  it('drifts towards lit, lively cells of the heat map and avoids dark ones', () => {
+    const w = 64; const h = 36;
+    const data = new Uint8Array(w * h * 4);
+    // one bright, busy patch in the lower right; everything else dark and empty
+    for (let iy = 26; iy < 32; iy++) for (let ix = 48; ix < 56; ix++) { data[(iy * w + ix) * 4] = 200; data[(iy * w + ix) * 4 + 1] = 255; }
+    const d = createDirector({ mode: 'wallpaper', tankW: 64, tankH: 36, viewWpx: 1920, viewHpx: 1080, seedLo: 3 });
+    d.setCensus({ species: [], heat: data, heatW: w, heatH: h, heatCh: 4 });
+    let near = 0; let n = 0;
+    for (let i = 0; i < 30 * 600; i++) {
+      const f = d.step([], 1 / 30);
+      if (i > 30 * 120 && i % 30 === 0) {
+        n++;
+        // the bright patch is in view (the zoom breathes between the whole tank and one school)
+        const c = f.camera;
+        const hw = 1920 / 2 ** c.zeta / 2; const hh = 1080 / 2 ** c.zeta / 2;
+        if (Math.abs(52 - c.cx) < hw && Math.abs(29 - c.cy) < hh) near++;
+      }
+    }
+    expect(near / n).toBeGreaterThan(0.8);
+    expect(d.shots.every((s) => s.kind === 'drift')).toBe(true);
+  });
+});
