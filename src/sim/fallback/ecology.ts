@@ -152,7 +152,7 @@ function stepLife(world: World, ctx: StepContext): void {
     const room = gutCap - c.qGut[s * 3]!;
     if (room > 0) {
       const jmaxQ = (8 * basalW * dt) / (0.6 * E_B * Q_MASS);
-      const want = Math.min(room, Math.floor(jmaxQ * 0.5));
+      const want = Math.min(room, Math.floor(jmaxQ));
       const take = Math.min(want, f.qP[anchor]!);
       if (take > 0) { f.qP[anchor]! -= take; c.qGut[s * 3]! += take; ch[CH.ingestion]! += take; c.flags[s] = c.flags[s]! | CF.EATING; }
       else c.flags[s] = c.flags[s]! & ~CF.EATING;
@@ -192,8 +192,10 @@ function stepLife(world: World, ctx: StepContext): void {
     // growth: reserve above half the fat capacity builds tissue at C_G (9.2)
     const tissue = c.qTissue[s]!;
     const keep = Math.floor(t.fat[s]! * tissue * REPRO_KEEP);
+    // once mature, half of the surplus goes to growth and the rest is left for reproduction
+    const share = c.maturity[s]! >= t.matureAt[s]! ? 0.5 : 1;
     if (c.maturity[s]! < 1 && c.qReserve[s]! > keep) {
-      const dm = Math.floor(Math.min((c.qReserve[s]! - keep) / C_G, t.grow[s]! * dt * tissue + 1));
+      const dm = Math.floor(Math.min((share * (c.qReserve[s]! - keep)) / C_G, t.grow[s]! * dt * tissue + 1));
       if (dm > 0) {
         const heat = Math.floor((C_G - 1) * dm);
         c.qReserve[s]! -= dm + heat; c.qTissue[s]! += dm; f.qN[cell]! += heat;

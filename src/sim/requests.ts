@@ -7,7 +7,7 @@
  * integrator moves it, the queues are held per world in a WeakMap and only the sim's own
  * fallback modules (src/sim/fallback) can reach them.
  */
-import type { DeathCause, World } from '../core/index.js';
+import { CF, type DeathCause, type World } from '../core/index.js';
 
 export interface BirthRequest {
   /** Creature slot and entity id of the bearer (the parent that pays). */
@@ -54,13 +54,15 @@ export function entityId(world: World, slot: number): number {
   return c.idHi[slot]! * 4294967296 + c.idLo[slot]!;
 }
 
-/** Queue a birth. The request index is assigned here, per parent, in call order. */
+/** Queue a birth. The request index is assigned here, per parent, in call order; sets CF.BUDDING. */
 export function requestBirth(world: World, r: Omit<BirthRequest, 'requestIndex' | 'parentId' | 'mateId'>): void {
   const q = requestsOf(world);
   const parentId = entityId(world, r.parentSlot);
   let idx = 0;
   for (const b of q.births) if (b.parentId === parentId) idx++;
   q.births.push({ ...r, parentId, requestIndex: idx, mateId: r.mateSlot >= 0 ? entityId(world, r.mateSlot) : -1 });
+  // CF.BUDDING marks a pending request; the commit clears it
+  world.cr.c.flags[r.parentSlot] = world.cr.c.flags[r.parentSlot]! | CF.BUDDING;
 }
 
 /** Queue a death. A second request for the same entity in one window is ignored at commit. */
