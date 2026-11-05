@@ -11,7 +11,7 @@
  * Every mass movement is an integer number of quanta, so the ledger stays exact.
  */
 import {
-  C_G, CF, clamp, cos, decodeGenome, FAT_CAPACITY_0, GENOME_FLAG_LEVIATHAN, K_ENDOW, LIFE, MAX_WORLD_MASS_KG, NONE_U32, OVERHEAD_ABS_KG, OVERHEAD_FRACTION, packRGBA, pow, Q_MASS, RNG_STREAM,
+  C_G, CF, clamp, KAPPA_DNA_KG, cos, decodeGenome, FAT_CAPACITY_0, GENOME_FLAG_LEVIATHAN, K_ENDOW, LIFE, MAX_WORLD_MASS_KG, NONE_U32, OVERHEAD_ABS_KG, OVERHEAD_FRACTION, packRGBA, pow, Q_MASS, RNG_STREAM,
   SEGMENT_COLUMNS, sin, T, TAU, TRAITS, decodeQ, clearSlot,
   type AnyTypedArray, type DeathCause, type Genome, type MutationContext, type Phenotype, type StepContext, type V2, type World,
 } from '../core/index.js';
@@ -166,6 +166,8 @@ function birthEnv(world: World, y: number): { depth01: number; tempC: number } {
   return { depth01: clamp((y - world.g.ySurface) / world.preset.heightM, 0, 1), tempC: 14 };
 }
 
+export const birthEnvFor = birthEnv;
+
 export function developOpts(world: World): { maxParts: number; lCeilingM: number } {
   return { maxParts: world.config.maxParts ?? 64, lCeilingM: world.lCeilingM };
 }
@@ -180,11 +182,12 @@ export function newbornKg(world: World, handle: number): number {
 
 /** Integer parts of one offspring's cost (CONTRACT 9.6), in quanta. */
 export interface OffspringCost { tissue: number; reserve: number; growthHeat: number; overhead: number; fee: number; total: number }
-export function offspringCost(mKg: number, feeKg: number): OffspringCost {
+/** `genomeBytes` adds the replication cost KAPPA_DNA x bytes to the overhead (CONTRACT 9.6, G9). */
+export function offspringCost(mKg: number, feeKg: number, genomeBytes = 0): OffspringCost {
   const tissue = Math.max(1, Math.round(mKg / Q_MASS));
   const growthHeat = Math.floor(tissue * (C_G - 1));
   const reserve = Math.floor(tissue * FAT_CAPACITY_0);
-  const overhead = Math.floor((OVERHEAD_FRACTION * mKg + OVERHEAD_ABS_KG) / Q_MASS);
+  const overhead = Math.floor((OVERHEAD_FRACTION * mKg + OVERHEAD_ABS_KG + KAPPA_DNA_KG * genomeBytes) / Q_MASS);
   const fee = Math.floor(feeKg / Q_MASS);
   return { tissue, reserve, growthHeat, overhead, fee, total: tissue + growthHeat + reserve + overhead + fee };
 }
@@ -368,7 +371,7 @@ function commitBirth(world: World, ctx: StepContext, st: SimState, b: BirthReque
     if (traitOf(bearerG, T.SEX_PROB!) >= 0.98) { done(); return; }
     mode = 'bud';
   }
-  const cost = offspringCost(newbornKg(world, c.genome[p]!), feeKg);
+  const cost = offspringCost(newbornKg(world, c.genome[p]!), feeKg, st.store.entry(c.genome[p]!).bytes.length);
   const afford = Math.floor(c.qRepro[p]! / cost.total);
   const n = Math.min(b.n, afford);
   if (n < 1) { done(); return; }
@@ -407,6 +410,9 @@ function commitBirth(world: World, ctx: StepContext, st: SimState, b: BirthReque
       st.deferredBirths += n - i;
       return;
     }
+    const gp = c.generation[p]!;
+    const gd = donorG ? c.generation[b.mateSlot]! : 0;
+    c.generation[slot] = 1 + (gp > gd ? gp : gd);
     // pay (CONTRACT 9.6): tissue and starting reserve to the child, the rest burnt at the parent
     c.qRepro[p]! -= cost.total;
     burnTo(world, px, py, cost.growthHeat + cost.overhead + cost.fee);

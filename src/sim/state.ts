@@ -15,6 +15,11 @@ export interface SimModules {
   physics: PhysicsModule;
   brain: BrainModule;
   ecosystem: EcosystemModule;
+  /**
+   * Per-world genome module factory (request G2: one innovation registry per world). When set,
+   * every world gets its own module from it, built from the saved registry state on a load.
+   */
+  genomeFor?: (savedRegistry?: unknown) => GenomeModule;
 }
 
 /** A governor decision (CONTRACT 4.4). Applied only on ticks with tick % GOVERNOR_EVERY == 0. */

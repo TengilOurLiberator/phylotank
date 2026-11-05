@@ -36,7 +36,7 @@ describe('.ptk world snapshots', () => {
 
   it('keeps scheduled inputs in EVTQ', () => {
     const a = sim.create(CFG);
-    const entry = { tick: 40, kind: 'governor' as const, decision: { brainDiv: 2 as const } };
+    const entry = { tick: 300, kind: 'governor' as const, decision: { brainDiv: 2 as const } };
     schedule(a, entry);
     const { pending } = decodeWorld(encodeWorld(a, { kind: 'auto', journalSeq: 1, pending: [entry] }));
     expect(pending).toEqual([entry]);

@@ -390,6 +390,7 @@ export function endCreature(world: World, ct: CreatureTick, wk: Work, opts: Phys
   c.velX[slot] = px / mTot; c.velY[slot] = py / mTot;
   c.heading[slot] = sg.angle[s0]!; c.angVel[slot] = sg.angVel[s0]!;
   c.nSub[slot] = nSub;
+  c.workJ[slot] = c.workJ[slot]! + wPos; // cumulative positive muscle work (evolab request EV3)
   const mBody = c.massKg[slot]! > 0 ? c.massKg[slot]! : mTot;
   const pIso = iso > 0 ? KAPPA_ISO * basalW(mBody, tempC) * iso / mTot : 0;
   c.powerW[slot] = wPos / ETA_MUSCLE / dt + pIso + ciliaP;

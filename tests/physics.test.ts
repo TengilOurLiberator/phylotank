@@ -229,7 +229,7 @@ describe('physics: contacts and bites', () => {
     ]);
     const a = spawn(tw, physics.loadBody, pred, 10, 5, 0);
     const b = spawn(tw, physics.loadBody, makePhenotype(chain(2, 0.02, () => 0.004)), 10.012, 5, Math.PI / 2);
-    tw.world.seg.c.cmd2[tw.world.cr.c.segStart[a]!] = 1;
+    tw.world.seg.c.cmd3[tw.world.cr.c.segStart[a]! * 2] = 1; // BITE lane
     physics.step(tw.world, tw.ctx); nextTick(tw);
     const bites = drainBites(tw.world);
     expect(bites.length).toBe(1);
@@ -259,7 +259,7 @@ describe('physics: determinism (I2)', () => {
     for (let k = 0; k < 100; k++) {
       for (let s = 0; s < 20; s++) {
         for (let j = 1; j < 5; j++) sg.cmd[c.segStart[s]! + j] = Math.sin(k * 0.3 + s - j);
-        sg.cmd2[c.segStart[s]!] = (k + s) % 20 < 10 ? 1 : 0;
+        sg.cmd3[c.segStart[s]! * 2] = (k + s) % 20 < 10 ? 1 : 0; // BITE lane
       }
       physics.step(tw.world, tw.ctx); nextTick(tw);
     }

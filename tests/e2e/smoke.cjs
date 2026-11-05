@@ -75,7 +75,7 @@ function serve() {
       await p.close();
     }
     // the same page served by the Node host streams over the WebSocket instead of a worker
-    const host = spawn(process.execPath, [path.join(dist, 'host.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const host = spawn(process.execPath, [path.join(dist, 'host.mjs'), '--port', '0', '--memory'], { stdio: ['ignore', 'pipe', 'inherit'] });
     try {
       const port = await new Promise((resolve, reject) => {
         host.stdout.on('data', (d) => { const m = /127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); });

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phylotank render test</title>
+<style>html,body{margin:0;background:#000;color:#9fd8e8;font:13px system-ui,sans-serif}canvas{display:block}</style>
+</head>
+<body>
+<!-- Visual test page for src/render (bundle: render-test.js, built by tests/render/harness.mjs).
+     Open with ?scene=<name>&t=<seconds>&mode=<mode> to view one scene by hand. -->
+<script src="render-test.js"></script>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get('scene')) window.renderScene(q.get('scene'), { t: Number(q.get('t') || 3), mode: q.get('mode') || 'screensaver' });
+</script>
+</body>
+</html>

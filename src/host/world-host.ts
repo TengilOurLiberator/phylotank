@@ -40,6 +40,7 @@ export interface HostWorldOptions {
 function toEntry(r: JournalRecord): JournalEntry | null {
   if (r.kind === 'god') return { tick: r.tick, kind: 'god', ev: r.ev };
   if (r.kind === 'governor') return { tick: r.tick, kind: 'governor', decision: r.decision };
+  if (r.kind === 'release') return { tick: r.tick, kind: 'release', release: r.release };
   return null;
 }
 
@@ -162,7 +163,9 @@ export class HostWorld {
   schedule(e: JournalEntry): void {
     if (e.tick < this.world.g.tick) throw new Error(`cannot schedule for past tick ${e.tick}`);
     if (this.store) {
-      const rec: JournalRecord = e.kind === 'god' ? { kind: 'god', tick: e.tick, ev: e.ev } : { kind: 'governor', tick: e.tick, decision: e.decision };
+      const rec: JournalRecord = e.kind === 'god' ? { kind: 'god', tick: e.tick, ev: e.ev }
+        : e.kind === 'governor' ? { kind: 'governor', tick: e.tick, decision: e.decision }
+        : { kind: 'release', tick: e.tick, release: e.release };
       this.store.append(rec);
     }
     this.queue(e);
