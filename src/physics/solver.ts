@@ -10,11 +10,11 @@
  * the body by force balance (resistive force theory), not by inertia.
  */
 import {
-  DT, GRAVITY, KIND, NU_WATER, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
+  DT, GRAVITY, KIND, NU_WATER, PI, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
   K_BOLTZMANN_EV, T_REF_K, KLEIBER_EXP, pow, type World,
 } from '../core/index.js';
-import { CILIA_SLIP, ETA_CILIA, ETA_MUSCLE, GAUSS_XI, KAPPA_CILIA, KAPPA_ISO, MU_WATER, Q10_MUSCLE } from './constants.js';
-import { addedMass, isPlate, segVolume } from './body.js';
+import { C_ADDED, CILIA_SLIP, ETA_CILIA, ETA_MUSCLE, GAUSS_XI, KAPPA_CILIA, KAPPA_ISO, MU_WATER, Q10_MUSCLE } from './constants.js';
+import { isPlate, segVolume } from './body.js';
 import { SC, sincos } from './sincos.js';
 import { solveTree } from './tree.js';
 import type { Work } from './work.js';
@@ -180,7 +180,11 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
     const plate = isPlate(sg.kind[i]!);
     let M00 = m; let M01 = 0; let M11 = m; let Ie = sg.inertia[i]!;
     if (ca > 0) {
-      const [mat, man, ia] = addedMass(plate, l, r, span);
+      // added mass (02 §2.2.3), inline to avoid an allocation per segment per substep
+      const sp = span > 0 ? span : 2 * r;
+      const man = C_ADDED * RHO_WATER * PI * (sp / 2) * (sp / 2) * l;
+      const mat = 0.1 * RHO_WATER * PI * r * r * l;
+      const ia = man * l * l / 12;
       const at = ca * mat; const an = ca * man * wk.phi[i]!;
       M00 += at * cs * cs + an * sn * sn;
       M01 += (at - an) * cs * sn;

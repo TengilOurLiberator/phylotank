@@ -48,22 +48,6 @@ function inv3(M: Float64Array, o: number): void {
   M[o + 6] = C * r; M[o + 7] = -(a * h - b * g) * r; M[o + 8] = (a * e - b * d) * r;
 }
 
-const T9 = new Float64Array(9);
-/** D[od] -= sgn * X^T Minv X (X at ox, Minv at om); or with transposeOuter: X Minv X^T. */
-function subQuad(D: Float64Array, od: number, X: Float64Array, ox: number, Mi: Float64Array, om: number, outer: boolean, sgn: number): void {
-  // T = Minv * (outer ? X^T : X)
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
-    let s = 0;
-    for (let k = 0; k < 3; k++) s += Mi[om + r * 3 + k]! * (outer ? X[ox + c * 3 + k]! : X[ox + k * 3 + c]!);
-    T9[r * 3 + c] = s;
-  }
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
-    let s = 0;
-    for (let k = 0; k < 3; k++) s += (outer ? X[ox + r * 3 + k]! : X[ox + k * 3 + r]!) * T9[k * 3 + c]!;
-    D[od + r * 3 + c] = D[od + r * 3 + c]! - sgn * s;
-  }
-}
-
 /**
  * Solve all joints of the creature with segments [s0, s0 + n) for one substep.
  * Applies the position and angle corrections and records the muscle torque delivered.
@@ -123,8 +107,20 @@ export function solveTree(
     const i = s0 + k; const p = s0 + sg.parent[i]!;
     // body i is complete (its child joints were processed): invert
     inv3(DB, i * 9);
-    // joint i: D_J -= -(Jc D_B^-1 Jc^T) i.e. D_J = -alpha - Jc DBinv Jc^T
-    subQuad(DJ, i * 9, JC, i * 9, DB, i * 9, true, 1);
+    // joint i: D_J = -alpha - Jc DBinv Jc^T, with Jc = [[-1, 0, c], [0, -1, d], [0, 0, 1]]
+    {
+      const o = i * 9;
+      const c = JC[o + 2]!; const d = JC[o + 5]!;
+      const B00 = DB[o]!; const B01 = DB[o + 1]!; const B02 = DB[o + 2]!; const B11 = DB[o + 4]!; const B12 = DB[o + 5]!; const B22 = DB[o + 8]!;
+      const q00 = B00 - 2 * c * B02 + c * c * B22;
+      const q01 = B01 - d * B02 - c * B12 + c * d * B22;
+      const q02 = -B02 + c * B22;
+      const q11 = B11 - 2 * d * B12 + d * d * B22;
+      const q12 = -B12 + d * B22;
+      DJ[o] = DJ[o]! - q00; DJ[o + 1] = DJ[o + 1]! - q01; DJ[o + 2] = DJ[o + 2]! - q02;
+      DJ[o + 3] = DJ[o + 3]! - q01; DJ[o + 4] = DJ[o + 4]! - q11; DJ[o + 5] = DJ[o + 5]! - q12;
+      DJ[o + 6] = DJ[o + 6]! - q02; DJ[o + 7] = DJ[o + 7]! - q12; DJ[o + 8] = DJ[o + 8]! - B22;
+    }
     // y_J = C + Jc DBinv y_B
     {
       const o = i * 9; const b = i * 3;
@@ -135,7 +131,18 @@ export function solveTree(
     }
     inv3(DJ, i * 9);
     // parent body: D_B -= -(Jp^T DJinv Jp) i.e. D_B = A - Jp^T DJinv Jp ; y_B += Jp^T DJinv y_J
-    subQuad(DB, p * 9, JP, i * 9, DJ, i * 9, false, 1);
+    // parent body: D_B -= Jp^T DJinv Jp, with Jp = [[1, 0, a], [0, 1, b], [0, 0, -1]]
+    {
+      const o = i * 9; const op = p * 9;
+      const a = JP[o + 2]!; const b = JP[o + 5]!;
+      const G00 = DJ[o]!; const G01 = DJ[o + 1]!; const G02 = DJ[o + 2]!; const G11 = DJ[o + 4]!; const G12 = DJ[o + 5]!; const G22 = DJ[o + 8]!;
+      const e02 = a * G00 + b * G01 - G02;
+      const e12 = a * G01 + b * G11 - G12;
+      const e22 = a * a * G00 + 2 * a * b * G01 - 2 * a * G02 + b * b * G11 - 2 * b * G12 + G22;
+      DB[op] = DB[op]! - G00; DB[op + 1] = DB[op + 1]! - G01; DB[op + 2] = DB[op + 2]! - e02;
+      DB[op + 3] = DB[op + 3]! - G01; DB[op + 4] = DB[op + 4]! - G11; DB[op + 5] = DB[op + 5]! - e12;
+      DB[op + 6] = DB[op + 6]! - e02; DB[op + 7] = DB[op + 7]! - e12; DB[op + 8] = DB[op + 8]! - e22;
+    }
     {
       const o = i * 9; const b = i * 3;
       const t0 = DJ[o]! * YJ[b]! + DJ[o + 1]! * YJ[b + 1]! + DJ[o + 2]! * YJ[b + 2]!;
