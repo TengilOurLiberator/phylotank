@@ -12,14 +12,14 @@ import { describe, expect, it } from 'vitest';
 import { runHeadless } from '../src/sim/runner.js';
 import type { SimConfig } from '../src/sim/index.js';
 
-const GOLDEN_1H = { hash: 'a68d9439482f9bf9', digest: 'e5ff2a312f372339' };
+const GOLDEN_1H = { hash: '13182824b969a68f', digest: 'e5ff2a312f372339' };
 
 const config: SimConfig = {
   preset: 'small', seedLo: 7, seedHi: 1, backend: 'cpu', agentCap: 1024,
   founders: [{ template: 'motefly', count: 200 }],
 };
 
-// PT_FAST=1 skips this test (about 80 to 150 s) for quick local loops; CI runs it.
+// PT_FAST=1 skips this test (about 80 s alone, up to 5 min on a loaded machine) for quick local loops; CI runs it.
 describe.skipIf(process.env.PT_FAST === '1')('sim acceptance: 1 simulated hour', () => {
   it('runs 108,000 ticks of budding creatures with an exact ledger and the golden hash', () => {
     const { summary } = runHeadless(config, { ticks: 108_000, auditEvery: 10 });
@@ -35,5 +35,5 @@ describe.skipIf(process.env.PT_FAST === '1')('sim acceptance: 1 simulated hour',
     expect(summary.auditFailures).toEqual([]);
     // deterministic
     expect({ hash: summary.hash, digest: summary.digest }).toEqual(GOLDEN_1H);
-  }, 600_000);
+  }, 1_200_000);
 });

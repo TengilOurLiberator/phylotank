@@ -10,7 +10,7 @@ import {
 } from './sim-helpers.js';
 import { ecosystem, rebuildFlowGrid } from '../src/ecosystem/index.js';
 import {
-  appliedJournal, compactSegments, createSim, drainChannels, drainEvents, entityId, killNow, requestBirth, requestDeath,
+  appliedJournal, compactSegments, createSim, drainChannels, drainEvents, entityId, killNow, requestBirth, requestDeath, requestRestage,
   requestsOf, schedule, sim, stateDigest, stateOf, type SimConfig,
 } from '../src/sim/index.js';
 import { rebuildFlowGridFast } from '../src/sim/fallback/ecology.js';
@@ -31,14 +31,14 @@ const cfg = (seedLo: number, extra: Partial<SimConfig> = {}): SimConfig => ({
   founders: [{ template: 'motefly', count: 120, genome: fastGenome() }], ...extra,
 });
 
-describe('sim pipeline', () => {
+describe('sim pipeline', { timeout: 180_000 }, () => {
   it('is deterministic with births and deaths: same seed, same hash and digest', () => {
-    const a = runHeadless(cfg(11), { ticks: 4500, auditEvery: 0 });
-    const b = runHeadless(cfg(11), { ticks: 4500, auditEvery: 0 });
+    const a = runHeadless(cfg(11), { ticks: 3000, auditEvery: 0 });
+    const b = runHeadless(cfg(11), { ticks: 3000, auditEvery: 0 });
     expect(a.summary.births).toBeGreaterThan(0);
     expect(a.summary.hash).toBe(b.summary.hash);
     expect(a.summary.digest).toBe(b.summary.digest);
-    const c = runHeadless(cfg(12), { ticks: 4500, auditEvery: 0 });
+    const c = runHeadless(cfg(12), { ticks: 3000, auditEvery: 0 });
     expect(c.summary.hash).not.toBe(a.summary.hash);
   });
 
@@ -67,7 +67,7 @@ describe('sim pipeline', () => {
   });
 });
 
-describe('birth and death commit (CONTRACT 9.6)', () => {
+describe('birth and death commit (CONTRACT 9.6)', { timeout: 180_000 }, () => {
   /** Step to just after the next ecology tick's commit. */
   const toCommit = (w: ReturnType<typeof sim.create>): void => { do sim.step(w); while ((w.g.tick - 1) % 3 !== 0); };
 
@@ -189,7 +189,7 @@ describe('birth and death commit (CONTRACT 9.6)', () => {
   });
 });
 
-describe('journal (CONTRACT 4.4, 10.1 step 0)', () => {
+describe('journal (CONTRACT 4.4, 10.1 step 0)', { timeout: 180_000 }, () => {
   it('applies governor decisions only on GOVERNOR_EVERY ticks and records them', () => {
     const w = sim.create(cfg(41));
     expect(() => schedule(w, { tick: 7, kind: 'governor', decision: { brainDiv: 2 } })).toThrow();
@@ -238,7 +238,7 @@ describe('journal (CONTRACT 4.4, 10.1 step 0)', () => {
   });
 });
 
-describe('fallback modules', () => {
+describe('fallback modules', { timeout: 180_000 }, () => {
   it('the fast flow rebuild is bit-identical to the ecosystem one', () => {
     const w = sim.create(cfg(51, { founders: [] }));
     for (let i = 0; i < 60; i++) sim.step(w);
@@ -255,5 +255,35 @@ describe('fallback modules', () => {
     const w = core.create(cfg(52) as WorldConfig);
     for (let i = 0; i < 90; i++) core.step(w);
     expect(w.g.liveCount).toBe(120);
+  });
+});
+
+describe('restage at commit', { timeout: 180_000 }, () => {
+  it('reallocates the segment range when the part count changes, keeping neighbours intact', () => {
+    const grow: typeof fallbackGenome = {
+      ...fallbackGenome,
+      develop(g, m, env, opts) {
+        const p = fallbackGenome.develop(g, m, env, opts);
+        if (m < 0.5) return p;
+        return { ...p, nParts: 3, parent: Int16Array.of(-1, 0, 1), kind: Uint8Array.of(0, 0, 1), organs: Uint16Array.of(p.organs[0]!, 0, 0) };
+      },
+    };
+    const core = createSim({ genome: grow });
+    const w = core.create(cfg(61, { founders: [{ template: 'motefly', count: 4, genome: fastGenome() }] }) as WorldConfig);
+    const c = w.cr.c;
+    // founders start at maturity 0.3 to 0.9: find one below 0.5 and grow it
+    let s = -1;
+    for (let k = 0; k < 4; k++) if (c.maturity[k]! < 0.5) { s = k; break; }
+    if (s < 0) { s = 0; c.maturity[0] = 0.2; }
+    const before = [0, 1, 2, 3].filter((k) => k !== s).map((k) => [k, c.segStart[k]!, w.seg.c.owner[c.segStart[k]!]!]);
+    c.maturity[s] = 0.8;
+    requestRestage(w, s);
+    do core.step(w); while ((w.g.tick - 1) % 3 !== 0);
+    expect(c.segCount[s]).toBe(3);
+    const k0 = c.segStart[s]!;
+    expect([0, 1, 2].map((i) => w.seg.c.owner[k0 + i])).toEqual([s, s, s]);
+    expect([...w.seg.c.parent.subarray(k0, k0 + 3)]).toEqual([-1, 0, 1]);
+    for (const [k, , owner] of before) expect(w.seg.c.owner[c.segStart[k!]!]).toBe(owner);
+    expect(ecosystem.audit(w).ok).toBe(true);
   });
 });

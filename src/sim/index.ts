@@ -26,7 +26,7 @@ import { initState, stateOf, type GovernorDecision, type JournalEntry, type Rele
 export type { GovernorDecision, JournalEntry, ReleaseEntry, SimModules };
 export type { ReleaseResult };
 export { allocCreature, compactSegments, freeCreature, killNow, offspringCost, release } from './commit.js';
-export { entityId, requestBirth, requestDeath, requestsOf } from './requests.js';
+export { entityId, requestBirth, requestDeath, requestRestage, requestsOf } from './requests.js';
 export type { BirthRequest, DeathRequest } from './requests.js';
 export { stateOf } from './state.js';
 

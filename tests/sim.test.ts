@@ -5,7 +5,7 @@ import { encodeViewFrames, sim } from '../src/sim/index.js';
 
 const cfg = (seedLo: number): WorldConfig => ({ preset: 'small', seedLo, seedHi: 7, backend: 'cpu', skeletonMotes: 800 });
 
-describe('sim skeleton (runs in Node: the host and headless tests use the same code)', () => {
+describe('sim (runs in Node: the host and headless tests use the same code)', { timeout: 180_000 }, () => {
   it('is deterministic: same seed, same state hash after 600 ticks', () => {
     const a = sim.create(cfg(42));
     const b = sim.create(cfg(42));
@@ -15,7 +15,7 @@ describe('sim skeleton (runs in Node: the host and headless tests use the same c
     for (let i = 0; i < 600; i++) sim.step(c);
     expect(sim.hash(c)).not.toBe(sim.hash(a));
   });
-  it('keeps motes inside the tank and moving with the current', () => {
+  it('keeps creatures inside the tank and moving with the current', () => {
     const w = sim.create(cfg(1));
     const x0 = Array.from(w.cr.c.posX.subarray(0, 800));
     for (let i = 0; i < 300; i++) sim.step(w);

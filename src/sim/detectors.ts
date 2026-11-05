@@ -35,6 +35,9 @@ export interface DetectorOptions {
 interface Hunt { pred: number; prey: number; start: number; last: number; pos: V2 }
 interface School { n: number; centroid: V2 }
 
+/** x * x (not `**`, whose result the spec leaves implementation-approximated). */
+function sq(x: number): number { return x * x; }
+
 export class Detectors {
   private readonly o: Required<DetectorOptions>;
   private readonly hunts = new Map<number, Hunt>();
@@ -117,7 +120,7 @@ export class Detectors {
       for (const p of this.deathsInWindow) { cx += p[0]; cy += p[1]; }
       cx /= x; cy /= x;
       let r2 = 0;
-      for (const p of this.deathsInWindow) r2 += (p[0] - cx) ** 2 + (p[1] - cy) ** 2;
+      for (const p of this.deathsInWindow) r2 += sq(p[0] - cx) + sq(p[1] - cy);
       out.push({ k: 'massDeath', centroid: [cx, cy], radius: Math.sqrt(r2 / x), deaths: x, z: (x - this.mean) / Math.max(sd, 1) });
     }
     // EMA baseline over about 10 windows
@@ -193,7 +196,7 @@ export class Detectors {
     for (const members of groups.values()) {
       if (members.length < this.o.schoolMin) continue;
       let hx = 0, hy = 0;
-      for (const s of members) { const v = Math.sqrt(c.velX[s]! ** 2 + c.velY[s]! ** 2) || 1; hx += c.velX[s]! / v; hy += c.velY[s]! / v; }
+      for (const s of members) { const v = Math.sqrt(sq(c.velX[s]!) + sq(c.velY[s]!)) || 1; hx += c.velX[s]! / v; hy += c.velY[s]! / v; }
       const pol = Math.sqrt(hx * hx + hy * hy) / members.length;
       if (pol < this.o.schoolPolarisation) continue;
       const sp = c.species[members[0]!]!;
@@ -205,7 +208,7 @@ export class Detectors {
       for (const s of members) { mx += c.posX[s]!; my += c.posY[s]!; }
       mx /= members.length; my /= members.length;
       let r2 = 0;
-      for (const s of members) r2 += (c.posX[s]! - mx) ** 2 + (c.posY[s]! - my) ** 2;
+      for (const s of members) r2 += sq(c.posX[s]! - mx) + sq(c.posY[s]! - my);
       const phase = this.schools.has(sp) ? 'update' : 'start';
       this.schools.set(sp, { n: members.length, centroid: [mx, my] });
       out.push({

@@ -38,13 +38,15 @@ export interface SimRequests {
   deaths: DeathRequest[];
   /** Births deferred by the agent cap or a full pool; retried first at the next commit. */
   deferred: BirthRequest[];
+  /** Creature slots whose body should be regrown at their current maturity (CONTRACT 10.1 step 4). */
+  restages: number[];
 }
 
 const queues = new WeakMap<World, SimRequests>();
 
 export function requestsOf(world: World): SimRequests {
   let q = queues.get(world);
-  if (!q) { q = { births: [], deaths: [], deferred: [] }; queues.set(world, q); }
+  if (!q) { q = { births: [], deaths: [], deferred: [], restages: [] }; queues.set(world, q); }
   return q;
 }
 
@@ -70,6 +72,11 @@ export function requestDeath(world: World, slot: number, cause: DeathCause, tick
   const d: DeathRequest = { slot, id: entityId(world, slot), cause, tick };
   if (killer !== undefined) d.killer = killer;
   requestsOf(world).deaths.push(d);
+}
+
+/** Queue a restage (the body regrown at the creature's current maturity) for the next commit. */
+export function requestRestage(world: World, slot: number): void {
+  requestsOf(world).restages.push(slot);
 }
 
 /** Total order for the birth commit: (parentEntityId, requestIndex). */

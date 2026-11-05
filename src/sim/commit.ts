@@ -4,7 +4,8 @@
  * Order at the end of every ecology tick:
  *   1. deaths, in (entityId, request tick) order: ALIVE becomes CARCASS, its pools stay;
  *   2. empty carcasses are freed, in ascending slot order;
- *   3. births (deferred ones from earlier commits first by their older tick), in
+ *   3. restages, in ascending slot order;
+ *   4. births (deferred ones from earlier commits first by their older tick), in
  *      (parentEntityId, tick, requestIndex) order: genome operators keyed by the child's new
  *      entity id, develop, physics.loadBody, brain.allocate, species assignment.
  * Every mass movement is an integer number of quanta, so the ledger stays exact.
@@ -98,6 +99,14 @@ export function allocSegments(world: World, slot: number, n: number): boolean {
   world.cr.c.segStart[slot] = start;
   world.cr.c.segCount[slot] = n;
   return true;
+}
+
+/** Free segment slots in the whole pool (below and above the high-water mark). */
+export function freeSegmentCount(world: World): number {
+  const owner = world.seg.c.owner;
+  let n = world.seg.capacity - world.seg.highWater;
+  for (let k = 0; k < world.seg.highWater; k++) if (owner[k] === NONE_U32) n++;
+  return n;
 }
 
 export function freeSegments(world: World, slot: number): void {
@@ -315,12 +324,36 @@ export function commitBirthsAndDeaths(world: World, ctx: StepContext): void {
     }
   }
 
-  // 3. births
+  // 3. restages, in ascending slot order: regrow the body, reallocating segments if the part count changed
+  if (q.restages.length > 0) {
+    const slots = [...new Set(q.restages.splice(0, q.restages.length))].sort((a, b) => a - b);
+    for (const s of slots) if (c.life[s] === LIFE.ALIVE) restage(world, s);
+  }
+
+  // 4. births
   if (q.births.length === 0 && q.deferred.length === 0) return;
   const births = q.deferred.splice(0, q.deferred.length).concat(q.births.splice(0, q.births.length));
   births.sort((a, b) => a.parentId - b.parentId || a.tick - b.tick || cmpBirth(a, b));
   const feeKg = currentFeeKg(world);
   for (const b of births) commitBirth(world, ctx, st, b, feeKg);
+}
+
+function restage(world: World, slot: number): void {
+  const st = stateOf(world);
+  const c = world.cr.c;
+  const g = st.store.get(c.genome[slot]!);
+  const ph = st.modules.genome.develop(g, c.maturity[slot]!, birthEnv(world, c.posY[slot]!), developOpts(world));
+  const old = c.segCount[slot]!;
+  if (ph.nParts !== old) {
+    // no room for the grown body even after compaction: keep the old body until there is
+    if (ph.nParts > old && freeSegmentCount(world) + old < ph.nParts) return;
+    freeSegments(world, slot);
+    allocSegments(world, slot, ph.nParts);
+    const sg = world.seg.c;
+    const k0 = c.segStart[slot]!;
+    for (let i = 0; i < ph.nParts; i++) { sg.parent[k0 + i] = ph.parent[i]!; sg.kind[k0 + i] = ph.kind[i]!; sg.organs[k0 + i] = ph.organs[i]!; }
+  }
+  st.modules.physics.restage(world, slot, ph);
 }
 
 function commitBirth(world: World, ctx: StepContext, st: SimState, b: BirthRequest, feeKg: number): void {
@@ -363,7 +396,7 @@ function commitBirth(world: World, ctx: StepContext, st: SimState, b: BirthReque
       clamp(px + r * cos(ang), 0.02, world.preset.widthM - 0.02),
       clamp(py + r * sin(ang), world.g.ySurface + 0.02, world.preset.heightM - 0.02),
     ];
-    const [species, isNew] = st.species.assign(c.species[p]!, childG, handle, gm.distance, ctx.tick, childId, colourOf(childG));
+    const [species, isNew] = st.species.assign(c.species[p]!, childG, handle, (a, b) => gm.distance(a, b), ctx.tick, childId, colourOf(childG));
     const slot = spawn(world, ctx, {
       handle, species, pos, heading: d.u01() * TAU, maturity: 0, qTissue: cost.tissue, qReserve: cost.reserve, flags: 0,
     });

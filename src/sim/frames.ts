@@ -39,6 +39,9 @@ export function paletteIndex(rgba: number): number {
 /** Record flags in BODY_FRAME and BODY_ENTER (sim-defined, documented in docs/modules/sim.md). */
 export const BODY_FLAG = { JUVENILE: 1, EATING: 2, HURT: 4, MATING: 8, CARCASS: 16, LEVIATHAN: 32, BUDDING: 64, FOUNDER: 128 } as const;
 
+/** x * x (not `**`, whose result the spec leaves implementation-approximated). */
+function sq(x: number): number { return x * x; }
+
 function bodyFlags(world: World, s: number): number {
   const f = world.cr.c.flags[s]!;
   return ((f & CF.JUVENILE) ? BODY_FLAG.JUVENILE : 0) | ((f & CF.EATING) ? BODY_FLAG.EATING : 0)
@@ -218,7 +221,7 @@ export class ViewStream {
       for (let s = 0; s < nSlots; s++) {
         if (!this.bodies.has(s)) continue;
         present[s >> 3] = present[s >> 3]! | (1 << (s & 7));
-        const v = Math.sqrt(c.velX[s]! ** 2 + c.velY[s]! ** 2);
+        const v = Math.sqrt(sq(c.velX[s]!) + sq(c.velY[s]!));
         records.push({
           x: quantRel(c.posX[s]!, r[0], r[2]), y: quantRel(c.posY[s]!, r[1], r[3]),
           heading: Math.round(((wrapAngle(c.heading[s]!) + TAU) % TAU) / TAU * 256) & 255,

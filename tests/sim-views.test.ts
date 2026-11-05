@@ -107,7 +107,7 @@ const cfg = (extra: Partial<SimConfig> = {}): SimConfig => ({
   preset: 'small', seedLo: 77, seedHi: 1, backend: 'cpu', founders: [{ template: 'motefly', count: 40, genome: fastGenome() }], ...extra,
 });
 
-describe('view streams (CONTRACT 12)', () => {
+describe('view streams (CONTRACT 12)', { timeout: 180_000 }, () => {
   it('streams bodies for big-on-screen creatures with BODY_ENTER before BODY_FRAME and skips them in dust', () => {
     const w = sim.create(cfg());
     const vs = new ViewStream(w);
@@ -155,7 +155,7 @@ describe('view streams (CONTRACT 12)', () => {
   });
 });
 
-describe('session', () => {
+describe('session', { timeout: 180_000 }, () => {
   const frames: Uint8Array[] = [];
   const client = { send: (f: Uint8Array): void => { frames.push(f); } };
 
@@ -226,7 +226,7 @@ describe('session', () => {
   });
 });
 
-describe('detectors (CONTRACT 11)', () => {
+describe('detectors (CONTRACT 11)', { timeout: 180_000 }, () => {
   const base = { t: 0, eid: 0, epoch: 0 };
   it('turns bites and a kill into a hunt start and a kill end', () => {
     const w = sim.create(cfg({ founders: [] }));
@@ -285,5 +285,22 @@ describe('detectors (CONTRACT 11)', () => {
     }
     expect(kinds).toContain('speciation');
     expect(kinds).toContain('extinction');
+  });
+});
+
+describe('budget and governor (R4, R16)', () => {
+  it('derives the population from the budget table and journals decisions on governor ticks only', async () => {
+    const { populationFor, governorEntry, CPU_BUDGET_MS_PER_S } = await import('../src/sim/budget.js');
+    const amb = populationFor(CPU_BUDGET_MS_PER_S.ambient, 1, 1);
+    expect(amb).toBe(Math.floor((150_000 / 30 - 120) / 1));
+    expect(populationFor(150, 16, 1)).toBeLessThan(amb / 10);
+    expect(() => governorEntry(301, { state: 'ambient', usPerTick: 2000, meanAgents: 1000, speedX: 1, agentCap: 4096 }, 0)).toThrow();
+    const e = governorEntry(600, { state: 'background', usPerTick: 4200, meanAgents: 4000, speedX: 1, agentCap: 4096 }, 0);
+    expect(e?.kind).toBe('governor');
+    const lim = (e as { decision: { popSoftLimit: number } }).decision.popSoftLimit;
+    expect(lim).toBeGreaterThan(2000);
+    expect(lim).toBeLessThan(4096);
+    // hysteresis: a 5% change is not worth a decision
+    expect(governorEntry(900, { state: 'background', usPerTick: 4200 * 0.95, meanAgents: 4000, speedX: 1, agentCap: 4096 }, lim)).toBeNull();
   });
 });

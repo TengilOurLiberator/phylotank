@@ -25,3 +25,7 @@ Owner: sim engineer. Design: [sections/05-architecture.md](../../docs/sections/0
 ## Acceptance tests
 
 `tests/sim.test.ts` (determinism, Node runnability, ledger exactness, stable dust slots); v0.1 acceptance 4 (same seed, 10,000 ticks, two runs: identical hash) as a golden-replay fixture once real creatures exist; a 2,000-agent world at 30 ticks per second on at most 2 cores (v0.1 acceptance 2).
+
+## Status (phase 1)
+
+The phase-0 motes are gone. `createSim(modules)` runs the CONTRACT 10.1 pipeline over the contract interfaces, with local fallbacks in `fallback/` for the modules still being built; budding (and sexual) creatures eat, grow, breed and die with an exact ledger. See [docs/modules/sim.md](../../docs/modules/sim.md) for the design notes and how to swap in the real modules, [docs/spikes/sim-1.md](../../docs/spikes/sim-1.md) for measured costs, and [docs/contract-requests/sim.md](../../docs/contract-requests/sim.md) for the queue, store and species interfaces the contract is missing.

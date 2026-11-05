@@ -21,7 +21,7 @@ import {
 import { ageingHazard, ecosystem as realEcosystem, FLOW_MODES, FLOW_TAU_S } from '../../ecosystem/index.js';
 import { dayPhase } from '../clocks.js';
 import { burnTo, coarseCell, currentFeeKg, newbornKg, offspringCost } from '../commit.js';
-import { requestBirth, requestDeath } from '../requests.js';
+import { requestBirth, requestDeath, requestRestage } from '../requests.js';
 import { CH, stateOf } from '../state.js';
 import { capsuleMassKg, lengthAt } from './genome.js';
 
@@ -211,9 +211,7 @@ function stepLife(world: World, ctx: StepContext): void {
       if (c.length[s]! > 1.04 * t.stageLen[s]!) {
         t.stageLen[s] = c.length[s]!;
         c.stage[s] = c.stage[s]! + 1;
-        const g = st.store.get(c.genome[s]!);
-        const ph = st.modules.genome.develop(g, m, { depth01: 0, tempC }, { maxParts: 64, lCeilingM: world.lCeilingM });
-        st.modules.physics.restage(world, s, ph);
+        requestRestage(world, s);
       }
       if (m >= t.matureAt[s]!) c.flags[s] = c.flags[s]! & ~CF.JUVENILE;
     }
