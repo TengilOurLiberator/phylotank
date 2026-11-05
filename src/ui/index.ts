@@ -22,6 +22,8 @@ import { detectLocale, setLocale, t } from './i18n.js';
 import { MockSimLink } from './mock-sim.js';
 import { GodApp } from './god/app.js';
 import { HostFirstLink } from './link.js';
+import { TvOverlay } from './tv.js';
+import { NameBook } from './naming.js';
 
 export const MODES: readonly ViewMode[] = ['wallpaper', 'screensaver', 'tv', 'god'];
 
@@ -71,6 +73,14 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   const captions = profile.captions && q.get('captions') !== 'off' ? new CaptionScheduler(profile.captions.holdS, profile.captions.minGapS) : null;
   const captionLayer = captions ? new CaptionLayer(root, profile) : null;
   let lastSpeed: unknown = 1;
+  // user species names win in every view (07 §6.4); this viewer's mirror of the host's record
+  const names = new NameBook();
+  const nameOf = (id: number): string => { const n = names.get(id); return n ? `${n.genus} ${n.epithet}` : species.get(id) ?? `species ${id}`; };
+  const tv = mode === 'tv' ? new TvOverlay(root, {
+    tank: () => renderer.tank, speciesName: nameOf,
+    viewSize: () => ({ w: canvas.width, h: canvas.height }),
+    setSound: (v) => { const a = audio as typeof audio & { setVolume?: (x: number) => void }; if (v === 0) a.stop(); else { void a.start(); a.setVolume?.(v / 10); } },
+  }) : null;
   let epoch = -1;
 
   let lastTick = 0;
@@ -81,13 +91,15 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   } else {
     link.onFrame((f) => {
       renderer.ingest(f);
+      tv?.ingest(f);
       try { lastTick = readHeader(f).tick; } catch { /* ignore */ }
       if (!captions) return;
       try {
         const hd = readHeader(f);
         if (hd.type === FRAME.WELCOME) {
-          const w = decodeCborFrame(f).payload as { tank?: { h: number }; epoch?: number; speciesTable?: { id: number; name: string }[] };
+          const w = decodeCborFrame(f).payload as { tank?: { h: number }; epoch?: number; worldId?: string; speciesTable?: { id: number; name: string }[] };
           if (w.tank) tankH = w.tank.h;
+          if (w.worldId !== undefined) names.load(String(w.worldId));
           for (const s of w.speciesTable ?? []) species.set(s.id, s.name);
           if (epoch >= 0 && w.epoch !== undefined && w.epoch !== epoch) captions.offer({ text: t('caption.rewound', { when: '' }).trim(), priority: 1, at: performance.now() / 1000 });
           if (w.epoch !== undefined) epoch = w.epoch;
@@ -107,7 +119,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
           const evs = decodeCborFrame(f).payload as unknown as SimEvent[];
           const now = performance.now() / 1000;
           for (const ev of Array.isArray(evs) ? evs : []) {
-            const c = captionFor(ev, (id) => species.get(id) ?? `species ${id}`, tankH, (id) => entitySpecies.get(id));
+            const c = captionFor(ev, nameOf, tankH, (id) => entitySpecies.get(id));
             if (c) captions.offer({ ...c, at: now });
           }
         }
@@ -150,7 +162,9 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
     } else {
       const drift = idleDrift(tS, renderer.tank.w, renderer.tank.h, canvas.width, canvas.height);
       cam = profile.camera === 'idleDrift' ? drift : director.update([], 0, drift);
-      if (captions && captionLayer) captionLayer.show(captions.update(now / 1000));
+      if (tv) cam = tv.camera(cam, Math.min(0.1, (now - lastFrameAt) / 1000));
+      lastFrameAt = now;
+      if (captions && captionLayer) { const c = captions.update(now / 1000); captionLayer.show(tv && !tv.captionsOn ? null : c); }
     }
     renderer.render(now, cam);
     // VIEWPORT at most 10 Hz when the view moves, ACK at 2 Hz (CONTRACT 12.2)
@@ -163,7 +177,8 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
     }
     if (now - lastAck > 500 && lastTick > 0) { lastAck = now; link.send(encodeAck(lastTick)); }
   };
-  let lastVp = 0, lastAck = 0, lastVpKey = '';
+  let lastVp = 0, lastAck = 0, lastVpKey = '', lastFrameAt = performance.now();
+  if (tv) (window as unknown as { __phylotankTv?: TvOverlay }).__phylotankTv = tv;
   requestAnimationFrame(frame);
 
   return {

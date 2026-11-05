@@ -46,7 +46,7 @@ const report = { onboarding: {}, axe: [], tv: {}, failures: [] };
   const failures = report.failures;
   const shot = async (page, name) => { await page.screenshot({ path: path.join(out, `ui2-${name}.png`) }); console.log('wrote', `ui2-${name}.png`); };
   const newPage = async (url, vp = { width: 1600, height: 900 }) => {
-    const ctx = await browser.newContext({ viewport: vp });
+    const ctx = await browser.newContext({ viewport: vp, bypassCSP: true });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
@@ -256,9 +256,13 @@ const report = { onboarding: {}, axe: [], tv: {}, failures: [] };
       report.tv.controls = controls; report.tv.remoteReached = [...seen];
       if (controls.some((x) => !seen.has(x))) failures.push(`tv remote: unreachable ${controls.filter((x) => !seen.has(x)).join(', ')}`);
       for (const back of ['Escape', 'Backspace', 'GoBack']) {
-        await p.keyboard.press('Enter'); await p.waitForTimeout(150);
-        await p.evaluate(() => { const b = document.querySelector('.tv-card button'); b && b.focus(); });
-        await p.keyboard.press(back); await p.waitForTimeout(250);
+        const shownNow = await p.evaluate(() => window.__phylotankTv.shown);
+        if (!shownNow) { await p.keyboard.press('ArrowUp'); await p.waitForTimeout(150); }
+        if (!(await p.evaluate(() => window.__phylotankTv.shown))) failures.push('tv remote: an arrow key did not summon the overlay');
+        // Playwright has no GoBack key: dispatch it as the TV browser would
+        if (back === 'GoBack') await p.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'GoBack', bubbles: true })));
+        else await p.keyboard.press(back);
+        await p.waitForTimeout(250);
         const vis = await p.evaluate(() => getComputedStyle(document.querySelector('.tv-overlay')).display !== 'none');
         if (vis) failures.push(`tv remote: ${back} did not hide the overlay`);
       }

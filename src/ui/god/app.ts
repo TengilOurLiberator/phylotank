@@ -23,6 +23,7 @@ import { buildWeb, drawWeb, layoutWeb, type WebModel } from './foodweb.js';
 import { checkRename, splitName, type RenameIssue } from '../naming.js';
 import { traitLabel } from '../labels.js';
 import { OnboardingUi } from '../onboarding.js';
+import { GamepadPoller, moveFocus, PAD } from '../gamepad.js';
 import type { SimLink } from '../../core/index.js';
 
 type Panel = 'map' | 'powers' | 'designer' | 'library' | 'stats' | 'bookmarks' | 'settings';
@@ -55,6 +56,8 @@ export class GodApp {
   private toastEl = h('div', { class: 'pt-toast', role: 'status', 'aria-live': 'polite', style: 'display:none' });
   private countEl = h('div', { class: 'pt-count', role: 'timer', 'aria-live': 'assertive', style: 'display:none' });
   private bannerEl = h('div', { class: 'pt-banner', style: 'display:none' });
+  private describeLive = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite' });
+  private describeBtn = h('button', { class: 'pt-describe small' });
   private panel: Panel | null = null;
   private inspOpen = true;
   private cam: Camera = { cx: 16, cy: 9, zeta: 5 };
@@ -75,6 +78,9 @@ export class GodApp {
   readonly knobs: KnobsPanel;
   readonly onb: OnboardingUi | null = null;
   private castsSent = 0;
+  /** Gamepad (07 §6.2, god window column). */
+  readonly pad = new GamepadPoller((b) => this.padButton(b));
+  private lastPadAt = 0;
   uiScale = 1;
   private statsTable = false;
   private statsLog = false;
@@ -145,6 +151,8 @@ export class GodApp {
       this.onRestartTour = () => this.onb?.send({ e: 'reopen' });
       this.build();
     }
+    this.pad.onConnect = (id) => this.toast(t('gp.connected', { name: id.slice(0, 40) }));
+    this.pad.start();
     setInterval(() => this.client.sweep(), 1000);
     window.addEventListener('pagehide', () => this.client.close());
   }
@@ -182,7 +190,12 @@ export class GodApp {
       h('div', { class: 'row', style: 'gap:3px' }, ...(['god', 'life', 'death'] as EvFilter[]).map((f) => this.chip(f))),
       h('div', { class: 'row', style: 'gap:3px' }, ...(['disease', 'records'] as EvFilter[]).map((f) => this.chip(f)))));
     this.mini = h('div', { class: 'pt-mini' }, this.miniCanvas);
-    mount(this.chrome, this.top, this.rail, this.panelEl, this.inspector.el, this.timeEl, this.mini, this.bannerEl, this.countEl, this.toastEl, this.tlCard, this.onb?.el, ...this.dialogs);
+    this.describeBtn.textContent = t('a11y.describe');
+    this.describeBtn.onclick = () => { this.describeLive.textContent = this.describeView(); this.toast(this.describeLive.textContent); };
+    this.placeDescribe();
+    this.canvas.setAttribute('role', 'img');
+    this.canvas.setAttribute('aria-label', t('a11y.viewport'));
+    mount(this.chrome, this.describeBtn, this.describeLive, this.top, this.rail, this.panelEl, this.inspector.el, this.timeEl, this.mini, this.bannerEl, this.countEl, this.toastEl, this.tlCard, this.onb?.el, ...this.dialogs);
     this.inspector.el.classList.toggle('collapsed', !this.inspOpen || this.panel === 'designer');
     this.renderTop();
     this.renderPanel();
@@ -210,8 +223,10 @@ export class GodApp {
     this.inspector.el.classList.toggle('collapsed', !this.inspOpen || p === 'designer');
     this.renderPanel();
     this.layoutMini();
+    this.placeDescribe();
   }
-  toggleInspector(): void { this.inspOpen = !this.inspOpen; store.set('pt.god.insp', this.inspOpen ? '1' : '0'); this.inspector.el.classList.toggle('collapsed', !this.inspOpen || this.panel === 'designer'); }
+  toggleInspector(): void { this.inspOpen = !this.inspOpen; store.set('pt.god.insp', this.inspOpen ? '1' : '0'); this.inspector.el.classList.toggle('collapsed', !this.inspOpen || this.panel === 'designer'); this.placeDescribe(); }
+  private placeDescribe(): void { this.describeBtn.style.right = `${this.inspOpen ? 332 : 12}px`; this.describeBtn.style.display = this.panel === 'designer' ? 'none' : ''; }
 
   // ---------------- top bar ----------------
   private topKey = '';
@@ -812,6 +827,18 @@ export class GodApp {
     const sp = POWER_SPECS[st.power];
     this.cast.target(sp?.targeting === 'circle' ? { kind: 'circle', pos: [wx, wy], radius: this.cast.radius() } : sp?.targeting === 'depthBand' ? { kind: 'depthBand', y0: Math.max(0, wy - 2), y1: wy + 2 } : { kind: 'point', pos: [wx, wy] });
   }
+  /** The "Describe view" sentence (07 §6.1): zone, count, main species, selection. */
+  describeView(): string {
+    const vb = this.viewBox();
+    const [x0, y0] = this.screenToWorld(vb.x, vb.y), [x1, y1] = this.screenToWorld(vb.x + vb.w, vb.y + vb.h);
+    const r = this.client.countWhere((x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+    const zone = t(zoneKey((y0 + y1) / 2, this.client.tank.h));
+    if (r.n === 0) return t('a11y.empty', { zone });
+    const top = [...r.species.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+    const sel = this.client.selected;
+    return sel ? t('a11y.viewSel', { zone, n: r.n, species: this.client.speciesName(top), sel: `${this.client.speciesName(sel.species)} #${sel.id}`, action: sel.action })
+      : t('a11y.view', { zone, n: r.n, species: this.client.speciesName(top) });
+  }
   /** Select the creature nearest the view centre (keyboard inspect). */
   selectCentre(): void {
     const [wx, wy] = this.viewCentre();
@@ -853,7 +880,7 @@ export class GodApp {
   }
 
   private key(e: KeyboardEvent): void {
-    const tg = e.target as HTMLElement;
+    const tg = (e.target ?? document.body) as HTMLElement;
     const typing = tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT');
     if (e.key === 'Escape') {
       if (this.dialogs.length) { this.dialogs[this.dialogs.length - 1]!.remove(); this.dialogs.pop(); return; }
@@ -897,8 +924,42 @@ export class GodApp {
     }
   }
 
+  private padButton(b: number): void {
+    const focus = document.activeElement as HTMLElement | null;
+    const onControl = !!focus && focus !== document.body && this.chrome.contains(focus);
+    switch (b) {
+      case PAD.A: if (onControl) focus!.click(); else this.selectCentre(); break;
+      case PAD.B: this.key(new KeyboardEvent('keydown', { key: 'Escape' })); break;
+      case PAD.X: this.openPanel('powers'); break;
+      case PAD.Y: this.toggleInspector(); break;
+      case PAD.LB: case PAD.RB: {
+        const i = RAIL.findIndex((r) => r[0] === this.panel);
+        const n = (i + (b === PAD.RB ? 1 : -1) + RAIL.length + (i < 0 && b === PAD.LB ? 1 : 0)) % RAIL.length;
+        this.openPanel(RAIL[n]![0]);
+        break;
+      }
+      case PAD.RIGHT: case PAD.DOWN: moveFocus(this.dialogs.length ? this.dialogs[this.dialogs.length - 1]! : this.chrome, 1); break;
+      case PAD.LEFT: case PAD.UP: moveFocus(this.dialogs.length ? this.dialogs[this.dialogs.length - 1]! : this.chrome, -1); break;
+      default: break;
+    }
+  }
+  /** Sticks: left pans, right Y (or LT/RT) zooms, or sets intensity while targeting. */
+  private padSticks(now: number): void {
+    const ps = this.pad.state;
+    const dt = Math.min(0.1, (now - this.lastPadAt) / 1000);
+    this.lastPadAt = now;
+    if (!ps) return;
+    const ppmCss = 2 ** this.cam.zeta / this.dpr();
+    if (ps.lx || ps.ly) { this.cam.cx += ps.lx * (window.innerWidth / ppmCss) * 0.5 * dt; this.cam.cy += ps.ly * (window.innerHeight / ppmCss) * 0.5 * dt; this.follow = -1; }
+    const z = -ps.ry + ps.rt - ps.lt;
+    if (!z) return;
+    if (this.cast.state.s === 'previewing' || this.cast.state.s === 'armed') this.cast.intensity = Math.min(1, Math.max(0, this.cast.intensity + z * 0.5 * dt));
+    else this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 2 ** (z * 1.2 * dt));
+  }
+
   // ---------------- per frame ----------------
   frame(now: number): void {
+    this.padSticks(now);
     if (!this.fitted && this.client.welcome) this.fit();
     if (this.follow >= 0) {
       const p = this.client.positionOf(this.follow);
