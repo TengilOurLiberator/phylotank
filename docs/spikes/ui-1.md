@@ -23,12 +23,12 @@ Other numbers:
 
 - One slider edit (decode, set one locus, canonical re-encode): 97 µs.
 - QR encode of a 1.2 K character string, all eight masks scored: 34 ms (runs only when the share dialog opens).
-- God window bundle (`dist/app.js`, everything: renderer, mock sim, god window, designer, QR): 223 KB minified, **75 KB gzipped**, against the 300 KB gzipped budget (07 §0.3) for the god UI alone.
+- God window bundle (`dist/app.js`, everything: renderer, mock sim, god window, designer, QR): 223 KB minified, **75 KB gzipped** at the time of the spike (233 KB and 79 KB at the end of phase 1), against the 300 KB gzipped budget (07 §0.3) for the god UI alone.
 - Mock sim warm-up of 240 sim seconds with about 1,300 agents: 3.7 s under that load. Cut to 90 sim seconds for page start.
 
 ## What this decides
 
 - **Strings stay uncompressed for now.** Every template's `PTK1.` string is between 869 and 1,364 characters without deflate, under the 2,300-byte QR limit of 07 §2.3 and the 3,000-character cap of UX-T11. `src/core/ptkg.ts` takes a synchronous `Deflate`; the browser's `CompressionStream` is asynchronous, so the UI writes flag 0 (uncompressed) payloads and rejects compressed imports with a clear reason. A small synchronous inflate (or an async variant of `decodePtkg`) is a contract request; evolved genomes near the 16 KB cap will need it.
-- **No framework.** Plain DOM with a 40-line `h()` helper keeps the whole app at 75 KB gzipped, so Preact and uPlot (07 §0.3) were not needed for v0.5; Canvas 2D draws every chart.
+- **No framework.** Plain DOM with a 40-line `h()` helper keeps the whole app at 75 to 79 KB gzipped, so Preact and uPlot (07 §0.3) were not needed for v0.5; Canvas 2D draws every chart.
 - **Per-edit work is far inside budget.** Grow plus budget plus validation is at most about 0.3 ms per edit even under load, against 07 §7's "develop < 5 ms on a weak laptop", so the designer recomputes everything on every slider input event.
 - **Headless frame rate is the limit for browser tests.** Under this load SwiftShader rendered about 9 frames per second, so the mock sim's frame cadences follow wall time (1 Hz stats, about 15 Hz dust) rather than counting pumps, and the UI e2e script polls for results instead of fixed waits.
