@@ -181,3 +181,25 @@ describe('physics: parasite scraping', () => {
     expect(slow.removed).toBe(false);
   });
 });
+
+describe('physics: organs are deterministic', () => {
+  it('a jetting, bladder-pumping, rolling body runs bit for bit the same twice', () => {
+    const run = (): string => {
+      const tw = makeWorld();
+      const phys = createPhysics({ contacts: false });
+      const parts = fish().map((p, k) => (k === 0 ? { ...p, organs: ORGAN.JET } : k === 2 ? { ...p, organs: ORGAN.BLADDER } : p));
+      const slot = spawn(tw, phys.loadBody, makePhenotype(parts), 16, 9);
+      const c = tw.world.cr.c; const sg = tw.world.seg.c; const s0 = c.segStart[slot]!;
+      for (let k = 0; k < 120; k++) {
+        sg.cmd2[s0] = (k % 30) < 9 ? 1 : 0;
+        sg.cmd2[s0 + 2] = Math.sin(k * 0.1);
+        c.out[slot * 8 + 7] = (k % 60) < 30 ? 1 : 0;
+        for (let j = 1; j < 8; j++) sg.cmd[s0 + j] = 0.3 * Math.sin(k * 0.5 - j);
+        phys.step(tw.world, tw.ctx); nextTick(tw);
+      }
+      return [...Array.from(sg.posX.subarray(s0, s0 + 8)), ...Array.from(sg.angle.subarray(s0, s0 + 8)), c.mirror[slot], c.powerW[slot]].join(',');
+    };
+    expect(run()).toBe(run());
+  });
+});
+

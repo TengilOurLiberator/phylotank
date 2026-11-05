@@ -34,17 +34,60 @@ The drag coefficients (`C_n = 1.1`, turbulent `C_f = 0.004`, end caps) and `C_a 
 
 Strouhal number `St = f * (peak-to-peak tail excursion) / U` at the gait of peak efficiency, for each amplitude, 8 s runs at 4 substeps. The efficiency `eta` is a Froude proxy: the glide drag of the straight body at `U` times `U`, over the net mechanical muscle power. It is optimistic in absolute terms (the bent body's drag is higher than the glide drag, and net work nets out negative work), so read it for where it peaks, not for its value.
 
-SWEEP_TABLE
+| Body, gait, model | St at peak eta, A 0.3 | St at peak eta, A 0.5 | Peak eta | Speed at that gait |
+|---|---|---|---|---|
+| Round, uniform gait, friction fix only (spike 1's body and gait) | 1.03 (4 Hz) | 1.28 (6 Hz) | 0.07 | 0.36 m/s |
+| Round, uniform gait, trailing edge on | 0.71 (4 Hz) | 0.73 (6 Hz) | 0.16 | 0.51 m/s |
+| Round, tail envelope, trailing edge on | 0.68 (4 Hz) | 0.82 (6 Hz) | 0.24 | 0.40 m/s |
+| Compressed x2, tail envelope, trailing edge off | 0.55 (4 Hz) | 0.49 (6 Hz) | 0.29 | 0.56 m/s |
+| **Compressed x2, tail envelope, trailing edge on (B4 reference)** | **0.33 (4 Hz)** | **0.37 (4 Hz)** | 0.71 | 0.67 m/s (3.4 BL/s, Re 6,700) |
+| Compressed x2.5, tail envelope, trailing edge on | 0.26 (4 Hz) | 0.29 (4 Hz) | 0.91 | 0.75 m/s |
+
+The full sweep of the B4 reference (A is the tail joint's amplitude; tail excursion is the peak lateral amplitude of the tail tip):
+
+| A | f (Hz) | U (m/s) | BL/s | Re | St | Power (W) | eta | Tail excursion (cm) |
+|---|---|---|---|---|---|---|---|---|
+| 0.3 | 1 | 0.160 | 0.80 | 1,600 | 0.65 | 0.19 | 0.20 | 5.2 |
+| 0.3 | 2 | 0.388 | 1.94 | 3,880 | 0.51 | 0.32 | 0.38 | 5.0 |
+| 0.3 | 3 | 0.618 | 3.09 | 6,180 | 0.38 | 0.39 | 0.61 | 4.0 |
+| 0.3 | 4 | 0.671 | 3.36 | 6,710 | 0.33 | 0.37 | 0.71 | 2.8 |
+| 0.3 | 6 | 0.572 | 2.86 | 5,720 | 0.30 | 0.31 | 0.54 | 1.4 |
+| 0.5 | 1 | 0.098 | 0.49 | 980 | 1.37 | 0.46 | 0.03 | 6.7 |
+| 0.5 | 2 | 0.295 | 1.47 | 2,950 | 0.91 | 0.72 | 0.10 | 6.7 |
+| 0.5 | 3 | 0.641 | 3.21 | 6,410 | 0.53 | 0.81 | 0.35 | 5.6 |
+| 0.5 | 4 | 0.882 | 4.41 | 8,820 | 0.37 | 0.77 | 0.67 | 4.1 |
+| 0.5 | 6 | 0.813 | 4.06 | 8,130 | 0.27 | 0.61 | 0.67 | 1.8 |
 
 Before is spike 1's body and gait on `main`: St 1.70 to 6.27 at A 0.5 (`f` 0.5 to 4 Hz), best at 4 Hz with St 1.70.
 
-**B4 is met** for the compressed reference fish: peak efficiency at St PEAK_ST (A 0.3 and 0.5, both at 4 Hz), inside [0.15, 0.5] and in the 0.2 to 0.4 band of cruising swimmers; speed rises close to linearly with frequency from 1 to 4 Hz (SPEEDLINE). The trailing-edge term is the main lever (St 0.50 to 0.55 without it on the same body, 0.33 to 0.37 with it); the friction fix alone moved spike 1's body from St 1.70 to 1.30 at its best gait. A round body stays at St 0.7 even with the term, so the shape belongs in the reference, as 02 §2.13 suggests ("a caudal fin plate in the reference fish"). A deep caudal fin plate on the round body was tried and swam worse (St 0.57 at peak, eta 0.15): its weak joint lets it flop, and a stiff fin ray helps only a little (St 0.33, eta 0.77 on the compressed body, the same as no fin); bodies will have to evolve their fins.
+**B4 is met** for the compressed reference fish: peak efficiency at St 0.33 and 0.37 (A 0.3 and 0.5, both at 4 Hz), inside [0.15, 0.5] and in the 0.2 to 0.4 band of cruising swimmers; speed is linear in frequency from 1 to 3 Hz at A 0.3 (0.16, 0.39, 0.62 m/s: steps of 0.23) and rises steadily to 4 Hz at A 0.5 (0.10, 0.30, 0.64, 0.88 m/s). The trailing-edge term is the main lever (St 0.50 to 0.55 without it on the same body, 0.33 to 0.37 with it); the friction fix alone moved spike 1's body from St 1.70 to 1.30 at its best gait. A round body stays at St 0.7 even with the term, so the shape belongs in the reference, as 02 §2.13 suggests ("a caudal fin plate in the reference fish"). A deep caudal fin plate on the round body was tried and swam worse (St 0.57 at peak, eta 0.15): its weak joint lets it flop, and a stiff fin ray helps only a little (St 0.33, eta 0.77 on the compressed body, the same as no fin); bodies will have to evolve their fins.
 
-Above 4 Hz the swimmers slow down: the joints cannot follow (the 0.03 to 0.12 s activation lag and the torque caps), so the tail amplitude collapses (2.5 cm at 4 Hz, 1.2 cm at 6 Hz). That is the muscle model's frequency ceiling, not a drag effect.
+Above 4 Hz the swimmers slow down: the joints cannot follow (the 0.03 to 0.12 s activation lag and the torque caps), so the tail excursion collapses (A 0.3: 5.0 cm at 2 Hz, 2.8 cm at 4 Hz, 1.4 cm at 6 Hz). That is the muscle model's frequency ceiling, not a drag effect.
 
 ### 2.4 Convergence with the new term (T1, T2)
 
-T1T2_TABLE
+Against `n_sub` 64, 8 s runs:
+
+| `n_sub` | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| B4 reference (compressed, envelope, 4 Hz): speed error | -9.8% | -3.5% | **-1.9%** | -1.0% | -0.5% |
+| B4 reference: power error | -2.1% | -0.5% | -0.5% | -0.4% | -0.2% |
+| Spike 1's round body and uniform gait (2 Hz, A 0.3): speed error | +10.4% | +6.1% | +4.2% | +2.4% | +1.2% |
+| Spike 1's round body: power error | +16.6% | +8.9% | +4.6% | +2.3% | +1.0% |
+
+First order in both. On the B4 reference T1's "below 2% at the chosen `n_sub`" holds (1.9% at the floor of 4). On spike 1's round body it does not any more (4.2% at 4 against 1.7% in spike 1): the thrust half of the trailing-edge term is explicit, evaluated from the start-of-substep tip velocity, and that body's thin tail sweeps fast. Making it implicit needs a non-symmetric block (thrust depends on the lateral velocity), which the symmetric tree solve does not take; left as is, since the error is a smooth first-order one and the exploit test below shows evolution does not use it.
+
+T2 (30 Hz against 60 Hz, 4 substeps): B4 reference -1.0% speed, +1.4% power, both inside the 3% mark (spike 1 missed it for power); 30 Hz x 8 against 60 Hz x 4: -0.1%. Round body: -0.1% speed, +5.2% power (as in spike 1).
+
+Exploit transfer (the spike 1 protocol, (1+6)-ES, fitness = distance in 3 s):
+
+| Swimmer | Trained at | Ratio | Spike 1 |
+|---|---|---|---|
+| 8-segment round undulator | 1 substep, 200 generations | 0.64 (16 / 1) | 0.69 |
+| 8-segment round undulator | 4 substeps, 100 generations | **0.94** (16 / 4) | 0.97 |
+| 2 mm muscle flagellate (Re < 0.1) | 1 substep | 0.87 | 0.88 |
+
+The substep floor of 4 still keeps the ratio above 0.8. The muscle-driven energy budget (R6) still closes below 1 at every `n_sub` (0.12 at 1 to 0.46 at 16; GS 0.02 to 0.57): no energy from nothing.
 
 ### 2.5 Low Re is unchanged
 
@@ -85,7 +128,28 @@ Measured in `tests/physics-sever.test.ts` and `tests/physics-organs.test.ts`:
 
 ## 5. CPU throughput
 
-THROUGHPUT
+The same population scene (3,000 creatures, 17,940 segments, muscles driven) on spike 1's code (`main`) and on this branch, run alternately, 5 runs each, 20 timed ticks after 3 warm-up ticks, process CPU time:
+
+| Scene | Before (min / median), ms per tick | After (min / median) | Gain (median) |
+|---|---|---|---|
+| Integrator, `n_sub` 4, no contacts | 72.7 / 80.8 | 50.1 / 52.0 | **1.55x** (0.72 µs per segment-substep, from 1.13) |
+| Integrator and contacts, `n_sub` 4 | 87.8 / 91.8 | 77.0 / 78.8 | 1.17x |
+| Integrator and contacts, substep rule (4 to 16) | 122.2 / 127.4 | 92.5 / 95.2 | 1.34x |
+
+The "after" column also carries this pass's new work (trailing-edge term, angular-momentum correction at 2 to 5% of the integrator by profile, organs, roll and slip bookkeeping), and every optimisation was checked to leave the state hash of the scene bit for bit unchanged (with and without contacts), so the gain is free of behaviour change. The vitest benchmark of `physics-bench.test.ts` (no warm-up, noisier) gives 1,390 to 1,122 ns per segment-substep at `n_sub` 4 and 1,106 to 667 at 16.
+
+What the profile found and what was done:
+
+| Finding (V8 CPU profile, `node --cpu-prof`) | Change |
+|---|---|
+| Garbage collection 9% of the integrator: about 2 scavenges per tick, from doubles boxed when passed to or returned from calls the engine did not inline (`sincos`, `wrapAngle`, `mulTo`, the flow sampler closure, `closestSegSeg`, `accum`) and from two closures allocated per call | range functions (`sincosRange` per creature), inlined helpers, no closures in hot paths; GC fell to 3% |
+| Per-substep work that is constant over the tick: added mass, buoyancy, jet and cilia forces, drag coefficients with feathering, muscle torques, XPBD gamma and alpha, rest interpolation, limits | computed once per tick into two interleaved f64 rows per segment (`wk.tc`, 18 values; `wk.jt`, 8 values) |
+| Tree solve: generic 3x3 products with Jacobians that are mostly 0 and 1; general inverses of blocks that are symmetric; two `sincos` per joint | Jacobians stored as their four free entries, symmetric 3x3 inverse (same bits), one sine and cosine per segment |
+| Contacts: per candidate pair two `sincos` and an eight-double call | segment axes once per tick, closest points through a buffer, a bounding-circle early out that rejects exactly the pairs the full test would |
+
+Not cache-bound: the cost per segment-substep is the same at 585, 1,766, 5,967 and 17,940 segments (849, 809, 777, 773 ns in one series), so a structure-of-arrays rewrite of the scratch (per-creature instead of per-slot indexing) would not pay; the integrator is now arithmetic-bound at about 1,500 cycles per segment-substep, mostly the exact tree solve (30%) and the drag-augmented mass (20%).
+
+**Budget.** With contacts at the R6 floor of 4 substeps one core now does about 4.4 µs per segment-tick, about 228,000 segment-ticks per second, so **about 7,600 segments at 30 Hz per core** (spike 1: 6,300 on a busier box; spike 1's code in the same minutes: 6,500). v0.1's 2,000 agents of about 5 segments (10,000 segments) fit in 1.3 cores; 4,000 agents need about 2.6 cores, so the top of the v0.1 range is still about 1.3x short on two cores, before brains and ecology. The remaining levers are structural, not micro: fewer substeps for passive and resting bodies (corpses and fragments on the floor), a contact pass per cell pair instead of per item (the query visits 24.6 cells per item and is now a third of the tick), and workers (the tick is per creature, so it splits cleanly by slot range).
 
 ## 6. Decisions
 
@@ -93,4 +157,4 @@ THROUGHPUT
 2. **C1 correction on** (`angularFix: true`): the 1e-6 target stands.
 3. **Severing** goes through hooks the sim and ecosystem own (PH2-1); glow fade and the part map are adapters until PH2-2 and PH2-3 land.
 4. Jets, bladders and roll state live in `Work` until PH2-4 gives them columns; a `.ptk` restore does not yet carry them (the same gap as P1).
-5. **Throughput**: keep the optimised layout. See section 5 for what is left to v0.1.
+5. **Throughput**: keep the optimised layout (1.55x on the integrator, 1.17x to 1.34x with contacts, bit-identical). The top of the v0.1 range needs the structural levers in section 5.

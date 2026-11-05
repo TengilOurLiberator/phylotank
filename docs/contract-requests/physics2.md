@@ -30,7 +30,7 @@ interface PhysicsModule {
 
 The fragment takes `floor(f * qTissue)` and `floor(f * qReserve)` with `f` its share of the segment mass; gut and reproductive pools stay with the survivor. Both are creature pools of the audit sum, so `M_total` is untouched (integer equality holds; `tests/physics-sever.test.ts` checks it with the adapter).
 
-The fragment is a `CARCASS` with `CF.FRAGMENT` (and `CF.LEVIATHAN` if the parent had it), no brain, no infection, `birthTick` = the cut tick. The ecosystem should treat it like any carcass (leaching to detritus and N, scavenging). If `allocSegments` compacts the pool, it must do so before physics reads the parent's range (physics re-reads `segStart` after the call).
+The fragment is a `CARCASS` with `CF.FRAGMENT` (and `CF.LEVIATHAN` if the parent had it), no brain, no infection, no genome handle (`genome = 0xFFFFFFFF`; it keeps `species` and `colour` for views), `birthTick` = the cut tick. The ecosystem should treat it like any carcass (leaching to detritus and N, scavenging). If `allocSegments` compacts the pool, it must do so before physics reads the parent's range (physics re-reads `segStart` after the call).
 
 Adapter: `commitSevers(world, localSeverHooks)` exported from `src/physics/index.ts`; `localSeverHooks` allocates like the sim and moves the quanta directly between the two records. Until the sim calls it, severed segments stay attached at damage 1 (pending requests are kept, `pendingSevers(world)`).
 
@@ -58,18 +58,18 @@ Adapter: `workFor(world).part` (per segment slot, like P1's other physics state;
 
 ## PH2-4. Jet and bladder state as columns
 
-**Why.** Jets (02 §2.3.6) need the bell volume between ticks; gas bladders (2.3.8) need the gas amount `n_g`. Both are physics state that must survive a snapshot (CONTRACT 4.5). The bladder's gas exchange costs energy (`powerW`), and its organ is not in the ORGAN bits.
+**Why.** Jets (02 §2.3.6) need the bell volume between ticks; gas bladders (2.3.8) need the gas amount `n_g`. Both are physics state that must survive a snapshot (CONTRACT 4.5). The bladder's gas exchange costs energy (`powerW`).
 
 **Change.** Append to `SEGMENT_COLUMNS`:
 
 ```ts
-{ name: 'jetVol', type: 'f32' },   // current bell volume, m^3 (JET organ segments; 0 otherwise)
-{ name: 'gasMol', type: 'f32' },   // bladder gas, mol (BLADDER segments; 0 otherwise)
+{ name: 'jetVol', type: 'f64' },   // current bell volume, m^3 (JET organ segments; 0 otherwise)
+{ name: 'gasMol', type: 'f64' },   // bladder gas, mol (BLADDER segments; 0 otherwise)
 ```
 
-and an organ bit `ORGAN.BLADDER` (7.2), plus the Phenotype fields the genes give: the bell's maximum volume fraction (`jetFrac`, up to 0.3 of the segment volume, 2.2.6) and the bladder's `rigidFrac`. Drives: `cmd2` on a JET segment is the contraction drive; on a BLADDER segment `cmd2 > 0` inflates and `< 0` deflates.
+and the Phenotype fields the genes give (the `ORGAN.JET` and `ORGAN.BLADDER` bits already exist in 7.2): the bell's maximum volume fraction (`jetFrac`, up to 0.3 of the segment volume, 2.2.6) and the bladder's `rigidFrac`. Drives: `cmd2` on a JET segment is the contraction drive (0 to 1); on a BLADDER segment `cmd2 > 0` pumps gas in and `< 0` vents it.
 
-Adapter: `workFor(world).jetVol` and `.gasMol`; the bell size is 0.3 of the segment volume; a segment is a bladder when the adapter `setBladder(world, seg, mol)` was called on it (tests), since no gene produces one yet.
+Adapter: `workFor(world).jetVol` and `.gasMol`; the bell is 0.3 of its segment's volume; a BLADDER segment is loaded with the gas that makes the creature neutral at its spawn depth (capped at half the segment volume), and `setBladder(world, wk, seg, mol)` sets it directly (tests, designer). A `.ptk` restore does not carry this state yet (as P1).
 
 ## PH2-5. Roll is triggered by the ROLL global output
 

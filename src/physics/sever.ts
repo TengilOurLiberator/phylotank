@@ -199,6 +199,7 @@ function severOne(world: World, r: SeverRequest, hooks: SeverHooks): SeverResult
   c.life[frag] = LIFE.CARCASS;
   c.flags[frag] = (c.flags[slot]! & CF.LEVIATHAN) | CF.FRAGMENT;
   c.brainClass[frag] = 255; c.brainSlot[frag] = NONE_U32;
+  c.genome[frag] = NONE_U32; // a fragment holds no genome handle (the store's references stay the sim's)
   c.infStrain[frag * 2] = NONE_U32; c.infStrain[frag * 2 + 1] = NONE_U32;
   c.health[frag] = 0;
   c.birthTick[frag] = world.g.tick;
