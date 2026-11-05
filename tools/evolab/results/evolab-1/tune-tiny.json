@@ -1,0 +1,229 @@
+{
+  "screening": [
+    {
+      "name": "muMaxPerDay",
+      "muStar": 0.0024654558657061783,
+      "mu": -0.0024654558657061783,
+      "sigma": 0.003486681122713977
+    },
+    {
+      "name": "kNkgPerM2",
+      "muStar": 0,
+      "mu": 0,
+      "sigma": 0
+    },
+    {
+      "name": "mPPerDay",
+      "muStar": 0.000990723069190357,
+      "mu": -0.000990723069190357,
+      "sigma": 0.001401094001004901
+    },
+    {
+      "name": "mP2",
+      "muStar": 0,
+      "mu": 0,
+      "sigma": 0
+    },
+    {
+      "name": "iK",
+      "muStar": 0,
+      "mu": 0,
+      "sigma": 0
+    },
+    {
+      "name": "rDPerDay",
+      "muStar": 0,
+      "mu": 0,
+      "sigma": 0
+    },
+    {
+      "name": "carcassHalfDays",
+      "muStar": 0.0007618918158414645,
+      "mu": 0.0007618918158414645,
+      "sigma": 0.0010774777390240636
+    },
+    {
+      "name": "aMaxPlant",
+      "muStar": 1.2355448083646543,
+      "mu": -0.0610018611455615,
+      "sigma": 1.7473242249089607
+    },
+    {
+      "name": "theta",
+      "muStar": 0.06364269899839393,
+      "mu": -0.06364269899839393,
+      "sigma": 0.09000436806955729
+    },
+    {
+      "name": "b0Mult",
+      "muStar": 1.3367249257565827,
+      "mu": -1.3367249257565827,
+      "sigma": 0.000491046011399799
+    },
+    {
+      "name": "cRep",
+      "muStar": 0,
+      "mu": 0,
+      "sigma": 0
+    },
+    {
+      "name": "kCap",
+      "muStar": 0.006533424951428778,
+      "mu": 0.006533424951428778,
+      "sigma": 0.009239658175057357
+    },
+    {
+      "name": "jMaxBasal",
+      "muStar": 1.2891443766513024,
+      "mu": -0.0001260566097994742,
+      "sigma": 1.8231254613172814
+    },
+    {
+      "name": "catchRate",
+      "muStar": 0.0017099504189894141,
+      "mu": -0.0017099504189894141,
+      "sigma": 0.002418235073520386
+    },
+    {
+      "name": "handlingS",
+      "muStar": 0.007109058827128478,
+      "mu": -0.004296746691881792,
+      "sigma": 0.010053727409033262
+    },
+    {
+      "name": "jetMps",
+      "muStar": 0,
+      "mu": 0,
+      "sigma": 0
+    }
+  ],
+  "selected": [
+    "b0Mult",
+    "jMaxBasal",
+    "aMaxPlant",
+    "theta"
+  ],
+  "cma": [
+    {
+      "generation": 1,
+      "best": 0.8902773678913491,
+      "sigma": 0.21571138887256625
+    },
+    {
+      "generation": 2,
+      "best": 0.9464496511389292,
+      "sigma": 0.21093301765877212
+    },
+    {
+      "generation": 3,
+      "best": 0.9856027498652331,
+      "sigma": 0.21347444068084878
+    }
+  ],
+  "best": {
+    "params": {
+      "muMaxPerDay": 1.5,
+      "kNkgPerM2": 0.02,
+      "mPPerDay": 0.05,
+      "mP2": 0.5,
+      "iK": 0.3,
+      "rDPerDay": 0.15,
+      "carcassHalfDays": 1.5,
+      "aMaxPlant": 0.45279827070973755,
+      "theta": 1.3461511728178257,
+      "b0Mult": 0.29999999999999993,
+      "cRep": 0.05,
+      "kCap": 1,
+      "jMaxBasal": 7.585395672004186,
+      "catchRate": 1,
+      "handlingS": 30,
+      "jetMps": 0.12
+    },
+    "score": 0.9856027498652331,
+    "perSeed": [
+      0.9856027498652331
+    ],
+    "metrics": [
+      {
+        "survived": 1,
+        "species": 3.0833333333333335,
+        "hill1": 2.419738328053574,
+        "rolesOccupied": 1.8333333333333333,
+        "speciationPerHour": 0,
+        "biomassCv": 0.4828461116006942,
+        "capFillHighFrac": 0,
+        "producerShare": 0.3969760559702494,
+        "vMaxGain": 1.6975774598792706,
+        "ledgerExact": 1
+      }
+    ]
+  },
+  "evaluations": 53,
+  "bands": [
+    {
+      "metric": "survived",
+      "lo": 1,
+      "hi": 1,
+      "weight": 1,
+      "gate": true,
+      "describe": "consumers survive the run"
+    },
+    {
+      "metric": "ledgerExact",
+      "lo": 1,
+      "hi": 1,
+      "weight": 1,
+      "gate": true,
+      "describe": "mass audit exact throughout"
+    },
+    {
+      "metric": "species",
+      "lo": 3,
+      "hi": 40,
+      "weight": 1,
+      "describe": "species richness S"
+    },
+    {
+      "metric": "hill1",
+      "lo": 2,
+      "hi": null,
+      "weight": 1,
+      "describe": "Shannon effective species"
+    },
+    {
+      "metric": "rolesOccupied",
+      "lo": 2,
+      "hi": null,
+      "weight": 1,
+      "describe": "diet roles with at least 5 members"
+    },
+    {
+      "metric": "biomassCv",
+      "lo": 0.1,
+      "hi": 0.5,
+      "weight": 1,
+      "describe": "some boom and bust, no crashes"
+    },
+    {
+      "metric": "capFillHighFrac",
+      "lo": 0,
+      "hi": 0.05,
+      "weight": 0.5,
+      "describe": "cap rarely full"
+    },
+    {
+      "metric": "producerShare",
+      "lo": 0.15,
+      "hi": 0.6,
+      "weight": 0.5,
+      "describe": "producers hold 15 to 60% of the mass"
+    },
+    {
+      "metric": "vMaxGain",
+      "lo": 1.05,
+      "hi": null,
+      "weight": 1,
+      "describe": "swimming improves"
+    }
+  ]
+}
