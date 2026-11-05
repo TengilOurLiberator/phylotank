@@ -3,7 +3,7 @@
  * (02 §2.2.3 to §2.2.5, §2.3.1), written into the segment pool by `loadBody` and `restage`.
  */
 import {
-  KIND, NONE_U32, PI, cbrt, log, type Phenotype, type World,
+  KIND, NONE_U32, PI, cbrt, log, wrapAngle, type Phenotype, type World,
 } from '../core/index.js';
 import { SC, sincos } from './sincos.js';
 const cos = (a: number): number => { sincos(a); return SC.c; };
@@ -140,7 +140,7 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
   // initial pose: forward kinematics from the root at the creature pose
   const mir = c.mirror[slot]! < 0 ? -1 : 1;
   const ang = new Float64Array(n);
-  ang[0] = c.heading[slot]!;
+  ang[0] = Math.fround(wrapAngle(c.heading[slot]!));
   sg.posX[s0] = c.posX[slot]!; sg.posY[s0] = c.posY[slot]!;
   for (let k = 0; k < n; k++) {
     const i = s0 + k;
@@ -149,7 +149,7 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
       const p = s.parent;
       const ip = s0 + p;
       const ap = ang[p]!;
-      ang[k] = ap + mir * s.restAngle;
+      ang[k] = Math.fround(wrapAngle(ap + mir * s.restAngle));
       const ax = sg.posX[ip]! + cos(ap) * s.attachU * specs[p]!.length;
       const ay = sg.posY[ip]! + sin(ap) * s.attachU * specs[p]!.length;
       sg.posX[i] = ax + cos(ang[k]!) * 0.5 * s.length;

@@ -46,11 +46,13 @@ export interface PhysicsOptions {
   diagnostics: boolean;
   /** Joint solver: exact tree solve per substep (default) or Gauss-Seidel passes. */
   solver: 'tree' | 'gs';
+  /** Exploit watchdog (R9). */
+  watchdog: boolean;
 }
 
 export const DEFAULT_OPTIONS: PhysicsOptions = {
   fluid: true, gravity: true, addedMass: true, nSub: 0, minSub: 4, dt: DT, prescribed: false, walls: true,
-  contacts: true, iterations: 1, linearDrag: false, diagnostics: false, solver: 'tree',
+  contacts: true, iterations: 1, linearDrag: false, diagnostics: false, solver: 'tree', watchdog: true,
 };
 
 const LN2_Q10 = log(Q10_MUSCLE);

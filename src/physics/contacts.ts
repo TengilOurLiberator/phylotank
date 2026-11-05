@@ -19,8 +19,8 @@ import type { Work } from './work.js';
 export const HASH_LEVELS = 8;
 const CELL0 = 1e-3;
 const LEVEL_SIZE = [1, 4, 16, 64, 256, 1024, 4096, 16384].map((k) => k * CELL0);
-/** Candidate cap per item (REVIEW R5: bound the work by cells visited and candidates). */
-export const MAX_CANDIDATES = 64;
+/** Candidate cap per item. REVIEW R5: on CPU the work is bounded by cells visited (at most 8 levels x 9), not by objects found, so contacts are never dropped; the cap is only a safety net. */
+export const MAX_CANDIDATES = 1 << 20;
 
 export interface SpatialHash {
   n: number;
@@ -119,7 +119,7 @@ export function buildHash(world: World, hs?: SpatialHash): SpatialHash {
  * the lower slot). Returns the number of cells visited.
  */
 export function queryPairs(
-  world: World, hs: SpatialHash, i: number, visit: (i: number, j: number) => void,
+  world: World, hs: SpatialHash, i: number, visit: (i: number, j: number) => void, maxCandidates = MAX_CANDIDATES,
 ): number {
   const sg = world.seg.c;
   const li = hs.level[i]!;
@@ -140,7 +140,7 @@ export function queryPairs(
           if (hs.level[j] !== l || hs.cx[j] !== qx || hs.cy[j] !== qy) continue;
           if (l === li && j <= i) continue;
           visit(i, j);
-          if (++found >= MAX_CANDIDATES) return cells;
+          if (++found >= maxCandidates) return cells;
         }
       }
     }

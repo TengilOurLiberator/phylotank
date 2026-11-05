@@ -15,12 +15,15 @@ import { loadBody, restage } from './body.js';
 import { DEFAULT_OPTIONS, stepCreature, type PhysicsOptions } from './solver.js';
 import { stepContacts } from './contacts.js';
 import { workFor } from './work.js';
+import { watch } from './watchdog.js';
 
 export type { SegmentSpec, PhysicsOptions };
 export { toSegmentSpecs } from './segment-spec.js';
 export { DEFAULT_OPTIONS, stepCreature, hill, tauAct, basalW } from './solver.js';
 export { massProps, dragCoeffs, segVolume, tissueDensity } from './body.js';
 export { workFor } from './work.js';
+export { drainFlags, waterFrameEnergy } from './watchdog.js';
+export { drainBites, type BiteRecord } from './contacts.js';
 
 /** Drag rate for passive drifters (1/s): a mote follows the water with a ~0.5 s lag. */
 export const DRIFTER_DRAG = 2;
@@ -100,6 +103,7 @@ export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule
         const life = c.life[s];
         if ((life !== LIFE.ALIVE && life !== LIFE.CARCASS) || c.segCount[s] === 0) continue;
         stepCreature(world, s, wk, opts, sampler);
+        if (opts.watchdog) watch(world, s, wk, opts.dt, opts.gravity);
       }
       if (opts.contacts) stepContacts(world, ctx, wk, opts);
     },
