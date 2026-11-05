@@ -21,7 +21,7 @@ export { blankGenome } from './blank.js';
 export { clampToCeiling, expressedAdultLength, isLeviathan } from './ceiling.js';
 export {
   develop, unfold, finish, Restager, adultLength, lengthAtMaturity, regShape, decodeKindParams,
-  ABSORB_FRACTION, MAX_RAW_PARTS, type Unfolded,
+  ABSORB_FRACTION, MAX_RAW_PARTS, type Unfolded, type EditorStep, type PhenotypeWithPaths,
 } from './develop.js';
 export { mutateWith, duplicateModule, paralogCount, countGenes, poisson, pickOperator, applyOperator, type MutateStats, type OpName } from './mutate.js';
 export { crossoverWith } from './crossover.js';

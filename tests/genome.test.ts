@@ -819,3 +819,17 @@ describe('breed', () => {
     validGenome(breed(m, a, null, ctx(6)));
   });
 });
+
+describe('editor paths', () => {
+  it('give each part its instance path when asked, and do not change the body', async () => {
+    const g = templateGenome('meadowlamp');
+    const plain = develop(g, 1, ENV, OPTS);
+    const ed = develop(g, 1, ENV, { ...OPTS, editorPaths: true }) as import('../src/genome/develop.js').PhenotypeWithPaths;
+    expect(phHash(ed)).toBe(phHash(plain));
+    expect(ed.paths).toHaveLength(ed.nParts);
+    expect(ed.paths![0]).toEqual([]);
+    const eyes = Array.from(ed.kind).map((k, i) => (k === KIND.EYE ? i : -1)).filter((i) => i >= 0);
+    expect(eyes.map((i) => ed.paths![i]!.at(-1)!.side).sort()).toEqual([-1, 1]);
+    for (let i = 1; i < ed.nParts; i++) expect(ed.paths![i]!.length).toBeGreaterThan(0);
+  });
+});

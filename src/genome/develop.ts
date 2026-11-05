@@ -66,7 +66,7 @@ const SU = {
   modOf: new Int16Array(MAX_RAW_PARTS), parent: new Int16Array(MAX_RAW_PARTS), attachPos: new Float64Array(MAX_RAW_PARTS),
   angle: new Float64Array(MAX_RAW_PARTS), mirror: new Int8Array(MAX_RAW_PARTS), dv: new Int8Array(MAX_RAW_PARTS),
   phase: new Float64Array(MAX_RAW_PARTS), refLen: new Float64Array(MAX_RAW_PARTS), pathHash: new Uint32Array(MAX_RAW_PARTS),
-  chainMid: new Uint8Array(MAX_RAW_PARTS), recur: new Uint8Array(MAX_RAW_PARTS * 48),
+  chainMid: new Uint8Array(MAX_RAW_PARTS), stepLink: new Uint32Array(MAX_RAW_PARTS), stepCode: new Uint16Array(MAX_RAW_PARTS), recur: new Uint8Array(MAX_RAW_PARTS * 48),
 };
 const SF = {
   params: new Float64Array(MAX_RAW_PARTS * NP), expressed: new Uint8Array(MAX_RAW_PARTS), keep: new Uint8Array(MAX_RAW_PARTS),
@@ -127,6 +127,8 @@ export interface Unfolded {
   readonly phase: Float64Array;       // accumulated link phase
   readonly refLen: Float64Array;      // relative reference length
   readonly pathHash: Uint32Array;
+  /** The link and (copy | side << 8) code of the step that created each raw part (editor paths). */
+  readonly stepLink: Uint32Array; readonly stepCode: Uint16Array;
   readonly axial: Uint8Array;
   readonly ap: Float64Array;
   readonly params: Float64Array;      // n x NP, after non-maturity regulation
@@ -178,16 +180,17 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
   let rootIdx = modIndex.get(g.rootModuleInnov);
   if (rootIdx === undefined) rootIdx = 0;
   const CAP = MAX_RAW_PARTS;
-  const { modOf, parent, attachPos, angle, mirror, dv, phase, refLen, pathHash, chainMid } = SU;
+  const { modOf, parent, attachPos, angle, mirror, dv, phase, refLen, pathHash, chainMid, stepLink, stepCode } = SU;
   if (SU.recur.length < CAP * nMod) SU.recur = new Uint8Array(CAP * nMod);
   const recur = SU.recur;
   chainMid.fill(0);
   recur.fill(0, 0, Math.max(1, nMod));
   let n = 0;
   const push = (mod: number, par: number, pos: number, ang: number, mir: number, side: number, ph: number,
-    ref: number, hash: number, bumpRecur: boolean): number => {
+    ref: number, hash: number, bumpRecur: boolean, link = 0, code = 0): number => {
     if (n >= CAP) return -1;
     const i = n++;
+    stepLink[i] = link; stepCode[i] = code;
     modOf[i] = mod; parent[i] = par; attachPos[i] = pos; angle[i] = ang; mirror[i] = mir; dv[i] = side;
     phase[i] = ph; refLen[i] = ref; pathHash[i] = hash;
     if (par >= 0) recur.copyWithin(i * nMod, par * nMod, par * nMod + nMod);
@@ -220,7 +223,7 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
       if (L.symmetry === SYMMETRY.RADIAL) {
         for (let r = 0; r < reps; r++) {
           const ang = pm * (baseAng + (TAU_ * r) / reps);
-          push(ti, head, pos, ang, pm, pdv, ph0 + r * wave, ref0, hash32(pathHash[head]!, L.innov, r | (3 << 8)), true);
+          push(ti, head, pos, ang, pm, pdv, ph0 + r * wave, ref0, hash32(pathHash[head]!, L.innov, r | (3 << 8)), true, L.innov, r | (3 << 8));
         }
         continue;
       }
@@ -232,18 +235,18 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
         const sideCode = sides === 2 ? sIdx + 1 : 0;
         if (chain) {
           let prev = push(ti, head, pos, mir === pm ? pm * baseAng : -pm * baseAng, mir, side, ph0, ref0,
-            hash32(pathHash[head]!, L.innov, sideCode << 8), true);
+            hash32(pathHash[head]!, L.innov, sideCode << 8), true, L.innov, sideCode << 8);
           let ref = ref0;
           for (let r = 1; r < reps && prev >= 0; r++) {
             ref *= rs;
             chainMid[prev] = 1;
-            prev = push(ti, prev, 1, 0, mir, side, ph0 + r * wave, ref, hash32(pathHash[head]!, L.innov, r | (sideCode << 8)), false);
+            prev = push(ti, prev, 1, 0, mir, side, ph0 + r * wave, ref, hash32(pathHash[head]!, L.innov, r | (sideCode << 8)), false, L.innov, r | (sideCode << 8));
           }
         } else {
           let ref = ref0;
           for (let r = 0; r < reps; r++) {
             const p = reps === 1 ? pos : Math.max(0, Math.min(1, pos + (r - (reps - 1) / 2) * (0.8 / reps)));
-            push(ti, head, p, s * pm * baseAng, mir, side, ph0 + r * wave, ref, hash32(pathHash[head]!, L.innov, r | (sideCode << 8)), true);
+            push(ti, head, p, s * pm * baseAng, mir, side, ph0 + r * wave, ref, hash32(pathHash[head]!, L.innov, r | (sideCode << 8)), true, L.innov, r | (sideCode << 8));
             ref *= rs;
           }
         }
@@ -296,7 +299,7 @@ export function unfold(g: Genome, env: BirthEnv, opts: DevelopOptions): Unfolded
   return {
     g, n, mods: partMods, parent: parent.slice(0, n), attachPos: attachPos.slice(0, n), angle: angle.slice(0, n),
     mirror: mirror.slice(0, n), dv: dv.slice(0, n), phase: phase.slice(0, n), refLen: refLen.slice(0, n),
-    pathHash: pathHash.slice(0, n), axial, ap, params, expressed, maturityRegs, env, opts, traitValues: traitValues(g, opts.lCeilingM),
+    pathHash: pathHash.slice(0, n), stepLink: stepLink.slice(0, n), stepCode: stepCode.slice(0, n), axial, ap, params, expressed, maturityRegs, env, opts, traitValues: traitValues(g, opts.lCeilingM),
     trigKey: new Float64Array(n).fill(NaN), trigCos: new Float64Array(n), trigSin: new Float64Array(n),
   };
 }
@@ -596,8 +599,27 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
   ph.gGut = L > 0 ? Math.min(1, gutLen / L) : 0;
   ph.handlingSize = bodyW + 2 * spikeL;
   ph.buildCostKg = build;
+  if (opts.editorPaths) {
+    // instance paths for the part editor (01 §1.10.2): root-to-part list of (link, copy, side)
+    const paths: EditorStep[][] = new Array(np);
+    for (let i = 0; i < n; i++) {
+      if (!keep[i] || absorbed[i]) continue;
+      const steps: EditorStep[] = [];
+      for (let k = i; k > 0; k = parent[k]!) {
+        const c = u.stepCode[k]!;
+        steps.push({ link: u.stepLink[k]!, copy: c & 0xff, side: (c >> 8) === 1 ? 1 : (c >> 8) === 2 ? -1 : 0, radial: (c >> 8) === 3 });
+      }
+      paths[newIdx[i]!] = steps.reverse();
+    }
+    (ph as PhenotypeWithPaths).paths = paths;
+  }
   return ph;
 }
+
+/** One step of an instance path: the link gene, the copy index and the mirror side (+1 dorsal, -1 ventral). */
+export interface EditorStep { link: number; copy: number; side: number; radial: boolean }
+/** develop() with `editorPaths` adds the instance path of every part (designer only, not in the sim). */
+export type PhenotypeWithPaths = Phenotype & { paths?: EditorStep[][] };
 
 /** develop(genome, maturity, env, opts) (CONTRACT 7). Pure and deterministic. */
 export function develop(g: Genome, maturity: number, env: BirthEnv, opts: DevelopOptions): Phenotype {
