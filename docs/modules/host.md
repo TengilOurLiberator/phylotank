@@ -17,7 +17,9 @@
 | `throttle.ts` | Throttle states with hysteresis, `OsProbe` interface, stub and shell-composed probes |
 | `scheduler.ts` | Tick pacing by completion |
 | `summary.ts` | 1 Hz tank summary: CENSUS and STATS |
-| `main.ts` | CLI: `serve` (default), `inspect`, `replay`, `--headless` |
+| `detectors.ts` | Derived events (CONTRACT 11): giant, record, endangered, extinction, massDeath, hunt, migration |
+| `gpu.ts` | Optional Dawn loader and a device manager that applies spike 2's findings (not used by the sim) |
+| `main.ts` | CLI: `serve` (default), `inspect`, `replay`, `gpu-probe`, `--headless` |
 | `spikes/dawn-node.mjs` | Spike 2 bench (not built, not tested) |
 
 ## Decisions
@@ -35,7 +37,9 @@
 11. **Commands.** Validated field by field (contract shapes, bounds, lengths), 20 per second per client, epoch-checked. A cast fires after 3 s (major) or 1 s at the achieved speed (1x while paused, so the countdown starts on resume). Major casts write a `beforePower` snapshot first, so the undo point excludes the command. `rewind` saves `beforeRewind`, loads the snapshot in place, sets the epoch past every epoch seen, and sends every client a fresh WELCOME. `speed` is a lease: it lapses when its god window disconnects unless `unattended` with an `until`; achieved speed is capped by the throttle state.
 12. **Throttle.** Watching (god, TV or screensaver visible), Ambient (wallpaper only), Background (nothing visible, 1x by default), Yield (fullscreen, ComfyUI busy, a listed process, or another GPU user above 30% for 5 s; enter after 5 s, leave after 30 s clear), Evicted (Yield over 10 minutes or free VRAM under 3 GB), Battery (0.25x). A screensaver during Yield trickles at 0.1x and 2%. An optional power budget scales speed by `budget / (avg W - idle W)`. The OS probes are Windows-only and live in the shell: `ShellProbe` composes `FullscreenProbe`, `NvmlProbe` and `ComfyUiProbe`; on other platforms `StubProbe` reports idle, and `--shell` lets the shell push samples as `{"probe":{...}}` lines.
 13. **Governor.** On ticks with `tick % 300 == 0`, from tick durations measured before that tick, the host may schedule a journalled `brainDiv` change (p95 over 15 ms gives 2, over 25 ms gives 3). Replay applies the journalled decision and never re-measures (CONTRACT 4.4).
-14. **Persistence defaults.** `npm run host` keeps the world in `$XDG_DATA_HOME/phylotank/worlds/default` (`%LOCALAPPDATA%\Phylotank\worlds\default` on Windows); `--memory` keeps it in RAM. Autosave every 10 minutes of host time (2 to 60), the first after local midnight as `daily`; a shutdown snapshot on SIGINT or SIGTERM. Retention: 6 auto, 7 daily, 20 each of `beforePower` and `beforeRewind` within 7 days, manual forever, 10 GB total.
+14. **Detectors** run once per second of sim time on the host timer and on every batch of primitive events. They read the World and never write it (a test checks the state hash). Windows are in ticks: mass death is the deaths in the last 10 s against the mean and spread of earlier windows (z at least 3, at least 10 deaths); a hunt starts at the first bite of a pair and ends with the prey's death by that killer or after 10 s of quiet; a giant is at least 0.6 L_ceiling or above the 99.5th percentile of at least 200 adults, once per entity; records need a 5% improvement and are at most one per kind per sim minute; endangered fires below 5 after a peak of at least 10; migration is a mean-depth shift of 15% of the tank height over 60 s. Detector events use host ids above 2^50.
+15. **GPU path.** `gpu-probe --webgpu <dir>` loads Dawn from a directory the user installed it in and prints the adapter; on lavapipe here it reports `llvmpipe` with `timestamp-query`. `GpuDeviceManager` re-requests the adapter on every acquire, recovers from losses other than its own `destroy()`, and gives up after 3 losses in 10 minutes (the host would fall back to the CPU backend).
+16. **Persistence defaults.** `npm run host` keeps the world in `$XDG_DATA_HOME/phylotank/worlds/default` (`%LOCALAPPDATA%\Phylotank\worlds\default` on Windows); `--memory` keeps it in RAM. Autosave every 10 minutes of host time (2 to 60), the first after local midnight as `daily`; a shutdown snapshot on SIGINT or SIGTERM. Retention: 6 auto, 7 daily, 20 each of `beforePower` and `beforeRewind` within 7 days, manual forever, 10 GB total.
 
 ## HTTP endpoints (contract request H7)
 
@@ -49,6 +53,6 @@
 
 ## Not done yet
 
-- Releases and sim settings (contract request H2), detectors (CONTRACT 11 derived events), lite snapshots, the GENO, SPEC and LINE sections (no genome store or species registry exists yet), predictive deltas (protocol 1.1), NEAR_POSE, INSPECT, FIELDS, GENOME_REQ.
+- Releases and sim settings (contract request H2), the detectors that need missing systems (school, outbreak, carcass, frenzy, epidemicFront, bloomFront, newRole, novelty, speciation), lite snapshots, the GENO, SPEC and LINE sections (no genome store or species registry exists yet), predictive deltas (protocol 1.1), NEAR_POSE, INSPECT, FIELDS, GENOME_REQ.
 - The Windows probes themselves, EcoQoS, mDNS, the GPU backend and its duty-cap controller.
 - A 24-hour soak. The 3 MB/s wallpaper budget is measured only for the phase-0 skeleton: a wallpaper watching the whole Default tank with 8,192 motes received 526 KB/s (`tests/host-recovery.test.ts`, this container). Real creatures, bodies and events will change that.

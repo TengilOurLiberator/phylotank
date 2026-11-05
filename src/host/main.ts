@@ -5,6 +5,7 @@
  *   node dist/host.mjs --headless --ticks 3000        run without a server and print the state hash
  *   node dist/host.mjs inspect [--world <dir>]         list snapshots and journals, verify checksums
  *   node dist/host.mjs replay [--world <dir>]          load the newest valid snapshot, replay and verify, write nothing
+ *   node dist/host.mjs gpu-probe --webgpu <dir>        try Dawn from <dir>/node_modules/webgpu (optional, not a dependency)
  *
  * With --shell the host speaks newline-delimited JSON on stdio to the Tauri shell (05 §5.2.3):
  * it prints {"ready":true,...}, and accepts {"cmd":"flush"} and {"probe":{...}} lines.
@@ -16,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { HOST_PORT, toHex64, type PresetName, type WorldConfig } from '../core/index.js';
 import { sim } from '../sim/index.js';
 import { DEFAULT_DREAM_CONFIG } from '../sim/session.js';
+import { GpuDeviceManager, loadDawn } from './gpu.js';
 import { decodeWorld } from './snapshot.js';
 import { WorldStore } from './store.js';
 import { StubProbe, type ProbeSample } from './throttle.js';
@@ -68,6 +70,14 @@ if (flag('headless')) {
   const journals = store.readJournals().map((j) => ({ seq: j.seq, epoch: j.epoch, startTick: j.startTick, records: j.records.length, torn: j.torn, lastTick: j.records.at(-1)?.tick ?? null }));
   console.log(JSON.stringify({ worldDir, snapshots, journals }, null, 2));
   store.close();
+} else if (sub === 'gpu-probe') {
+  // spike 2: does Dawn load here, and which adapter does it get? The sim stays on the CPU.
+  const gpu = await loadDawn(arg('webgpu') ?? process.cwd());
+  const m = gpu ? new GpuDeviceManager(gpu) : null;
+  const d = m ? await m.acquire() : null;
+  console.log(JSON.stringify({ dawnLoaded: gpu !== null, adapter: d?.adapter ?? null, timestampQuery: d?.timestampQuery ?? false, backend: 'cpu' }));
+  m?.close();
+  process.exit(0);
 } else if (sub === 'replay') {
   if (!worldDir) throw new Error('replay needs a world directory');
   const hw = HostWorld.open({ dir: worldDir, config, readOnly: true });
