@@ -49,7 +49,8 @@ plus these optional per-kind extras (all already emitted):
 1. `PROTOCOL_MINOR = 1` once every view decodes deltas (until then the server writes 0x0100 on every frame except a delta BODY_FRAME, which carries 0x0101; `PROTOCOL_VERSION_1_1` in `src/core/protocol.ts`).
 2. HELLO `caps` gains `proto?: number`, the newest protocol the view decodes. A view without it is treated as 1.0 and gets keyframes only.
 3. The delta BODY_FRAME (KEYFRAME flag clear) as specified in the comment block above `BodyDeltaEncoder` in `src/core/protocol.ts`: `f32 rect[4], u16 nSlots, u32 baseTick`, 2-bit class per slot (0 predicted, 1 residual, 2 full, 3 absent), then per slot by class; residuals are a mask byte, two i4 or two i8 position residuals and only the fields that differ from the dead-reckoning prediction. The prediction uses only `+ - * /`, `Math.round` and tables built from core `dmath`, so every engine agrees, and the codec is lossless against keyframes.
-4. Rule: a delta's `baseTick` must be the last BODY_FRAME the view decoded; otherwise the view sends VIEWPORT with the resync bit and the server answers with a keyframe.
+4. Wiring left to the integrator (it would conflict with main's new `src/sim/worker.ts`): the dream-tank worker should read `caps.proto` from HELLO and pass it on, `session.add(client, ['view', 'god'], { proto: typeof p.caps?.proto === 'number' ? p.caps.proto : 0x0100 })`. `SimSession.add` already takes the option; the host already reads `caps.proto`.
+5. Rule: a delta's `baseTick` must be the last BODY_FRAME the view decoded; otherwise the view sends VIEWPORT with the resync bit and the server answers with a keyframe.
 
 **Why.** CONTRACT 12.2 reserves predictive deltas for "a later minor version (0x0101) behind the keyframe bit". Measured saving: docs/spikes/events-1.md (BODY_FRAME bytes fall to about 37% of keyframes on a live fallback world).
 
