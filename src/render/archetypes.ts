@@ -66,7 +66,7 @@ function hushmaw(red = false): RenderTemplate {
   b.chain(sp[0]!, [0.16, 0.12], [b.rel(sp[0]!, PI), 0], [0.1, 0.065], { kind: CAP.GUT, r0: 0.08 });
   return buildTemplate(red ? 'hushmaw-red' : 'hushmaw', b.nodes,
     [organ(bulb[0]!, 0.06, red ? { gain: 1.4, hue: 18, chroma: 0.2, periodS: 1.2, depth: 0.9, duty: 0.3 } : { gain: 1.3, hue: 165, chroma: 0.16, periodS: 5, depth: 0.55 })],
-    genes({ pigHue: 0.9, pigSat: 0.35, pigLight: 0.08, opacity: 0.75, lumHue: 0.52, lumGain: 0.1, stripeFreq: 0.1, stripeAmp: 0.1, spotDensity: 0.55, trailGain: 0.15, softness: 0.45 }),
+    genes({ pigHue: 0.9, pigSat: 0.35, pigLight: 0.08, opacity: 0.75, lumHue: 0.52, lumGain: 0.04, stripeFreq: 0.1, stripeAmp: 0.1, spotDensity: 0.55, trailGain: 0.15, softness: 0.45 }),
     'undulate', 0.9);
 }
 
@@ -155,7 +155,7 @@ function motefly(): RenderTemplate {
   b.chain(0, rep(0.075, 10), [0, 0], [0.016, 0.015, 0.014, 0.013, 0.012, 0.011, 0.01, 0.009, 0.008, 0.006], { amp0: 0.15, amp1: 0.6, wave: 7, r0: 0.02 });
   b.eye(0, 0.12, -1.1, 0.035); // stigma
   const o = b.point(0, 0.2, PI);
-  return buildTemplate('motefly', b.nodes, [organ(o, 0.12, { gain: 0.35, periodS: 2.5, depth: 0.4 })],
+  return buildTemplate('motefly', b.nodes, [organ(o, 0.07, { gain: 0.3, periodS: 2.5, depth: 0.4 })],
     genes({ pigHue: 0.36, pigSat: 0.6, pigLight: 0.72, opacity: 0.18, lumHue: 0.05, lumGain: 0.3, stripeFreq: 0.2, stripeAmp: 0.1, trailGain: 0.3, softness: 1.5 }),
     'undulate', 6);
 }
