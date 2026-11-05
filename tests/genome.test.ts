@@ -785,3 +785,25 @@ describe('phylogeny (U13)', () => {
     }));
   });
 });
+
+describe('parent-diff encoding (R17)', () => {
+  it('round-trips mutants exactly and is much smaller than the child', async () => {
+    const { diffEncode, diffDecode } = await import('../src/genome/diff.js');
+    const reg = new InnovationRegistry();
+    let total = 0, patched = 0;
+    for (const id of TEMPLATE_IDS) {
+      let g = templateGenome(id);
+      for (let i = 0; i < 40; i++) {
+        const c = mutateWith(g, ctx(i, { mutagen: 3 }), reg);
+        const pb = encodeGenome(g), cb = encodeGenome(c);
+        const patch = diffEncode(pb, cb);
+        expect(diffDecode(pb, patch)).toEqual(cb);
+        total += cb.length; patched += patch.length;
+        g = c;
+      }
+    }
+    expect(patched / total).toBeLessThan(0.25);
+    const a = encodeGenome(templateGenome('hushmaw')), b = encodeGenome(templateGenome('sievebell'));
+    expect(diffDecode(a, diffEncode(a, b))).toEqual(b);
+  });
+});

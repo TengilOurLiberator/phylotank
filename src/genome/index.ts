@@ -65,3 +65,4 @@ export function createGenomeModule(registry = new InnovationRegistry()): GenomeM
 export const genome = createGenomeModule();
 export { enzymes, lookOf, packedColour, type Look } from './look.js';
 export { Phylogeny, type PhyloNode } from './phylogeny.js';
+export { diffEncode, diffDecode } from './diff.js';
