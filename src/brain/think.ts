@@ -8,8 +8,8 @@
  * `oPrev := o`, and the act step writing `out`, `cmd`, `cmd2`.
  */
 import {
-  BRAIN_CLASSES, BRAIN_STATE_CLAMP, DT, LIFE, NEURON_KIND, NONE_U32, PI, RNG_STREAM, TAU, log, sin, sigmoid,
-  sinCos, tanh, philox4x32, type World,
+  BRAIN_CLASSES, BRAIN_STATE_CLAMP, DT, LIFE, NEURON_KIND, NONE_U32, PI, RNG_STREAM, TAU, sin, sigmoid,
+  boxMullerParts, tanh, philox4x32, type World,
 } from '../core/index.js';
 import { W_MAX, etaOf } from './develop.js';
 import { DEST, brainState, recomputeAlphas, type BrainStatic } from './pool.js';
@@ -19,7 +19,6 @@ const OSC = NEURON_KIND.OSCILLATOR;
 const NOISY_LO = NEURON_KIND.DRIVE;
 const MOTOR_TRIGGER_MATE = 3, MOTOR_TRIGGER_LAY = 4, MOTOR_ROLL = 7;
 export const ROLL_COOLDOWN_S = 2;
-const TWO_M24 = 1 / 16777216;
 
 const blk = new Uint32Array(4);
 const phasePrev = new Float64Array(256);
@@ -30,23 +29,23 @@ export function gaussianBlock(k0: number, k1: number, tick: number, entityId: nu
   // splitU64 without the tuple: entityId is a non-negative safe integer
   const lo = entityId % 4294967296 >>> 0, hi = Math.floor(entityId / 4294967296) >>> 0;
   const t0 = tick >>> 0;
-  const sc = sinCosBuf;
+  const bm = bmBuf;
   for (let b = 0, i = 0; i < n; b++, i += 4) {
     philox4x32(t0, lo, hi, b, k0, k1, blk);
-    // pair 0 -> out[i], out[i + 1]; pair 1 -> out[i + 2], out[i + 3]; sin and cos share one reduction
-    const r0 = Math.sqrt(-2 * log(1 - ((blk[0]! >>> 8) * TWO_M24))) * sigma;
-    sinCos(TAU * ((blk[1]! >>> 8) * TWO_M24), sc);
-    out[i] = r0 * sc[1]!;
-    if (i + 1 < n) out[i + 1] = r0 * sc[0]!;
+    // pair 0 -> out[i], out[i + 1]; pair 1 -> out[i + 2], out[i + 3]; r = sqrt(-2 log u1) * sigma
+    boxMullerParts(blk, 0, bm); // u1 = 1 - (blk[0] >>> 8) 2^-24, u2 = (blk[1] >>> 8) 2^-24
+    const r0 = bm[0]! * sigma;
+    out[i] = r0 * bm[1]!;
+    if (i + 1 < n) out[i + 1] = r0 * bm[2]!;
     if (i + 2 < n) {
-      const r1 = Math.sqrt(-2 * log(1 - ((blk[2]! >>> 8) * TWO_M24))) * sigma;
-      sinCos(TAU * ((blk[3]! >>> 8) * TWO_M24), sc);
-      out[i + 2] = r1 * sc[1]!;
-      if (i + 3 < n) out[i + 3] = r1 * sc[0]!;
+      boxMullerParts(blk, 2, bm);
+      const r1 = bm[0]! * sigma;
+      out[i + 2] = r1 * bm[1]!;
+      if (i + 3 < n) out[i + 3] = r1 * bm[2]!;
     }
   }
 }
-const sinCosBuf = new Float64Array(2);
+const bmBuf = new Float64Array(3);
 
 /** Run the brain tick for every due brain. */
 export function think(world: World, ctx: StepContext): void {

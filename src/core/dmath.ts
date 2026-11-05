@@ -170,6 +170,54 @@ export function sinCos(x: number, out: Float64Array): void {
   }
 }
 
+/**
+ * The Box-Muller parts for one pair of 24-bit uniforms taken from two random words w[at] and
+ * w[at + 1] (the brain's noise draw): u1 = 1 - (w[at] >>> 8) 2^-24 in (0, 1], u2 = (w[at + 1]
+ * >>> 8) 2^-24 in [0, 1). Writes out[0] = Math.sqrt(-2 * log(u1)), out[1] = cos(TAU * u2),
+ * out[2] = sin(TAU * u2), the same bits as those calls, with log, the reduction and both
+ * polynomials written out. The words come in through the array, so a call that is not inlined
+ * boxes no double arguments and returns none. The NaN, zero, infinity and subnormal branches of
+ * log and sin cannot be taken on this domain; a test checks all 2^24 uniforms exhaustively.
+ */
+const BM_TWO_M24 = 1 / 16777216;
+export function boxMullerParts(w: Uint32Array, at: number, out: Float64Array): void {
+  const u1 = 1 - ((w[at]! >>> 8) * BM_TWO_M24);
+  const u2 = (w[at + 1]! >>> 8) * BM_TWO_M24;
+  // log(u1)
+  f64[0] = u1;
+  const ex = ((u32[HI]! >>> 20) & 0x7ff) - 1023;
+  let e = ex;
+  let m = u1 * POW2[POW2_ZERO - ex]!;
+  if (m > SQRT2) { m *= 0.5; e += 1; }
+  const f = m - 1;
+  const s = f / (2 + f);
+  const z = s * s;
+  let p = 1 / 23;
+  p = p * z + 1 / 21;
+  p = p * z + 1 / 19;
+  p = p * z + 1 / 17;
+  p = p * z + 1 / 15;
+  p = p * z + 1 / 13;
+  p = p * z + 1 / 11;
+  p = p * z + 1 / 9;
+  p = p * z + 1 / 7;
+  p = p * z + 1 / 5;
+  p = p * z + 1 / 3;
+  p = p * z + 1;
+  out[0] = Math.sqrt(-2 * (e * LN2_HI + (e * LN2_LO + 2 * s * p)));
+  // sin and cos of TAU * u2, k in [0, 4]
+  const x = TAU * u2;
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const sn = sinPoly(r), cs = cosPoly(r);
+  switch (k & 3) {
+    case 0: out[2] = sn; out[1] = cs; return;
+    case 1: out[2] = cs; out[1] = -sn; return;
+    case 2: out[2] = -sn; out[1] = -cs; return;
+    default: out[2] = -cs; out[1] = sn;
+  }
+}
+
 export function sin(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
   const k = Math.round(x * TWO_OVER_PI);

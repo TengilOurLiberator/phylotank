@@ -27,7 +27,11 @@ const I0 = 0.05;
 const LOG_NORM = 1 / log(1 + 1 / I0);
 const LOG11 = log(11);
 
-interface Grid { w: number; h: number; start: Int32Array; items: Int32Array; stamp: number }
+interface Grid {
+  w: number; h: number; start: Int32Array; items: Int32Array; stamp: number;
+  /** posX, posY and 0.5 * length of items[k], in item order (contiguous runs for gather) */
+  ix: Float64Array; iy: Float64Array; ir: Float64Array; fill: Int32Array;
+}
 const grids = new WeakMap<World, Grid>();
 
 /** Rebuild the neighbour grid: live creatures and carcasses, ascending slot within each cell. */
@@ -36,7 +40,11 @@ export function buildGrid(world: World, stamp: number): Grid {
   const w = Math.max(1, Math.ceil(world.preset.widthM / GRID_CELL_M));
   const h = Math.max(1, Math.ceil(world.preset.heightM / GRID_CELL_M));
   if (!g || g.w !== w || g.h !== h || g.items.length < world.cr.capacity) {
-    g = { w, h, start: new Int32Array(w * h + 1), items: new Int32Array(world.cr.capacity), stamp: -1 };
+    const cap = world.cr.capacity;
+    g = {
+      w, h, start: new Int32Array(w * h + 1), items: new Int32Array(cap), stamp: -1,
+      ix: new Float64Array(cap), iy: new Float64Array(cap), ir: new Float64Array(cap), fill: new Int32Array(w * h),
+    };
     grids.set(world, g);
   }
   if (g.stamp === stamp) return g;
@@ -51,11 +59,15 @@ export function buildGrid(world: World, stamp: number): Grid {
   };
   for (let s = 0; s < hw; s++) if (c.life[s] === LIFE.ALIVE || c.life[s] === LIFE.CARCASS) count[cellOf(s) + 1]!++;
   for (let i = 0; i < w * h; i++) count[i + 1]! += count[i]!;
-  const fill = new Int32Array(w * h);
+  const fill = g.fill;
+  fill.fill(0);
+  const posX = c.posX, posY = c.posY, length = c.length;
   for (let s = 0; s < hw; s++) {
     if (c.life[s] !== LIFE.ALIVE && c.life[s] !== LIFE.CARCASS) continue;
     const cell = cellOf(s);
-    g.items[count[cell]! + fill[cell]!++] = s;
+    const at = count[cell]! + fill[cell]!++;
+    g.items[at] = s;
+    g.ix[at] = posX[s]!; g.iy[at] = posY[s]!; g.ir[at] = 0.5 * length[s]!;
   }
   g.stamp = stamp;
   return g;
@@ -103,22 +115,22 @@ const nbX = new Float64Array(NB_CAP);
 const nbY = new Float64Array(NB_CAP);
 const nbR = new Float64Array(NB_CAP);
 /** Gather the neighbours of one creature once; every eye and lateral organ filters this list. */
-function gather(g: Grid, x: number, y: number, r: number, self: number, posX: ArrayLike<number>, posY: ArrayLike<number>, length: ArrayLike<number>): void {
+function gather(g: Grid, x: number, y: number, r: number, self: number): void {
   nbCount = 0;
   const cx = Math.floor(x / GRID_CELL_M), cy = Math.floor(y / GRID_CELL_M);
   let ext = Math.ceil(r / GRID_CELL_M);
   while ((2 * ext + 1) * (2 * ext + 1) > MAX_CELL_VISITS && ext > 0) ext--;
   const x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
   const y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
+  const start = g.start, items = g.items, gx = g.ix, gy = g.iy, gr = g.ir;
+  // the cells x0..x1 of one row are one contiguous run of items (ordered by cell, then slot)
   for (let iy = y0; iy <= y1; iy++) {
-    for (let ix = x0; ix <= x1; ix++) {
-      const cell = iy * g.w + ix;
-      for (let k = g.start[cell]!; k < g.start[cell + 1]!; k++) {
-        const j = g.items[k]!;
-        if (j !== self && nbCount < NB_CAP) {
-          nbX[nbCount] = posX[j]!; nbY[nbCount] = posY[j]!; nbR[nbCount] = 0.5 * length[j]!;
-          nbBuf[nbCount++] = j;
-        }
+    const k1 = start[iy * g.w + x1 + 1]!;
+    for (let k = start[iy * g.w + x0]!; k < k1; k++) {
+      const j = items[k]!;
+      if (j !== self && nbCount < NB_CAP) {
+        nbX[nbCount] = gx[k]!; nbY[nbCount] = gy[k]!; nbR[nbCount] = gr[k]!;
+        nbBuf[nbCount++] = j;
       }
     }
   }
@@ -241,13 +253,12 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // part positions go through the PP registers (partPos), no closures
   const sgPosX = seg.posX, sgPosY = seg.posY, sgAngle = seg.angle;
-  const posX = cr.posX, posY = cr.posY, length = cr.length;
 
   nbCount = 0;
   if (grid) {
     let r = 4 * len + len;
     for (const e of L.eyes) r = Math.max(r, Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + len);
-    if (L.needsNeighbours) gather(grid, x, y, r, k, posX, posY, length);
+    if (L.needsNeighbours) gather(grid, x, y, r, k);
   }
   // the lateral line only feels the near list (4 body lengths of an organ, so 5 of the centre)
   nearCount = 0;

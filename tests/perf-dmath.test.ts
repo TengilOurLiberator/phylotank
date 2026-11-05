@@ -4,7 +4,7 @@
  * as references).
  */
 import { describe, expect, it } from 'vitest';
-import { atan, atan2, cos, exp, log, pow, scalbn, sin, sinCos, tanh } from '../src/core/dmath.js';
+import { atan, atan2, boxMullerParts, cos, exp, log, pow, scalbn, sin, sinCos, tanh, TAU } from '../src/core/dmath.js';
 
 const PIO2_1 = 1.57079632673412561417, PIO2_2 = 6.07710050630396597660e-11, PIO2_3 = 2.02226624871116645580e-21;
 const TWO_OVER_PI = 0.63661977236758134308;
@@ -137,5 +137,21 @@ describe('perf: dmath fast paths', () => {
     expect(exp(0)).toBe(1);
     expect(exp(-745.2)).toBe(0);
     expect(exp(709.8)).toBe(Infinity);
+  });
+});
+
+describe('perf: boxMullerParts', () => {
+  it('equals sqrt(-2 log u1), cos and sin of TAU u2 for every 24-bit uniform the brain draws', () => {
+    const out = new Float64Array(3);
+    const TWO_M24 = 1 / 16777216;
+    let bad = 0;
+    const w = new Uint32Array(2);
+    for (let m = 0; m < 1 << 24; m++) {
+      const u1 = 1 - m * TWO_M24, u2 = m * TWO_M24;
+      w[0] = ((m << 8) | (m & 255)) >>> 0; w[1] = ((m << 8) | ((m >>> 3) & 255)) >>> 0; // low bytes are dropped
+      boxMullerParts(w, 0, out);
+      if (out[0] !== Math.sqrt(-2 * log(u1)) || out[1] !== cos(TAU * u2) || out[2] !== sin(TAU * u2)) bad++;
+    }
+    expect(bad).toBe(0);
   });
 });
