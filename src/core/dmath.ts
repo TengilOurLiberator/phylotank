@@ -33,9 +33,20 @@ function pow2(k: number): number {
   return f64[0]!;
 }
 
+/**
+ * POW2[POW2_ZERO + k] = 2^k exactly for k in [-1074, 1023] (subnormals included), built by exact
+ * halving and doubling. For k in [-1022, 1023] it equals pow2(k); reading a table avoids the
+ * store-to-load forwarding stall of assembling a double from two 32-bit halves.
+ */
+const POW2_ZERO = 1074;
+const POW2 = new Float64Array(1074 + 1024);
+POW2[POW2_ZERO] = 1;
+for (let k = 1; k <= 1023; k++) POW2[POW2_ZERO + k] = POW2[POW2_ZERO + k - 1]! * 2;
+for (let k = 1; k <= 1074; k++) POW2[POW2_ZERO - k] = POW2[POW2_ZERO - k + 1]! * 0.5;
+
 /** x * 2^k with exact power-of-two scaling, handling the extreme exponent ranges. */
 export function scalbn(x: number, k: number): number {
-  if (k <= 1023 && k >= -1022) return x * pow2(k);
+  if (k <= 1023 && k >= -1022) return x * POW2[POW2_ZERO + k]!;
   let y = x;
   let n = k;
   while (n > 1023) { y *= pow2(1023); n -= 1023; }
@@ -76,10 +87,11 @@ export function log(x: number): number {
   let m = x;
   if (m < 2.2250738585072014e-308) { m *= 18014398509481984; e = -54; } // subnormal: * 2^54
   f64[0] = m;
-  const hi = u32[HI]!;
-  e += ((hi >>> 20) & 0x7ff) - 1023;
-  u32[HI] = (hi & 0x000fffff) | 0x3ff00000;
-  m = f64[0]!; // in [1, 2)
+  const ex = ((u32[HI]! >>> 20) & 0x7ff) - 1023;
+  e += ex;
+  // m * 2^-ex is exact and equals m with its exponent field set to 0x3ff (no store-forwarding
+  // stall from rewriting half of the scratch double)
+  m *= POW2[POW2_ZERO - ex]!; // in [1, 2)
   if (m > SQRT2) { m *= 0.5; e += 1; }
   const f = m - 1;
   const s = f / (2 + f);

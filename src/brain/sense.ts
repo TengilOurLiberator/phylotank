@@ -14,6 +14,7 @@ import {
 } from '../core/index.js';
 import { IN } from './layout.js';
 import { brainState, type BrainStatic } from './pool.js';
+import type { FullLayout } from './layout.js';
 import { gaussianBlock } from './think.js';
 
 export const GRID_CELL_M = 0.5;
@@ -24,6 +25,7 @@ const TAU_SMELL = 5;
 const PLANT_KGM2_REF = 1e-3;
 const I0 = 0.05;
 const LOG_NORM = 1 / log(1 + 1 / I0);
+const LOG11 = log(11);
 
 interface Grid { w: number; h: number; start: Int32Array; items: Int32Array; stamp: number }
 const grids = new WeakMap<World, Grid>();
@@ -121,6 +123,27 @@ function gather(g: Grid, x: number, y: number, r: number, self: number, posX: Ar
     }
   }
 }
+/**
+ * The per-part inputs other than eyes and chemo, in layout order, as (index, kind, part, slot)
+ * quads: built once per layout, so the per-tick loop reads one Int32Array instead of every
+ * input channel object.
+ */
+const partInputCache = new WeakMap<FullLayout, Int32Array>();
+function partInputsOf(L: FullLayout): Int32Array {
+  let a = partInputCache.get(L);
+  if (a) return a;
+  const q: number[] = [];
+  for (let i = 0; i < L.nIn; i++) {
+    const chn = L.inputs[i]!;
+    const kind = chn.kind;
+    if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
+    q.push(i, kind, chn.part, chn.slot);
+  }
+  a = Int32Array.from(q);
+  partInputCache.set(L, a);
+  return a;
+}
+
 // partPos() result registers
 let PX = 0, PY = 0, PA = 0;
 /** Position and angle of part p (its segment once grown, else the creature centre) into PX, PY, PA. */
@@ -321,18 +344,16 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // per-part inputs other than eyes and chemo, in layout order
   const nIn = L.nIn;
-  for (let i = 0; i < nIn; i++) {
-    const chn = L.inputs[i]!;
-    const kind = chn.kind;
-    if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
-    const p = chn.part;
+  const pin = partInputsOf(L);
+  for (let q = 0; q < pin.length; q += 4) {
+    const i = pin[q]!, kind = pin[q + 1]!, p = pin[q + 2]!, slot = pin[q + 3]!;
     if (ungrown && p >= segCount) { inp[bI + i] = 0; continue; }
     partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, p, x, y, heading);
     const px = PX, py = PY, pa = PA;
     const sg = segStart !== NONE_U32 && p < segCount ? segStart + p : -1;
     switch (kind) {
       case IN.LATERAL: {
-        if (chn.slot !== 0) break; // both sides written together
+        if (slot !== 0) break; // both sides written together
         const nxD = mirror * sin(pa), nyD = -mirror * cos(pa);
         let pD = 0, pV = 0;
         const rng = 4 * len;
@@ -352,12 +373,12 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
         }
         const p0 = Math.max(1e-15, cr.massKg[k]! / len);
         const selfNoise = 0.1 * (Math.sqrt(vx * vx + vy * vy) / len);
-        inp[bI + i] = clamp01(log(1 + pD / p0) / log(11) - selfNoise);
-        if (i + 1 < nIn) inp[bI + i + 1] = clamp01(log(1 + pV / p0) / log(11) - selfNoise);
+        inp[bI + i] = clamp01(log(1 + pD / p0) / LOG11 - selfNoise);
+        if (i + 1 < nIn) inp[bI + i + 1] = clamp01(log(1 + pV / p0) / LOG11 - selfNoise);
         break;
       }
       case IN.TOUCH: {
-        if (chn.slot !== 0) break;
+        if (slot !== 0) break;
         const r = sg >= 0 ? Math.max(1e-4, seg.radius[sg]!) : len * 0.1;
         const nxD = mirror * sin(pa), nyD = -mirror * cos(pa);
         const sD = sdfAt(world, px + nxD * 2 * r, py + nyD * 2 * r);

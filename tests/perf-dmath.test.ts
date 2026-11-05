@@ -4,7 +4,7 @@
  * as references).
  */
 import { describe, expect, it } from 'vitest';
-import { atan, atan2, cos, exp, scalbn, sin, sinCos } from '../src/core/dmath.js';
+import { atan, atan2, cos, exp, log, pow, scalbn, sin, sinCos, tanh } from '../src/core/dmath.js';
 
 const PIO2_1 = 1.57079632673412561417, PIO2_2 = 6.07710050630396597660e-11, PIO2_3 = 2.02226624871116645580e-21;
 const TWO_OVER_PI = 0.63661977236758134308;
@@ -65,6 +65,25 @@ function scalbnRef(x: number, k: number): number {
   return y * pow2Ref(n);
 }
 
+const f64 = new Float64Array(1), u32 = new Uint32Array(f64.buffer);
+function logRef(x: number): number {
+  if (x !== x || x < 0) return NaN;
+  if (x === 0) return -Infinity;
+  if (x === Infinity) return Infinity;
+  let e = 0, m = x;
+  if (m < 2.2250738585072014e-308) { m *= 18014398509481984; e = -54; }
+  f64[0] = m;
+  const hi = u32[1]!;
+  e += ((hi >>> 20) & 0x7ff) - 1023;
+  u32[1] = (hi & 0x000fffff) | 0x3ff00000;
+  m = f64[0]!;
+  if (m > 1.4142135623730951) { m *= 0.5; e += 1; }
+  const f = m - 1, s = f / (2 + f), z = s * s;
+  let p = 1 / 23;
+  for (const d of [21, 19, 17, 15, 13, 11, 9, 7, 5, 3]) p = p * z + 1 / d;
+  p = p * z + 1;
+  return e * 6.93147180369123816490e-1 + (e * 1.90821492927058770002e-10 + 2 * s * p);
+}
 const same = (a: number, b: number): boolean => Object.is(a, b) || (a !== a && b !== b);
 function inputs(): number[] {
   const xs: number[] = [0, -0, 1e-300, -1e-300, 5e-324, NaN, Infinity, -Infinity, 2 ** 31, -(2 ** 31), 2 ** 53, 1e15, -1e15, 3e9, -3e9, 1e300];
@@ -97,6 +116,19 @@ describe('perf: dmath fast paths', () => {
       if (!same(atan2(x, 0.37), x !== x ? NaN : atanRef(x / 0.37))) bad++;
     }
     expect(bad).toBe(0);
+  });
+  it('log equals the reference bit for bit (normal, subnormal, huge, near 1 and sqrt 2)', () => {
+    const ys: number[] = [5e-324, 1e-310, 2.2250738585072014e-308, 1e-300, 1, 1 + 2 ** -52, 1 - 2 ** -53, Math.SQRT2, 1.4142135623730951 + 2 ** -50, 2, 1e300, 1.7976931348623157e308, 0, -1, NaN, Infinity];
+    let s = 99;
+    for (let i = 0; i < 200_000; i++) {
+      s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+      ys.push((s / 4294967296) * 10 ** ((i % 40) - 20), 1 - (s >>> 8) / 16777216);
+    }
+    let bad = 0;
+    for (const y of ys) if (!same(log(y), logRef(y))) bad++;
+    expect(bad).toBe(0);
+    expect(tanh(0.5)).toBe(1 - 2 / (exp(1) + 1));
+    expect(pow(2, 0.5)).toBe(exp(0.5 * log(2)));
   });
   it('scalbn and exp keep the reference scaling across the whole exponent range', () => {
     let bad = 0;
