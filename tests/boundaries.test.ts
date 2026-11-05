@@ -17,6 +17,7 @@ const ALLOWED: Record<string, string[]> = {
   ui: ['core', 'genome', 'render', 'director', 'audio', 'sim/client'],
   host: ['core', 'genome', 'sim'],
   web: ['ui', 'core'],
+  gpu: ['core', 'genome', 'physics', 'brain', 'ecosystem'],
 };
 
 function files(dir: string): string[] {
