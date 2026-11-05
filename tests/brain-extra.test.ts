@@ -64,3 +64,19 @@ describe('cross-engine probe', () => {
     expect(brainProbe(60)).toBe(brainProbe(60));
   });
 });
+
+describe('behaviour classifier', () => {
+  it('labels cruising, grazing, fleeing, resting, ambush and strike', async () => {
+    const { BehaviourTracker } = await import('../src/brain/classify.js');
+    const t = new BehaviourTracker();
+    const feed = (n: number, s: { speedBL: number; mouthOpen?: number; fear?: number; food?: number }) => {
+      for (let i = 0; i < n; i++) t.push({ mouthOpen: 0, fear: 0, food: 0, ...s });
+    };
+    feed(40, { speedBL: 0.6 }); expect(t.label()).toBe('cruise');
+    feed(20, { speedBL: 0.2, mouthOpen: 0.8, food: 0.6 }); expect(t.label()).toBe('graze');
+    feed(5, { speedBL: 3, fear: 0.9 }); expect(t.label()).toBe('flee');
+    feed(25, { speedBL: 0 }); expect(t.label()).toBe('rest');
+    feed(60, { speedBL: 0 }); expect(t.label()).toBe('ambush');
+    feed(1, { speedBL: 4 }); expect(t.label()).toBe('strike');
+  });
+});

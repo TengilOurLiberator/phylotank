@@ -20,6 +20,7 @@ export { brainState } from './pool.js';
 export { tickBrain, actBrain } from './think.js';
 export { inspect, type InspectFrame } from './inspect.js';
 export { behaviourTemplate, applyBehaviourTemplate } from './templates.js';
+export { BehaviourTracker, type BehaviourLabel, type BehaviourSample } from './classify.js';
 
 /** Smallest size class that fits N non-input neurons and I inputs, or -1 (CONTRACT 8.2). */
 export function sizeClassFor(nNeurons: number, nInputs: number): number {
