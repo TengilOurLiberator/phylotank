@@ -45,7 +45,7 @@ export function gpuSupports(o: PhysicsOptions): boolean {
   return o.solver === 'tree' && !o.diagnostics && o.dt > 0;
 }
 
-interface Buffers {
+export interface Buffers {
   crCap: number; segCap: number;
   params: GPUBuffer; cri: GPUBuffer; cro: GPUBuffer; sst: GPUBuffer; sint: GPUBuffer; sdyn: GPUBuffer; flow: GPUBuffer; scr: GPUBuffer;
   flowCells: number;
@@ -210,6 +210,9 @@ export class GpuPhysicsEngine {
       c.nSub[s] = cro[oo + CRO.NSUB]!; c.powerW[s] = crof[oo + CRO.POW]!;
     }
   }
+
+  /** The live buffers and packing (the hash and brain kernels read the physics state in place). */
+  get state(): { bufs: Buffers; packing: Packing } | null { return this.bufs && this.packing ? { bufs: this.bufs, packing: this.packing } : null; }
 
   destroy(): void {
     const b = this.bufs;
