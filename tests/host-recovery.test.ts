@@ -1,5 +1,5 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { hashWorld, type WorldConfig } from '../src/core/index.js';
@@ -111,5 +111,23 @@ describe('host housekeeping', () => {
     expect(perSec).toBeLessThan(3_000_000);
     ws.close();
     await host.stop();
+  });
+});
+
+describe('binding', () => {
+  const ext = Object.values(networkInterfaces()).flat().find((a) => a && !a.internal && a.family === 'IPv4')?.address;
+  it.skipIf(!ext)('binds to loopback by default and refuses public peers even with LAN on', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ptk-bind-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+    const local = await startHost({ port: 0, staticDir: dir, config: CFG, autostart: false });
+    const refused = await fetch(`http://${ext}:${local.port}/health`).then(() => 'open', () => 'refused');
+    expect(refused).toBe('refused');
+    await local.stop();
+    const lan = await startHost({ port: 0, staticDir: dir, config: CFG, autostart: false, lan: true });
+    const res = await fetch(`http://${ext}:${lan.port}/health`, { signal: AbortSignal.timeout(5000) });
+    // 192.0.2.x (TEST-NET) and other public addresses are not RFC 1918, link-local or ULA
+    const priv = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(ext!);
+    expect(res.status).toBe(priv ? 200 : 403);
+    await lan.stop();
   });
 });
