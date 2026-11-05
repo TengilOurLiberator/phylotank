@@ -14,6 +14,8 @@ import { decodeGenomeFrame, decodeInspect, encodeGenomeReq, type InspectDetail, 
 
 /** Gene drift samples kept per trait per species (one per genes update, at most this many). */
 export const DRIFT_MAX = 720;
+/** Okabe and Ito's colour-blind-safe categorical palette (lightened for the dark background). */
+export const CVD_PALETTE: [number, number, number][] = [[230, 159, 0], [86, 180, 233], [0, 158, 115], [240, 228, 66], [0, 114, 178], [213, 94, 0], [204, 121, 167], [220, 220, 220]];
 
 export const LEASE_RENEW_MS = 10_000;
 export const RESULT_TIMEOUT_MS = 10_000;
@@ -145,13 +147,17 @@ export class GodClient {
   private bare(id: number, name: string): SpeciesInfo {
     return { id, name, count: 0, biomassKg: 0, colour: [180, 200, 210], parent: -1, bornTick: 0, origin: 'natural', glyph: id % 24, prefDepth: 0.5 };
   }
+  /** Colour-vision-safe chart palette instead of genetic hues (07 §6.1). */
+  chartPalette = false;
+  setChartPalette(on: boolean): void { this.chartPalette = on; this.setSpecies(this.rawSpecies); this.changed.emit('stats'); }
   /** Apply user names over the host's species list (William's renames win). */
   private setSpecies(list: SpeciesInfo[]): void {
     this.rawSpecies = list;
     this.species = list.map((x) => {
       const name = this.names.display(x, list);
       const common = this.names.common(x);
-      return name === x.name && common === x.common ? x : { ...x, name, ...(common ? { common } : {}) };
+      const colour = this.chartPalette ? CVD_PALETTE[x.id % CVD_PALETTE.length]! : x.colour;
+      return name === x.name && common === x.common && colour === x.colour ? x : { ...x, name, colour, ...(common ? { common } : {}) };
     });
   }
   /** Generated (host) name of a species, before user names. */

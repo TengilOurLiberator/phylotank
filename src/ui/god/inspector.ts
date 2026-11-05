@@ -7,11 +7,12 @@ import { BRAIN_TRAITS, decodeGenome, decodeQ, TRAITS, type Genome } from '../../
 import { h, mount, binomial } from '../dom.js';
 import { fmtDuration, fmtLength, fmtNum, t, type MsgKey } from '../i18n.js';
 import { drawBody, growBody } from '../designer/body.js';
+import { traitLabel } from '../labels.js';
 import type { GodClient } from './client.js';
 import type { BrainGraph } from './wire.js';
 
 export type InspTab = 'overview' | 'genome' | 'body' | 'brain' | 'kin';
-export interface InspectorActions { follow(id: number): void; following(): number; saveGenome(g: Uint8Array, name: string): void; fork(g: Uint8Array, name: string): void; bookmark(): void; bless(id: number): void }
+export interface InspectorActions { follow(id: number): void; following(): number; saveGenome(g: Uint8Array, name: string): void; fork(g: Uint8Array, name: string): void; bookmark(): void; bless(id: number): void; rename(species: number): void }
 
 export class Inspector {
   readonly el: HTMLElement;
@@ -64,7 +65,8 @@ export class Inspector {
     const sub = h('div', { class: 'dim', style: 'font-size:12px' }, this.subline());
     this.ov = null;
     const head = h('div', { class: 'col', style: 'gap:4px;margin-bottom:8px' },
-      h('div', null, binomial(name)),
+      h('div', { class: 'row', style: 'gap:6px' }, binomial(name), this.client.names.get(s.species) ? h('span', { class: 'faint', style: 'font-size:11px' }, t('rename.byUser')) : null,
+        h('span', { class: 'grow' }), h('button', { class: 'small', onclick: () => this.actions.rename(s.species) }, '✎ ', t('rename.button'))),
       sub,
       h('div', { class: 'tabs', role: 'tablist' }, ...tabs.map((x) => h('button', { role: 'tab', 'aria-selected': String(x === this.tab), class: x === this.tab ? 'on' : '', onclick: () => this.setTab(x) }, t(`inspector.${x}` as MsgKey)))));
     let content: HTMLElement;
@@ -117,7 +119,7 @@ export class Inspector {
         if (!s) continue;
         const v = decodeQ(q[s.idx]!, s);
         if (this.onlyDiff && Math.abs(v - s.def) <= Math.abs(s.max - s.min) * 0.01) continue;
-        rows.push(h('tr', null, h('td', null, s.name.toLowerCase().replace(/_/g, ' ')), h('td', { class: 'num' }, fmtNum(v, 3)), h('td', { class: 'num faint' }, fmtNum(s.def, 3))));
+        rows.push(h('tr', null, h('td', null, traitLabel(s.name, table === TRAITS ? 'T' : 'B')), h('td', { class: 'num' }, fmtNum(v, 3)), h('td', { class: 'num faint' }, fmtNum(s.def, 3))));
       }
     };
     add(TRAITS, g.traits);

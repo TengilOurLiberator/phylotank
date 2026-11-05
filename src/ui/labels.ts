@@ -19,7 +19,7 @@ export const TRAIT_LABELS: Readonly<Record<string, Pair>> = {
   LIFESPAN_MULT: ['Lifespan', 'Livslängd'],
   SENESCENCE: ['Ageing shape', 'Åldrandets förlopp'],
   CLUTCH_SIZE: ['Clutch size', 'Kullstorlek'],
-  REPRO_RESERVE: ['Energy kept before breeding', 'Energireserv före fortplantning'],
+  REPRO_RESERVE: ['Reserve before breeding', 'Reserv före fortplantning'],
   SEX_PROB: ['Sexual reproduction', 'Könlig fortplantning'],
   MATE_PATIENCE: ['Patience for a mate', 'Tålamod med partner'],
   FAT_CAPACITY: ['Fat stores', 'Fettreserver'],

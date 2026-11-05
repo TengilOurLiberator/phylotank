@@ -4,20 +4,25 @@
  * designer, library, stats, bookmarks, settings), the inspector, the event timeline, the
  * always-on minimap, and the tank viewport with user camera, picking and power targeting.
  */
-import { CORE_POWERS, encodeGenome, decodeGenome, isMajorPower, type Camera, type PowerId, type Speed, type Target } from '../../core/index.js';
+import { CORE_POWERS, decodeQ, encodeGenome, decodeGenome, T, TRAITS, isMajorPower, type Camera, type PowerId, type Speed, type Target } from '../../core/index.js';
 import { binomial, h, mount, store } from '../dom.js';
 import { fmtNum, getLocale, localeChanged, setLocale, t, tk, type Locale, type MsgKey } from '../i18n.js';
 import { DesignerView } from '../designer/designer.js';
 import { drawBody, growBody } from '../designer/body.js';
 import { importDesign, Library, makeMeta, designString, packDesign } from '../designer/library.js';
 import { downloadPtkg } from '../designer/designer.js';
-import { drawHistogram, drawLines, drawMinimap, drawPhylogeny, drawPopulation, drawTimeline, diversitySeries, GLYPHS, prep, rgb, type EvFilter, type MiniLayers, type TimelineHit } from './charts.js';
+import { drawDrift, drawHistogram, drawLines, drawMinimap, drawPhylogeny, drawPopulation, drawTimeline, diversitySeries, GLYPHS, prep, rgb, type EvFilter, type MiniLayers, type TimelineHit } from './charts.js';
 import { clockOf, GodClient } from './client.js';
 import { Inspector } from './inspector.js';
 import { CastController, inTarget, POWER_SPECS } from './powers.js';
-import { GOD_CSS } from './styles.js';
+import { GOD_CSS, GOD_CSS2 } from './styles.js';
 import { diversity, sampleCounts } from './diversity.js';
 import { zoneKey } from '../captions.js';
+import { KnobsPanel, KNOB, showKnob } from './knobs.js';
+import { buildWeb, drawWeb, layoutWeb, type WebModel } from './foodweb.js';
+import { checkRename, splitName, type RenameIssue } from '../naming.js';
+import { traitLabel } from '../labels.js';
+import { OnboardingUi } from '../onboarding.js';
 import type { SimLink } from '../../core/index.js';
 
 type Panel = 'map' | 'powers' | 'designer' | 'library' | 'stats' | 'bookmarks' | 'settings';
@@ -62,7 +67,15 @@ export class GodApp {
   private tlHover = -1;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private layers: MiniLayers = { zones: true, currents: false, light: false, temp: false, pop: true, events: true };
-  private statsTab: 'population' | 'phylogeny' | 'genes' | 'diversity' = 'population';
+  private statsTab: 'population' | 'phylogeny' | 'foodweb' | 'genes' | 'diversity' = 'population';
+  private genesView: 'histogram' | 'drift' = 'histogram';
+  private driftSpecies = -1;
+  private webX = new Map<number, number>();
+  private webModel: WebModel | null = null;
+  readonly knobs: KnobsPanel;
+  readonly onb: OnboardingUi | null = null;
+  private castsSent = 0;
+  uiScale = 1;
   private statsTable = false;
   private statsLog = false;
   private geneTrait = 'ADULT_LENGTH';
@@ -80,13 +93,13 @@ export class GodApp {
   private mapSpecies: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement, link: SimLink, private readonly canvas: HTMLCanvasElement) {
-    root.appendChild(h('style', null, GOD_CSS));
+    root.appendChild(h('style', null, GOD_CSS + GOD_CSS2));
     this.client = new GodClient(link);
     this.overlay = h('canvas', { style: 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:5' });
     root.appendChild(this.overlay);
     root.appendChild(this.chrome);
     this.cast = new CastController({
-      cast: (power, target, intensity, duration, seed) => this.client.send({ t: 'cast', power, target, intensity, ...(duration ? { duration } : {}), seed }),
+      cast: (power, target, intensity, duration, seed) => { this.castsSent++; return this.client.send({ t: 'cast', power, target, intensity, ...(duration ? { duration } : {}), seed }); },
       snapshot: (label) => this.client.send({ t: 'snapshot', label }),
       paused: () => this.client.speed.requested === 0,
     }, () => this.refreshPowers());
@@ -99,6 +112,7 @@ export class GodApp {
       lCeiling: () => this.client.welcome?.lCeiling ?? 0.126,
       canRelease: () => true,
     });
+    this.knobs = new KnobsPanel(this.client, (msg, ok) => this.confirmDialog(msg, ok));
     this.inspector = this.makeInspector();
     try { const p = store.get('pt.god.panel') as Panel | null; if (p && RAIL.some((r) => r[0] === p)) this.panel = p; } catch { /* default */ }
     this.inspOpen = store.get('pt.god.insp') !== '0';
@@ -106,6 +120,31 @@ export class GodApp {
     this.client.changed.on((c) => this.onChange(c));
     localeChanged.on(() => { this.inspector = this.makeInspector(); this.build(); this.designer.render(); });
     this.installInput();
+    // per-viewer display preferences (07 §6.1); ?contrast=high and ?scale= override for tests
+    const q = new URLSearchParams(window.location.search);
+    if (store.get('pt.god.hc') === '1' || q.get('contrast') === 'high') this.setContrast(true);
+    if (store.get('pt.god.reduced') === '1' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('reduced');
+    const sc = Number(q.get('scale') ?? store.get('pt.god.scale') ?? 1);
+    if (sc && sc !== 1) this.setScale(sc);
+    if (store.get('pt.god.cvd') === '1') this.client.setChartPalette(true);
+    // onboarding (07 §5): off under automation unless ?onboarding=on, which also ignores saved flags
+    const onbQ = q.get('onboarding');
+    if (onbQ !== 'off' && (!navigator.webdriver || onbQ === 'on')) {
+      (this as { onb: OnboardingUi | null }).onb = new OnboardingUi({
+        creatures: () => this.client.countWhere(() => true).n,
+        selectedId: () => this.client.selectedId,
+        casts: () => this.castsSent,
+        designerOpen: () => this.panel === 'designer',
+        target: (w) => w === 'designer' ? this.rail.querySelectorAll('button')[2] as HTMLElement ?? null
+          : w === 'bloom' ? this.panelEl.querySelectorAll('.pgrid button')[CORE_POWERS.indexOf('bloom')] as HTMLElement ?? null : null,
+        openPowers: () => { this.openPanel('powers'); this.cast.pick('bloom'); },
+        openMeadowlamp: () => this.designer.openTemplate('meadowlamp'),
+        startEmpty: () => void this.client.send({ t: 'setting', key: 'world.new', value: JSON.stringify({ empty: true }) }),
+        browserOnly: () => this.client.isMock || this.client.link.kind === 'worker',
+      }, { force: onbQ === 'on' });
+      this.onRestartTour = () => this.onb?.send({ e: 'reopen' });
+      this.build();
+    }
     setInterval(() => this.client.sweep(), 1000);
     window.addEventListener('pagehide', () => this.client.close());
   }
@@ -127,6 +166,7 @@ export class GodApp {
       },
       bookmark: () => void this.bookmarkNow(),
       bless: (id) => void this.client.send({ t: 'cast', power: 'bless', target: { kind: 'creature', entity: id }, intensity: 0.5, seed: 1 }),
+      rename: (sp) => this.renameDialog(sp),
     });
   }
 
@@ -142,7 +182,7 @@ export class GodApp {
       h('div', { class: 'row', style: 'gap:3px' }, ...(['god', 'life', 'death'] as EvFilter[]).map((f) => this.chip(f))),
       h('div', { class: 'row', style: 'gap:3px' }, ...(['disease', 'records'] as EvFilter[]).map((f) => this.chip(f)))));
     this.mini = h('div', { class: 'pt-mini' }, this.miniCanvas);
-    mount(this.chrome, this.top, this.rail, this.panelEl, this.inspector.el, this.timeEl, this.mini, this.bannerEl, this.countEl, this.toastEl, this.tlCard, ...this.dialogs);
+    mount(this.chrome, this.top, this.rail, this.panelEl, this.inspector.el, this.timeEl, this.mini, this.bannerEl, this.countEl, this.toastEl, this.tlCard, this.onb?.el, ...this.dialogs);
     this.inspector.el.classList.toggle('collapsed', !this.inspOpen || this.panel === 'designer');
     this.renderTop();
     this.renderPanel();
@@ -213,7 +253,7 @@ export class GodApp {
         : h('button', { class: 'ovn', onclick: () => this.overnightDialog(), title: `${t('time.overnightTitle')}`, 'aria-label': t('time.overnight') }, '☾ ', h('span', { class: 'lbl' }, t('time.overnight'))),
       this.achievedEl = h('span', { class: 'dim', style: 'font-size:12px' }, achievedText),
       h('span', { class: 'grow' }),
-      status, lang);
+      this.onb?.helpButton, status, lang);
     this.bannerEl.style.display = down || (sp.requested !== 1 && !unattended && sp.requested !== 0) ? '' : 'none';
     this.bannerEl.textContent = down ? t('app.hostDown') : t('time.lease');
   }
@@ -280,7 +320,8 @@ export class GodApp {
   private speciesList(): HTMLElement {
     const live = this.client.species.filter((s) => s.count > 0).sort((a, b) => b.count - a.count);
     return h('table', { class: 't', style: 'margin-top:10px' }, h('thead', null, h('tr', null, h('th', null, t('stats.species')), h('th', null, t('stats.count')))),
-      h('tbody', null, ...live.map((s) => h('tr', null, h('td', null, h('span', { style: `color:${rgb(s.colour)}` }, GLYPHS[s.glyph % GLYPHS.length]!, ' '), binomial(s.name)), h('td', { class: 'num' }, String(s.count))))));
+      h('tbody', null, ...live.map((s) => h('tr', null, h('td', null, h('span', { style: `color:${rgb(s.colour)}`, 'aria-hidden': 'true' }, GLYPHS[s.glyph % GLYPHS.length]!, ' '), binomial(s.name),
+        h('button', { class: 'small ghost', 'aria-label': `${t('rename.button')} ${s.name}`, title: t('rename.button'), onclick: () => this.renameDialog(s.id) }, '✎')), h('td', { class: 'num' }, String(s.count))))));
   }
 
   private powersPanel(body: HTMLElement): void {
@@ -433,18 +474,32 @@ export class GodApp {
   }
 
   private statsPanel(body: HTMLElement): void {
-    const tabs = (['population', 'phylogeny', 'genes', 'diversity'] as const);
-    const keys: Record<string, MsgKey> = { population: 'stats.population', phylogeny: 'stats.phylogeny', genes: 'stats.genes', diversity: 'stats.diversity' };
-    body.append(h('div', { class: 'tabs', role: 'tablist' }, ...tabs.map((x) => h('button', { role: 'tab', 'aria-selected': String(this.statsTab === x), class: this.statsTab === x ? 'on' : '', onclick: () => { this.statsTab = x; this.renderPanel(); } }, t(keys[x]!)))));
+    const tabs = (['population', 'phylogeny', 'foodweb', 'genes', 'diversity'] as const);
+    const keys: Record<string, MsgKey> = { population: 'stats.population', phylogeny: 'stats.phylogeny', foodweb: 'stats.foodWeb', genes: 'stats.genes', diversity: 'stats.diversity' };
+    body.append(h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('stats.title') }, ...tabs.map((x) => h('button', { role: 'tab', 'aria-selected': String(this.statsTab === x), class: this.statsTab === x ? 'on' : '', onclick: () => { this.statsTab = x; this.renderPanel(); } }, t(keys[x]!)))));
     const opts = h('div', { class: 'row', style: 'margin:8px 0' },
       h('button', { class: `chip${this.statsTable ? ' on' : ''}`, onclick: () => { this.statsTable = !this.statsTable; this.renderPanel(); } }, this.statsTable ? t('common.showChart') : t('common.showTable')));
     if (this.statsTab === 'population') opts.append(h('button', { class: `chip${this.statsLog ? ' on' : ''}`, onclick: () => { this.statsLog = !this.statsLog; } }, t('stats.log')));
-    if (this.statsTab === 'genes') opts.append(h('select', { 'aria-label': t('stats.trait'), onchange: (e: Event) => { this.geneTrait = (e.target as HTMLSelectElement).value; } },
-      ...['ADULT_LENGTH', 'DIET_PLANT', 'GLOW_HUE', 'MU_LOG'].map((g) => h('option', { value: g, selected: g === this.geneTrait }, g.toLowerCase().replace(/_/g, ' ')))));
+    if (this.statsTab === 'genes') {
+      const traits = Object.keys(this.client.genes).length ? Object.keys(this.client.genes) : ['ADULT_LENGTH', 'DIET_PLANT', 'GLOW_HUE', 'MU_LOG'];
+      opts.append(h('select', { 'aria-label': t('stats.trait'), onchange: (e: Event) => { this.geneTrait = (e.target as HTMLSelectElement).value; this.renderPanel(); } },
+        ...traits.map((g) => h('option', { value: g, selected: g === this.geneTrait }, traitLabel(g)))),
+        h('div', { class: 'row', role: 'group', 'aria-label': t('stats.genes'), style: 'gap:2px' }, ...(['histogram', 'drift'] as const).map((v) =>
+          h('button', { class: `chip${this.genesView === v ? ' on' : ''}`, 'aria-pressed': String(this.genesView === v), onclick: () => { this.genesView = v; this.renderPanel(); } }, t(v === 'histogram' ? 'genes.histogram' : 'genes.drift')))));
+      if (this.genesView === 'drift') {
+        const live = this.client.species.filter((x) => x.count > 0).sort((a, b) => b.count - a.count);
+        if (!live.some((x) => x.id === this.driftSpecies)) this.driftSpecies = live.find((x) => x.name.includes('Bathy') || x.common === 'Deepcrown')?.id ?? live[0]?.id ?? -1;
+        opts.append(h('select', { 'aria-label': t('genes.species'), onchange: (e: Event) => { this.driftSpecies = Number((e.target as HTMLSelectElement).value); this.renderPanel(); } },
+          ...live.map((x) => h('option', { value: x.id, selected: x.id === this.driftSpecies }, x.name))));
+      }
+    }
     body.append(opts);
     if (this.statsTable) { body.append(this.statsTableEl()); return; }
-    this.panelCanvas = h('canvas', { style: `width:100%;height:${this.statsTab === 'phylogeny' ? 460 : 340}px;background:#02070b;border-radius:6px;display:block`, role: 'img', 'aria-label': t(keys[this.statsTab]!) });
+    const label = this.statsTab === 'genes' ? (this.genesView === 'drift' ? t('genes.driftChart', { trait: traitLabel(this.geneTrait), species: this.client.speciesName(this.driftSpecies) }) : t('genes.chart', { trait: traitLabel(this.geneTrait) })) : t(keys[this.statsTab]!);
+    this.panelCanvas = h('canvas', { style: `width:100%;height:${this.statsTab === 'phylogeny' || this.statsTab === 'foodweb' ? 460 : 340}px;background:#02070b;border-radius:6px;display:block`, role: 'img', 'aria-label': label });
     body.append(this.panelCanvas);
+    if (this.statsTab === 'foodweb') body.append(h('p', { class: 'faint', style: 'font-size:12px' }, this.client.web ? t('web.legend') : t('web.noData')));
+    if (this.statsTab === 'genes' && this.genesView === 'drift') body.append(h('p', { class: 'faint', style: 'font-size:12px' }, (this.client.drift[this.geneTrait]?.[String(this.driftSpecies)]?.length ?? 0) > 1 ? t('genes.driftLegend') : t('genes.noDrift')));
     if (this.statsTab === 'diversity') {
       const last = this.client.history[this.client.history.length - 1];
       const d = diversity(last ? [...sampleCounts(last[1]).values()] : []);
@@ -458,8 +513,25 @@ export class GodApp {
       return h('table', { class: 't' }, h('thead', null, h('tr', null, ...['tick', t('stats.richness'), 'H′', 'exp(H′)', 'Simpson'].map((x) => h('th', null, x)))),
         h('tbody', null, ...s.map((r) => h('tr', null, h('td', null, String(r.t)), h('td', { class: 'num' }, String(r.richness)), h('td', { class: 'num' }, fmtNum(r.shannon, 3)), h('td', { class: 'num' }, fmtNum(r.effective, 2)), h('td', { class: 'num' }, fmtNum(r.simpson, 3))))));
     }
-    return h('table', { class: 't' }, h('thead', null, h('tr', null, h('th', null, t('stats.species')), h('th', null, t('stats.count')), h('th', null, 'kg'), h('th', null, 'origin'))),
-      h('tbody', null, ...this.client.species.map((s) => h('tr', null, h('td', null, binomial(s.name), s.extinctTick !== undefined ? ' ×' : ''), h('td', { class: 'num' }, String(s.count)), h('td', { class: 'num' }, fmtNum(s.biomassKg, 3)), h('td', null, s.origin)))));
+    if (this.statsTab === 'foodweb') {
+      const m = this.webModel ?? (this.client.web ? buildWeb(this.client.web, this.client.species, (k) => t(`web.${k}` as MsgKey)) : null);
+      if (!m) return h('p', { class: 'dim' }, t('web.noData'));
+      const name = (id: number) => m.nodes.find((n) => n.id === id)?.label ?? String(id);
+      return h('div', { class: 'col' },
+        h('table', { class: 't' }, h('caption', { class: 'sr' }, t('web.tl')), h('thead', null, h('tr', null, h('th', null, t('stats.species')), h('th', null, t('web.tl')), h('th', null, 'kg'))),
+          h('tbody', null, ...[...m.nodes].sort((a, b) => b.tl - a.tl).map((n) => h('tr', null, h('td', null, n.abiotic ? n.label : binomial(n.label)), h('td', { class: 'num' }, fmtNum(n.tl, 2)), h('td', { class: 'num' }, n.abiotic ? '' : fmtNum(n.biomass, 3)))))),
+        h('table', { class: 't' }, h('thead', null, h('tr', null, h('th', null, t('web.eaten')), h('th', null, t('web.kind')), h('th', null, t('web.eater')), h('th', null, t('web.flow')))),
+          h('tbody', null, ...[...m.edges].sort((a, b) => b.flow - a.flow).map((e) => h('tr', null, h('td', null, name(e.from)), h('td', null, t(`web.kind.${e.kind}` as MsgKey)), h('td', null, name(e.to)), h('td', { class: 'num' }, fmtNum(e.flow, 3)))))));
+    }
+    if (this.statsTab === 'genes') {
+      const g = this.client.genes[this.geneTrait] ?? {};
+      return h('table', { class: 't' }, h('thead', null, h('tr', null, h('th', null, t('stats.species')), ...Array.from({ length: 8 }, (_, i) => h('th', { class: 'num' }, `${i * 4 + 1}–${i * 4 + 4}`)))),
+        h('tbody', null, ...Object.entries(g).map(([id, bins]) => h('tr', null, h('td', null, binomial(this.client.speciesName(Number(id)))),
+          ...Array.from({ length: 8 }, (_, i) => h('td', { class: 'num' }, String(bins.slice(i * 4, i * 4 + 4).reduce((a, b) => a + b, 0))))))));
+    }
+    return h('table', { class: 't' }, h('thead', null, h('tr', null, h('th', null, t('stats.species')), h('th', null, t('stats.count')), h('th', null, 'kg'), h('th', null, 'origin'), h('th', null, h('span', { class: 'sr' }, t('rename.button'))))),
+      h('tbody', null, ...this.client.species.map((s) => h('tr', null, h('td', null, binomial(s.name), s.extinctTick !== undefined ? ' ×' : '', this.client.names.get(s.id) ? h('span', { class: 'faint' }, ' ✎') : null), h('td', { class: 'num' }, String(s.count)), h('td', { class: 'num' }, fmtNum(s.biomassKg, 3)), h('td', null, s.origin),
+        h('td', null, h('button', { class: 'small', 'aria-label': `${t('rename.button')} ${s.name}`, onclick: () => this.renameDialog(s.id) }, '✎'))))));
   }
 
   private bookmarksPanel(body: HTMLElement): void {
@@ -492,15 +564,87 @@ export class GodApp {
   }
 
   private settingsPanel(body: HTMLElement): void {
-    const lang = h('select', { 'aria-label': t('settings.language'), onchange: (e: Event) => setLocale((e.target as HTMLSelectElement).value as Locale) },
+    const html = document.documentElement;
+    const lang = h('select', { id: 'pt-lang', onchange: (e: Event) => setLocale((e.target as HTMLSelectElement).value as Locale) },
       h('option', { value: 'en', selected: getLocale() === 'en' }, 'English'), h('option', { value: 'sv', selected: getLocale() === 'sv' }, 'Svenska'));
-    const rm = h('input', { type: 'checkbox', id: 'pt-rm', checked: document.documentElement.classList.contains('reduced'), onchange: () => document.documentElement.classList.toggle('reduced', rm.checked) });
-    const cap = h('input', { type: 'checkbox', id: 'pt-cap', checked: true, onchange: () => void this.client.send({ t: 'setting', key: 'views.captions', value: cap.checked }) });
-    body.append(h('div', { class: 'col' },
-      h('label', { class: 'row' }, t('settings.language'), lang),
-      h('label', { class: 'row', for: 'pt-rm' }, rm, t('settings.reducedMotion')),
-      h('label', { class: 'row', for: 'pt-cap' }, cap, t('settings.captions')),
-      this.client.isMock ? h('p', { class: 'warn', style: 'font-size:12px' }, t('app.mockBanner')) : null));
+    const rm = h('input', { type: 'checkbox', id: 'pt-rm', checked: html.classList.contains('reduced'), onchange: () => { html.classList.toggle('reduced', rm.checked); store.set('pt.god.reduced', rm.checked ? '1' : '0'); } });
+    const hc = h('input', { type: 'checkbox', id: 'pt-hc', checked: html.classList.contains('hc'), onchange: () => this.setContrast(hc.checked) });
+    const cvd = h('input', { type: 'checkbox', id: 'pt-cvd', checked: this.client.chartPalette, onchange: () => { this.client.setChartPalette(cvd.checked); store.set('pt.god.cvd', cvd.checked ? '1' : '0'); PAL.length = 0; } });
+    const cap = h('input', { type: 'checkbox', id: 'pt-cap', checked: this.client.settings['views.captions'] !== false, onchange: () => void this.client.send({ t: 'setting', key: 'views.captions', value: cap.checked }) });
+    const scale = h('select', { id: 'pt-scale', onchange: (e: Event) => this.setScale(Number((e.target as HTMLSelectElement).value)) },
+      ...[0.75, 1, 1.25, 1.5, 1.75, 2].map((v) => h('option', { value: v, selected: Math.abs(v - this.uiScale) < 0.01 }, `${Math.round(v * 100)}%`)));
+    body.append(h('fieldset', { class: 'kgroup' }, h('legend', null, t('settings.display')),
+      h('div', { class: 'knob' }, h('label', { for: 'pt-lang' }, t('settings.language')), lang),
+      h('div', { class: 'knob' }, h('label', { for: 'pt-scale' }, t('settings.uiScale')), scale),
+      h('div', { class: 'row' }, rm, h('label', { for: 'pt-rm' }, t('settings.reducedMotion'))),
+      h('div', { class: 'row' }, hc, h('label', { for: 'pt-hc' }, t('settings.highContrast'))),
+      h('div', { class: 'row' }, cvd, h('label', { for: 'pt-cvd' }, t('settings.chartPalette'))),
+      h('div', { class: 'row' }, cap, h('label', { for: 'pt-cap' }, t('settings.captions'))),
+      h('div', { class: 'row' }, h('button', { onclick: () => { this.openPanel(null); this.onRestartTour?.(); } }, t('settings.tour')))),
+      this.client.isMock ? h('p', { class: 'warn', style: 'font-size:12px' }, t('app.mockBanner')) : '');
+    this.knobs.render();
+    body.append(this.knobs.el);
+  }
+  /** Set by the onboarding controller so Settings can restart the tour. */
+  onRestartTour: (() => void) | null = null;
+  setContrast(on: boolean): void { document.documentElement.classList.toggle('hc', on); store.set('pt.god.hc', on ? '1' : '0'); }
+  setScale(v: number): void {
+    this.uiScale = Math.min(2, Math.max(0.75, v));
+    (this.chrome.style as unknown as { zoom: string }).zoom = String(this.uiScale);
+    store.set('pt.god.scale', String(this.uiScale));
+    this.fitted = false;
+    this.layoutMini();
+  }
+  confirmDialog(msg: string, ok: () => void): void {
+    let close = () => {};
+    const el = h('div', null, h('p', null, msg), h('div', { class: 'actions' }, h('button', { onclick: () => close() }, t('common.cancel')),
+      h('button', { class: 'danger', onclick: () => { close(); ok(); } }, t('common.confirm'))));
+    close = this.dialog(el);
+  }
+
+  /** Rename a species (07 §6.4): genus, epithet, common name, optionally the whole genus. */
+  renameDialog(id: number): void {
+    const sp = this.client.species.find((x) => x.id === id);
+    if (!sp) return;
+    const cur = splitName(sp.name);
+    const sameGenus = this.client.species.filter((x) => splitName(x.name).genus === cur.genus).length;
+    const genus = h('input', { type: 'text', id: 'rn-genus', value: cur.genus, style: 'font-style:italic', autocomplete: 'off' });
+    const epithet = h('input', { type: 'text', id: 'rn-epithet', value: cur.epithet, style: 'font-style:italic', autocomplete: 'off' });
+    const common = h('input', { type: 'text', id: 'rn-common', value: sp.common ?? '', autocomplete: 'off' });
+    const whole = h('input', { type: 'checkbox', id: 'rn-whole' });
+    const msgs = h('div', { class: 'col', style: 'gap:2px;font-size:12px', 'aria-live': 'polite' });
+    const save = h('button', { class: 'primary' }, t('rename.save'));
+    const check = () => {
+      const r = checkRename({ genus: genus.value, epithet: epithet.value, common: common.value }, this.client.species, id);
+      mount(msgs, h('div', null, binomial(`${r.genus} ${r.epithet}`)), ...r.errors.map((e: RenameIssue) => h('div', { class: 'bad' }, t(`rename.err.${e}` as MsgKey))),
+        ...r.warnings.map((e: RenameIssue) => h('div', { class: 'warn' }, t(`rename.warn.${e}` as MsgKey))));
+      save.disabled = r.errors.length > 0;
+      if (save.disabled) save.setAttribute('disabled', ''); else save.removeAttribute('disabled');
+      return r;
+    };
+    for (const el of [genus, epithet, common]) el.addEventListener('input', check);
+    let close = () => {};
+    save.addEventListener('click', async () => {
+      const r = check();
+      if (r.errors.length) return;
+      close();
+      const name = `${r.genus} ${r.epithet}`;
+      const res = await this.client.rename(id, { genus: r.genus, epithet: r.epithet, ...(r.common ? { common: r.common } : {}), wholeGenus: whole.checked });
+      this.toast(res.ok ? t('rename.done', { name }) : t('rename.local', { name, reason: res.reason ?? '?' }));
+      this.inspector.render();
+      if (this.panel === 'stats' || this.panel === 'map') this.renderPanel();
+    });
+    const gen = this.client.generatedName(id);
+    const el = h('form', { onsubmit: (e: Event) => { e.preventDefault(); save.click(); } }, h('h3', null, t('rename.title', { species: sp.name })),
+      gen !== sp.name ? h('p', { class: 'faint', style: 'font-size:12px;margin:0 0 8px' }, t('rename.generated', { name: gen })) : null,
+      h('div', { class: 'knob' }, h('label', { for: 'rn-genus' }, t('rename.genus')), genus),
+      h('div', { class: 'knob' }, h('label', { for: 'rn-epithet' }, t('rename.epithet')), epithet),
+      h('div', { class: 'knob' }, h('label', { for: 'rn-common' }, t('rename.common')), common),
+      sameGenus > 1 ? h('div', { class: 'row', style: 'margin:6px 0' }, whole, h('label', { for: 'rn-whole' }, t('rename.wholeGenus', { n: sameGenus }))) : null,
+      msgs, h('div', { class: 'actions' }, h('button', { type: 'button', onclick: () => close() }, t('common.cancel')), save));
+    close = this.dialog(el);
+    check();
+    genus.focus(); genus.select();
   }
 
   // ---------------- helpers ----------------
@@ -537,13 +681,15 @@ export class GodApp {
 
   // ---------------- camera and input ----------------
   private viewBox(): { x: number; y: number; w: number; h: number } {
-    const left = RAIL_W + (this.panel && this.panel !== 'designer' ? this.panelWidth() : 0), right = this.inspOpen ? 320 : 0;
-    return { x: left, y: 44, w: Math.max(200, window.innerWidth - left - right), h: Math.max(150, window.innerHeight - 44 - 64) };
+    const k = this.uiScale;
+    const left = (RAIL_W + (this.panel && this.panel !== 'designer' ? this.panelWidth() : 0)) * k, right = this.inspOpen ? 320 * k : 0;
+    return { x: left, y: 44 * k, w: Math.max(200, window.innerWidth - left - right), h: Math.max(150, window.innerHeight - 108 * k) };
   }
   private dpr(): number { return this.canvas.width / Math.max(1, this.canvas.clientWidth); }
   fit(): void {
     const tank = this.client.tank;
-    const vb = { x: RAIL_W, y: 44, w: Math.max(200, window.innerWidth - RAIL_W - (this.inspOpen ? 320 : 0)), h: Math.max(150, window.innerHeight - 108) };
+    const k = this.uiScale;
+    const vb = { x: RAIL_W * k, y: 44 * k, w: Math.max(200, window.innerWidth - (RAIL_W + (this.inspOpen ? 320 : 0)) * k), h: Math.max(150, window.innerHeight - 108 * k) };
     const ppmCss = Math.min(vb.w / tank.w, vb.h / tank.h) * 0.96;
     const dpr = this.dpr();
     this.cam.zeta = Math.log2(ppmCss * dpr);
@@ -645,7 +791,15 @@ export class GodApp {
       case 'massDeath': return t('event.massDeath', { n: e.deaths });
       case 'record': return t('event.record', { kind: e.kind });
       case 'outbreak': return t('event.outbreak');
-      default: return t('event.other', { k: e.k });
+      default: {
+        const x = e as unknown as { k: string; key?: string; value?: unknown; species?: number; from?: string; to?: string };
+        if (x.k === 'rename') return t('event.rename', { from: x.from ?? '?', to: x.to ?? sp(x.species ?? -1) });
+        if (x.k === 'setting') {
+          const k = KNOB.get(x.key ?? '');
+          return t('event.setting', { knob: k ? t(k.label) : String(x.key), value: k && (typeof x.value === 'number' || typeof x.value === 'string') ? showKnob(k, x.value) : String(x.value) });
+        }
+        return t('event.other', { k: e.k });
+      }
     }
   }
   private speciesOfEntity(id: number): number | undefined { for (const v of this.client.slots.values()) if (v.id === id) return v.species; return undefined; }
@@ -770,6 +924,7 @@ export class GodApp {
     if (now - this.lastSlow > 500) {
       this.lastSlow = now;
       this.renderTop();
+      this.onb?.tick(now);
       this.updatePreviewCount();
       this.drawPanelCanvas();
     }
@@ -803,7 +958,23 @@ export class GodApp {
     switch (this.statsTab) {
       case 'population': drawPopulation(c, w, hh, this.client.history, sp, this.statsLog, this.client.events); break;
       case 'phylogeny': drawPhylogeny(c, w, hh, sp, this.client.tick); break;
+      case 'foodweb': {
+        if (!this.client.web) { c.clearRect(0, 0, w, hh); break; }
+        const m = buildWeb(this.client.web, sp, (k) => t(`web.${k}` as MsgKey));
+        this.webModel = m;
+        this.webX = layoutWeb(m, this.webX, this.webX.size ? 30 : 160);
+        drawWeb(c, w, hh, m, this.webX, t('web.tl'));
+        break;
+      }
       case 'genes': {
+        if (this.genesView === 'drift') {
+          const samples = this.client.drift[this.geneTrait]?.[String(this.driftSpecies)] ?? [];
+          const spec = TRAITS[T[this.geneTrait] ?? -1];
+          const when = (tk: number) => { const ck = clockOf(tk, null, this.client.welcome?.tickHz ?? 30); return `${t('time.day', { d: ck.day })} ${String(ck.hh).padStart(2, '0')}:${String(ck.mm).padStart(2, '0')}`; };
+          drawDrift(c, w, hh, samples, sp.find((x) => x.id === this.driftSpecies)?.colour ?? [200, 220, 230],
+            { lo: spec ? fmtNum(decodeQ(0, spec), 3) : 'min', hi: spec ? fmtNum(decodeQ(65535, spec), 3) : 'max', t0: when });
+          break;
+        }
         const g = this.client.genes[this.geneTrait] ?? {};
         const series = Object.entries(g).slice(0, 6).map(([id, bins]) => ({ bins, colour: sp.find((s) => s.id === Number(id))?.colour ?? [200, 200, 200], label: this.client.speciesName(Number(id)) }));
         drawHistogram(c, w, hh, series);

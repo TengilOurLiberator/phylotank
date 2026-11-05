@@ -95,3 +95,35 @@ table.t td.num{text-align:right;font-variant-numeric:tabular-nums}
 .host-down .pt-speed button,.host-down .pgrid button,.host-down .dhead button.primary,.host-down .dhead button.danger,.host-down .snap button,.host-down .pt-panel .card button.danger{pointer-events:none;opacity:.4}
 .dhead{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 `;
+export const GOD_CSS2 = `
+.sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+button.small{min-height:24px;padding:1px 7px;font-size:12px}
+button.ghost{background:transparent;border-color:transparent;color:var(--dim)}button.ghost:hover{border-color:var(--line2);color:var(--text)}
+td button.ghost{margin-left:4px;min-height:22px;padding:0 5px}
+fieldset.kgroup{border:1px solid var(--line);border-radius:var(--r);padding:6px 10px 8px;margin:10px 0 0;display:flex;flex-direction:column;gap:2px}
+fieldset.kgroup legend{padding:0 4px;color:var(--dim);font-size:12px;letter-spacing:.04em}
+h3.sub{margin:16px 0 2px;font-size:14px}
+.knob{display:grid;grid-template-columns:minmax(120px,1fr) minmax(100px,1.3fr) 70px 30px;gap:6px;align-items:center;min-height:30px}
+.knob label{font-size:12px}.knob .val{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--dim)}
+.knob .khint{grid-column:1/-1;font-size:11px;margin-top:-4px;min-height:0}.knob .khint:empty{display:none}
+.knob select,.knob input[type=number],.knob input[type=text]{min-width:0;width:100%}
+.kreset{min-height:26px;padding:0 6px}
+.pt-help{width:28px;height:28px;min-height:28px;padding:0;border-radius:50%;font-weight:700}
+.pt-onb{position:fixed;left:0;right:0;bottom:76px;display:flex;justify-content:center;pointer-events:none;z-index:30}
+.pt-onb .onb-card{pointer-events:auto;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:14px 16px;max-width:min(520px,92vw);box-shadow:0 10px 50px rgba(0,0,0,.55)}
+.pt-onb .onb-card h2{margin:0 0 6px;font-size:16px}.pt-onb .onb-card p{margin:0 0 10px}
+.pt-onb .onb-card.small{padding:8px 14px;color:var(--dim)}
+.pt-onb .coach-card{display:flex;flex-direction:column;gap:6px;border-color:var(--warn)}
+.pt-onb .coach-card.pinned{position:fixed;max-width:300px}
+.coach-target{outline:2px solid var(--warn)!important;outline-offset:2px;box-shadow:0 0 0 6px rgba(232,192,106,.18)!important}
+html.hc{--panel:#000;--panel2:#000;--line:rgba(255,255,255,.45);--line2:rgba(255,255,255,.8);--text:#fff;--dim:#e6eef0;--faint:#c8d4d8;--accent:#7fe3f5;--warn:#ffd77a;--bad:#ff9f86;--good:#a8f0b8}
+html.hc button{background:#000;border-color:var(--line2)}html.hc button.on,html.hc button[aria-pressed=true]{background:#0b4552}
+html.hc .pt-toast,html.hc .pt-dialog,html.hc .pt-onb .onb-card{box-shadow:none}
+html.reduced *{transition:none!important;animation:none!important}
+.pt-rail button{overflow-wrap:normal;word-break:normal;hyphens:auto;-webkit-hyphens:auto;font-size:10.5px}
+.dz .slider{grid-template-columns:minmax(150px,190px) 1fr 92px}
+.pt-describe{position:fixed;right:12px;bottom:76px;z-index:16}
+.pt-insp.collapsed~.pt-rail button{overflow-wrap:normal;word-break:normal;hyphens:auto;-webkit-hyphens:auto;font-size:10.5px}
+.dz .slider{grid-template-columns:minmax(150px,190px) 1fr 92px}
+.pt-describe{right:12px}
+`;
