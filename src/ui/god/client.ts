@@ -9,7 +9,13 @@ import {
   type CborValue, type CommandResult, type DustFrame, type EnvFrame, type GodCommand, type SimEvent, type SimLink, type Speed,
 } from '../../core/index.js';
 import { Emitter } from '../dom.js';
-import { decodeGenomeFrame, decodeInspect, encodeGenomeReq, type InspectDetail, type InspectFrame, type SnapshotInfo, type SpeciesInfo, type SpeedInfo, type StatsPayload } from './wire.js';
+import { NameBook, renameKey, renameValue } from '../naming.js';
+import { decodeGenomeFrame, decodeInspect, encodeGenomeReq, type InspectDetail, type FoodWeb, type InspectFrame, type SnapshotInfo, type SpeciesInfo, type SpeedInfo, type StatsPayload } from './wire.js';
+
+/** Gene drift samples kept per trait per species (one per genes update, at most this many). */
+export const DRIFT_MAX = 720;
+/** Okabe and Ito's colour-blind-safe categorical palette (lightened for the dark background). */
+export const CVD_PALETTE: [number, number, number][] = [[230, 159, 0], [86, 180, 233], [0, 158, 115], [240, 228, 66], [0, 114, 178], [213, 94, 0], [204, 121, 167], [220, 220, 220]];
 
 export const LEASE_RENEW_MS = 10_000;
 export const RESULT_TIMEOUT_MS = 10_000;
@@ -17,7 +23,7 @@ export type Change = 'welcome' | 'dust' | 'env' | 'events' | 'stats' | 'inspect'
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type CommandBody = DistributiveOmit<GodCommand, 'id' | 'epoch'>;
 
-export interface Welcome { worldId: string; epoch: number; tickHz: number; tank: { w: number; h: number; preset: string }; lCeiling: number; mock?: boolean; scopes?: string[] }
+export interface Welcome { speciesTable?: { id: number; name: string }[]; worldId: string; epoch: number; tickHz: number; tank: { w: number; h: number; preset: string }; lCeiling: number; mock?: boolean; scopes?: string[] }
 
 export class GodClient {
   readonly changed = new Emitter<Change>();
@@ -34,6 +40,16 @@ export class GodClient {
   speed: SpeedInfo = { requested: 1, achieved: 1 };
   history: [number, number[]][] = [];
   genes: Record<string, Record<string, number[]>> = {};
+  /** Gene drift heat map data (07 §3.6): trait -> species id -> [tick, 32 bins][]. */
+  drift: Record<string, Record<string, [number, number[]][]>> = {};
+  /** World settings and knobs as the host last reported them (STATS.settings). */
+  settings: Record<string, number | string | boolean> = {};
+  web: FoodWeb | null = null;
+  /** User names (07 §6.4); they win over every generated name. */
+  readonly names = new NameBook();
+  /** Species as the host sent them, before user names are applied. */
+  private rawSpecies: SpeciesInfo[] = [];
+  private speciesFromStats = false;
   selected: InspectDetail | null = null;
   selectedId = -1;
   inspect: InspectFrame | null = null;
@@ -64,8 +80,10 @@ export class GodClient {
       case FRAME.WELCOME: {
         const w = decodeCborFrame(f).payload as unknown as Welcome;
         const epochChanged = this.welcome !== null && w.epoch !== this.epoch;
+        if (!this.welcome || this.welcome.worldId !== w.worldId) this.names.load(String(w.worldId ?? ''));
         this.welcome = w; this.epoch = w.epoch;
         if (epochChanged) this.resetForEpoch();
+        if (!this.speciesFromStats && Array.isArray(w.speciesTable)) this.setSpecies(w.speciesTable.map((x) => this.bare(x.id, x.name)));
         this.changed.emit('welcome');
         if (epochChanged) this.changed.emit('epoch');
         break;
@@ -79,6 +97,16 @@ export class GodClient {
         break;
       }
       case FRAME.ENV: this.env = decodeEnv(f); this.changed.emit('env'); break;
+      case FRAME.CENSUS: {
+        // the real host's STATS has no species list yet: CENSUS (1 Hz) keeps the god window useful
+        if (this.speciesFromStats) break;
+        const c = decodeCborFrame(f).payload as { species?: { id: number; count: number; biomassKg: number; colour: [number, number, number] }[] };
+        if (!Array.isArray(c.species)) break;
+        const known = new Map(this.rawSpecies.map((x) => [x.id, x]));
+        this.setSpecies(c.species.map((x) => ({ ...(known.get(x.id) ?? this.bare(x.id, `Species ${x.id}`)), count: x.count, biomassKg: x.biomassKg, colour: x.colour })));
+        this.changed.emit('stats');
+        break;
+      }
       case FRAME.EVENT: {
         const evs = decodeCborFrame(f).payload as unknown as SimEvent[];
         if (!Array.isArray(evs)) break;
@@ -90,13 +118,15 @@ export class GodClient {
       case FRAME.STATS: {
         const s = decodeCborFrame(f).payload as unknown as StatsPayload;
         if (s.epoch !== undefined && s.epoch !== this.epoch) break;
-        this.species = s.species ?? this.species;
+        if (s.species) { this.speciesFromStats = true; this.setSpecies(s.species); }
+        if (s.settings) this.settings = { ...s.settings };
+        if (s.web) this.web = s.web;
         this.snapshots = s.snapshots ?? this.snapshots;
         this.speed = s.speed ?? this.speed;
         if (s.history) this.history = s.history.slice();
         if (s.sample) { const last = this.history[this.history.length - 1]; if (!last || last[0] < s.sample[0]) this.history.push(s.sample); }
         if (this.history.length > 5000) this.history.splice(0, this.history.length - 5000);
-        if (s.genes) this.genes = s.genes;
+        if (s.genes) { this.genes = s.genes; this.recordDrift(s.tick ?? this.tick, s.genes); }
         if (s.selected && s.selected.id === this.selectedId) this.selected = s.selected;
         this.changed.emit('stats');
         break;
@@ -114,7 +144,49 @@ export class GodClient {
     }
   }
 
+  private bare(id: number, name: string): SpeciesInfo {
+    return { id, name, count: 0, biomassKg: 0, colour: [180, 200, 210], parent: -1, bornTick: 0, origin: 'natural', glyph: id % 24, prefDepth: 0.5 };
+  }
+  /** Colour-vision-safe chart palette instead of genetic hues (07 §6.1). */
+  chartPalette = false;
+  setChartPalette(on: boolean): void { this.chartPalette = on; this.setSpecies(this.rawSpecies); this.changed.emit('stats'); }
+  /** Apply user names over the host's species list (William's renames win). */
+  private setSpecies(list: SpeciesInfo[]): void {
+    this.rawSpecies = list;
+    this.species = list.map((x) => {
+      const name = this.names.display(x, list);
+      const common = this.names.common(x);
+      const colour = this.chartPalette ? CVD_PALETTE[x.id % CVD_PALETTE.length]! : x.colour;
+      return name === x.name && common === x.common && colour === x.colour ? x : { ...x, name, colour, ...(common ? { common } : {}) };
+    });
+  }
+  /** Generated (host) name of a species, before user names. */
+  generatedName(id: number): string { return this.rawSpecies.find((s) => s.id === id)?.name ?? this.speciesName(id); }
+  /**
+   * Rename a species (07 §6.4). The name is shown at once and kept on this viewer whatever the
+   * host says; the result tells the UI whether the host recorded it too.
+   */
+  rename(id: number, n: { genus: string; epithet: string; common?: string; wholeGenus?: boolean }): Promise<CommandResult> {
+    this.names.rename(id, n, this.rawSpecies, this.tick);
+    this.setSpecies(this.rawSpecies);
+    this.changed.emit('stats');
+    return this.send({ t: 'setting', key: renameKey(id), value: renameValue(n) });
+  }
+  private recordDrift(tick: number, genes: Record<string, Record<string, number[]>>): void {
+    for (const [trait, bySp] of Object.entries(genes)) {
+      const d = (this.drift[trait] ??= {});
+      for (const [sp, bins] of Object.entries(bySp)) {
+        const arr = (d[sp] ??= []);
+        const last = arr[arr.length - 1];
+        if (last && last[0] >= tick) continue;
+        arr.push([tick, bins.slice()]);
+        if (arr.length > DRIFT_MAX) arr.splice(0, arr.length - DRIFT_MAX);
+      }
+    }
+  }
+
   private resetForEpoch(): void {
+    this.drift = {};
     this.events = [];
     this.history = [];
     this.dust = null;

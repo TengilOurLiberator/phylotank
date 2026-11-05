@@ -19,7 +19,10 @@ import { TEMPLATES, templateGenome } from './designer/templates.js';
 import {
   decodeGenomeReq, encodeGenomeFrame, encodeInspect,
   type InspectDetail, type KinNode, type SnapshotInfo, type SpeciesInfo, type StatsPayload,
+  ABIOTIC, type FlowKind, type FoodWeb,
 } from './god/wire.js';
+import { clampKnob, KNOB } from './god/knobs.js';
+import { parseRenameValue } from './naming.js';
 
 const W = 32, H = 18, HZ = 30;
 const PALETTE: [number, number, number][] = [
@@ -37,7 +40,19 @@ interface Creature {
   id: number; sp: number; x: number; y: number; vx: number; vy: number; energy: number; health: number;
   bornTick: number; gen: number; parent: number; offspring: number; len: number; slot: number; key: [number, number];
 }
-interface Species extends SpeciesInfo { templ: string; speed: number; cap: number; genome: Uint8Array; key: [number, number] }
+interface Species extends SpeciesInfo { templ: string; speed: number; cap: number; genome: Uint8Array; key: [number, number]; drift?: number[]; namedBy?: 'user' }
+/** Who eats whom in the toy world, by template: [prey template or abiotic id, share, kind]. */
+const DIET: Record<string, [string | number, number, FlowKind][]> = {
+  motefly: [[ABIOTIC.plants, 1, 0]],
+  meadowlamp: [[ABIOTIC.plankton, 0.8, 0], [ABIOTIC.plants, 0.2, 0]],
+  sievebell: [[ABIOTIC.plankton, 0.7, 0], ['motefly', 0.3, 0]],
+  tetherling: [['sievebell', 0.6, 1], ['meadowlamp', 0.4, 1]],
+  ashpicker: [[ABIOTIC.detritus, 0.9, 2], ['motefly', 0.1, 0]],
+  hushmaw: [['meadowlamp', 0.5, 0], ['motefly', 0.2, 0], ['sievebell', 0.3, 0]],
+  deepcrown: [['hushmaw', 0.6, 0], ['ashpicker', 0.25, 0], ['tetherling', 0.15, 0]],
+};
+/** Gene-histogram traits and their trait indices. */
+const GENE_TRAITS: [string, number][] = [['ADULT_LENGTH', 0], ['DIET_PLANT', 20], ['GLOW_HUE', 32], ['MU_LOG', 16]];
 interface Scheduled { cmdId: string; power: GodCommand & { t: 'cast' }; fireTick: number; major: boolean }
 interface Snap { info: SnapshotInfo; state: string }
 
@@ -78,6 +93,9 @@ export class MockSimLink implements SimLink {
   private snapSeq = 1;
   private enteredSlots = new Set<number>();
   private genomes = new Map<string, Uint8Array>();
+  /** World settings and knobs (07 §3.9) as applied; reported in STATS.settings. */
+  settings: Record<string, number | string | boolean> = {};
+  private knob(id: string, def: number): number { const v = this.settings[id]; return typeof v === 'number' ? v : def; }
 
   constructor(opts: MockOptions = {}) {
     this.rnd = mulberry32(opts.seed ?? 0x5eed);
@@ -115,7 +133,8 @@ export class MockSimLink implements SimLink {
   private emitFrame(f: Uint8Array): void { this.cb?.(f); }
 
   // ---------------- world ----------------
-  private initWorld(): void {
+  private initWorld(empty = false): void {
+    if (empty) return;
     TEMPLATES.filter((t) => t.id !== 'blank').forEach((t, i) => {
       const g = encodeGenome(templateGenome(t.id));
       this.addSpecies({ name: `${t.genus} ${t.epithet}`, common: t.name, templ: t.id, genome: g, origin: 'template', parent: -1, palette: i });
@@ -207,7 +226,8 @@ export class MockSimLink implements SimLink {
       const s = this.species[c.sp]!;
       const crowd = counts[c.sp]! / s.cap;
       const ageS = (this.tick - c.bornTick) / HZ;
-      c.energy = clamp(c.energy + (bloomAt(c) ? 0.08 : 0.02) - 0.025 * crowd + (this.rnd() - 0.5) * 0.04, 0, 1);
+      const graze = s.templ === 'meadowlamp' || s.templ === 'motefly' || s.templ === 'sievebell' ? this.knob('eco.plankton', 1) : 1;
+      c.energy = clamp(c.energy + (bloomAt(c) ? 0.08 : 0.02) * Math.sqrt(graze) - 0.025 * crowd * this.knob('life.metabolic', 1) + (this.rnd() - 0.5) * 0.04, 0, 1);
       for (const m of this.modifiers) {
         if (m.kind === 'plague' && (!m.species || m.species.includes(c.sp)) && this.rnd() < 0.01 * m.strength) { c.health -= 0.5; }
         if ((m.kind === 'coldSnap' || m.kind === 'heatwave') && this.rnd() < 0.002 * m.strength) c.health -= 0.3;
@@ -235,6 +255,16 @@ export class MockSimLink implements SimLink {
       }
       if (s.count > 0) delete (s as Partial<Species>).extinctTick;
     }
+    // gene drift: a small random walk per species, scaled by the mutation knob; Deepcrown's
+    // adult size creeps up (07 §3.6's example), so the drift heat map has something to show
+    const mut = this.knob('life.mutation', 1);
+    for (const s of this.species) {
+      if (s.count === 0) continue;
+      const d = (s.drift ??= GENE_TRAITS.map(() => 0));
+      GENE_TRAITS.forEach(([name], i) => {
+        d[i] = clamp(d[i]! + (this.rnd() - 0.5) * 0.006 * mut + (name === 'ADULT_LENGTH' && s.templ === 'deepcrown' ? 0.0005 * mut : 0), -0.4, 0.4);
+      });
+    }
     // natural events, at a calm rate
     const r = this.rnd();
     const live = this.creatures;
@@ -248,7 +278,7 @@ export class MockSimLink implements SimLink {
         this.event({ k: 'school', phase: 'start', species: c.sp, n: 12, centroid: [c.x, c.y], radius: 1.5, polarisation: 0.8, sample: [c.id] });
       } else if (r < 0.1) {
         this.event({ k: 'giant', id: c.id, species: c.sp, size: c.len * 1.6, percentile: 99.7 });
-      } else if (r < 0.112 && this.species.length < 24) {
+      } else if (r < 0.1 + 0.012 * Math.min(3, this.knob('life.mutation', 1)) && this.species.length < 24) {
         const parent = this.species[c.sp]!;
         if (parent.count > 40) {
           const g = decodeGenome(parent.genome);
@@ -322,9 +352,64 @@ export class MockSimLink implements SimLink {
         this.sendWelcome();
         return { id, ok: true, snapshotId: present };
       }
-      case 'setting': return { id, ok: true };
+      case 'setting': return { id, ...this.setting(cmd.key, cmd.value) };
       default: return { id, ok: false, reason: 'unknown command' };
     }
+  }
+
+  /** Settings, knobs, renames and new worlds; unknown keys are refused like the real host does. */
+  private setting(key: string, value: number | string | boolean): { ok: boolean; reason?: string } {
+    const m = /^species\.(\d+)\.name$/.exec(key);
+    if (m) {
+      const sp = this.species[Number(m[1])];
+      const n = parseRenameValue(value);
+      if (!sp || !n) return { ok: false, reason: 'bad-name' };
+      const oldGenus = sp.name.split(' ')[0];
+      const targets = n.wholeGenus ? this.species.filter((x) => x.name.split(' ')[0] === oldGenus) : [sp];
+      for (const x of targets) {
+        const from = x.name;
+        x.name = x === sp ? `${n.genus} ${n.epithet}` : `${n.genus} ${x.name.split(' ').slice(1).join(' ')}`;
+        if (x === sp && n.common) x.common = n.common;
+        x.namedBy = 'user';
+        this.event({ k: 'rename', species: x.id, from, to: x.name } as unknown as EvIn);
+      }
+      return { ok: true };
+    }
+    if (key === 'world.new') {
+      let o: { empty?: boolean } = {};
+      try { o = JSON.parse(String(value)) as { empty?: boolean }; } catch { return { ok: false, reason: 'bad-setting' }; }
+      this.takeSnapshot('Before new world', 'beforeRewind');
+      this.creatures = []; this.species = []; this.slots = []; this.history = []; this.events = []; this.modifiers = []; this.scheduled = [];
+      this.enteredSlots.clear();
+      this.initWorld(o.empty === true);
+      this.epoch++;
+      this.sendWelcome();
+      return { ok: true };
+    }
+    if (key === 'views.captions') { this.settings[key] = value === true; return { ok: true }; }
+    const k = KNOB.get(key);
+    if (!k || !k.live) return { ok: false, reason: 'unknown-setting' };
+    const v = clampKnob(k, value);
+    this.settings[key] = v;
+    this.event({ k: 'setting', key, value: v } as unknown as EvIn);
+    return { ok: true };
+  }
+
+  /** Energy flows over the last window (07 §3.6), from the toy diet table and live biomass. */
+  private foodWeb(): FoodWeb {
+    const flows: [number, number, number, FlowKind][] = [];
+    for (const eater of this.species) {
+      if (eater.count === 0) continue;
+      const diet = DIET[eater.templ] ?? DIET.meadowlamp!;
+      const intake = 0.02 + eater.biomassKg * 0.8;
+      for (const [prey, share, kind] of diet) {
+        if (typeof prey === 'number') { flows.push([prey, eater.id, intake * share, kind]); continue; }
+        const preys = this.species.filter((x) => x.templ === prey && x.count > 0 && x.id !== eater.id);
+        const tot = preys.reduce((a, x) => a + x.count, 0);
+        for (const p of preys) flows.push([p.id, eater.id, (intake * share * p.count) / tot, kind]);
+      }
+    }
+    return { windowS: 600, flows: flows.map(([a, b, f, k]) => [a, b, Math.round(f * 1e4) / 1e4, k]) };
   }
 
   private fire(s: Scheduled): void {
@@ -481,13 +566,15 @@ export class MockSimLink implements SimLink {
       speed: { requested: this.speedReq, achieved: this.achieved(), ...(this.until ? { until: this.until } : {}), ...(this.unattended ? { unattended: true } : {}), leaseLeftS: Math.max(0, (this.leaseUntil - this.now()) / 1000) },
       population: this.creatures.length,
       species: live.map((s) => {
-        const { templ: _t, speed: _s, cap: _c, genome: _g, key: _k, ...info } = s;
-        void _t; void _s; void _c; void _g; void _k;
+        const { templ: _t, speed: _s, cap: _c, genome: _g, key: _k, drift: _d, ...info } = s;
+        void _t; void _s; void _c; void _g; void _k; void _d;
         return info;
       }),
       snapshots: this.snapshots.map((s) => s.info),
       sample: [this.tick, this.species.flatMap((s) => [s.id, s.count])],
       env: { tempC: 14, light: 0.6, vents: this.vents },
+      settings: { ...this.settings },
+      web: this.foodWeb(),
     };
     if (full) payload.history = this.history;
     if (this.statsCount++ % 5 === 0 || full) payload.genes = this.geneHists();
@@ -498,21 +585,20 @@ export class MockSimLink implements SimLink {
 
   private geneHists(): Record<string, Record<string, number[]>> {
     const out: Record<string, Record<string, number[]>> = {};
-    const traits: [string, number][] = [['ADULT_LENGTH', 0], ['DIET_PLANT', 20], ['GLOW_HUE', 32], ['MU_LOG', 16]];
-    for (const [name, idx] of traits) {
+    GENE_TRAITS.forEach(([name, idx], ti) => {
       out[name] = {};
       for (const s of this.species) {
         if (s.count === 0) continue;
-        const centre = decodeGenome(s.genome).traits[idx]! / 65535;
+        const centre = clamp(decodeGenome(s.genome).traits[idx]! / 65535 + (s.drift?.[ti] ?? 0), 0.02, 0.98);
         const bins = new Array(32).fill(0) as number[];
-        const r = mulberry32(s.id * 977 + idx);
+        const r = mulberry32(s.id * 977 + idx + this.statsCount * 7919);
         for (let i = 0; i < s.count; i++) {
           const v = clamp(centre + (r() + r() + r() - 1.5) * 0.06, 0, 0.9999);
           bins[Math.floor(v * 32)]!++;
         }
         out[name]![String(s.id)] = bins;
       }
-    }
+    });
     return out;
   }
 
