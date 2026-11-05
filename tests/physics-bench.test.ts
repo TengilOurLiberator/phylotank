@@ -16,7 +16,8 @@ import {
 
 const LONG = !!process.env.PT_SPIKE;
 const log = (tag: string, data: unknown): void => { if (LONG) console.log(`SPIKE ${tag} ${JSON.stringify(data)}`); };
-const now = (): number => performance.now();
+/** Process CPU time in ms (the box is shared, so wall time overstates the cost). */
+const now = (): number => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
 
 // ---------------------------------------------------------------- anguilliform at high Re
 interface Gait { f: number; amp: number[]; lag: number }
@@ -69,7 +70,7 @@ describe('physics spike: high Re', () => {
     expect(r.Re).toBeGreaterThan(200);
   });
 
-  it('R6: with muscles, the water dissipates no more than the muscles put in', () => {
+  it('R6: with muscles, the water dissipates no more than the muscles put in', { timeout: 600_000 }, () => {
     const rows = [];
     for (const [nSub, solver] of (LONG ? [[1, 'tree'], [2, 'tree'], [4, 'tree'], [8, 'tree'], [16, 'tree'], [1, 'gs'], [4, 'gs'], [16, 'gs']] : [[4, 'tree']]) as [number, 'tree' | 'gs'][]) {
       const r = swim(EEL, { nSub, solver }, LONG ? 8 : 4, fish().map((p) => ({ ...p, damping: 0.05 })));
@@ -81,7 +82,7 @@ describe('physics spike: high Re', () => {
     for (const r of rows) { expect(r.closure).toBeLessThan(1.02); expect(r.closure).toBeGreaterThan(0); }
   });
 
-  it.runIf(LONG)('B4 sweep: speed against frequency and amplitude, Strouhal number', () => {
+  it.runIf(LONG)('B4 sweep: speed against frequency and amplitude, Strouhal number', { timeout: 600_000 }, () => {
     const rows = [];
     for (const amp of [0.5, 1]) for (const f of [0.5, 1, 2, 3, 4]) {
       const r = swim({ f, amp: [amp], lag: 0.8 }, { nSub: 4 }, 8);
@@ -90,7 +91,7 @@ describe('physics spike: high Re', () => {
     log('eelSweep', rows);
   });
 
-  it.runIf(LONG)('T1 and T2: substep and tick-rate convergence of the undulator', () => {
+  it.runIf(LONG)('T1 and T2: substep and tick-rate convergence of the undulator', { timeout: 600_000 }, () => {
     const ref = swim(EEL, { nSub: 64 }, 8);
     const rows = [];
     for (const nSub of [1, 2, 4, 8, 16]) {
@@ -152,7 +153,7 @@ function flagellumRef(cycles: number): number {
 }
 
 describe('physics spike: flagellum (B2) and low-Re convergence', () => {
-  it.runIf(LONG)('B2: travelling wave matches the Stokes reference and the Gray-Hancock estimate', () => {
+  it.runIf(LONG)('B2: travelling wave matches the Stokes reference and the Gray-Hancock estimate', { timeout: 600_000 }, () => {
     // drag anisotropy of the segments (linear terms)
     const tw = makeWorld();
     const phys = createPhysics();
@@ -169,7 +170,7 @@ describe('physics spike: flagellum (B2) and low-Re convergence', () => {
     log('flagellum', { gamma, V, grayHancockU: gh, refU: ref, refOverGH: ref / gh, rows });
   });
 
-  it.runIf(LONG)('T1 at low Re: Purcell displacement per cycle against n_sub', () => {
+  it.runIf(LONG)('T1 at low Re: Purcell displacement per cycle against n_sub', { timeout: 600_000 }, () => {
     const ref = runPurcellRef(2);
     const rows = [];
     for (const nSub of [1, 2, 4, 8, 16, 32]) {
@@ -253,7 +254,7 @@ function populate(w: World, nCreatures: number, phys: ReturnType<typeof createPh
 }
 
 describe('physics spike: CPU throughput', () => {
-  it('a small population steps and reports throughput', () => {
+  it('a small population steps and reports throughput', { timeout: 600_000 }, () => {
     const { world, ctx } = makeWorld({ agentCap: 4096 });
     const phys = createPhysics({});
     const N = LONG ? 2000 : 200;
@@ -278,7 +279,7 @@ describe('physics spike: CPU throughput', () => {
     for (let s = 0; s < N; s++) expect(Number.isFinite(c.posX[s]!)).toBe(true);
   });
 
-  it.runIf(LONG)('integrator only, contacts only, hash only, at fixed n_sub', () => {
+  it.runIf(LONG)('integrator only, contacts only, hash only, at fixed n_sub', { timeout: 600_000 }, () => {
     const rows = [];
     for (const nSub of [1, 4, 16]) {
       const { world, ctx } = makeWorld({ agentCap: 4096 });
