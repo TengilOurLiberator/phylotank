@@ -1,0 +1,269 @@
+{
+  "engine": {
+    "engine": "toy",
+    "seed": 2,
+    "preset": {
+      "name": "small",
+      "widthM": 6,
+      "heightM": 3.375,
+      "cellM": 0.25,
+      "agentCap": 2048,
+      "mTargetKg": 3.515625,
+      "lCeilingM": 0.126
+    },
+    "dtS": 0.5,
+    "capTax": "additive",
+    "freeImmortality": false,
+    "thrustBug": 0,
+    "leakQPerStep": 0,
+    "speciesTheta": 0.12,
+    "params": {
+      "muMaxPerDay": 1.5,
+      "kNkgPerM2": 0.02,
+      "mPPerDay": 0.05,
+      "mP2": 0.5,
+      "iK": 0.3,
+      "kW": 0.2,
+      "rDPerDay": 0.15,
+      "carcassHalfDays": 1.5,
+      "diffusion": 0.005,
+      "jetMps": 0.12,
+      "aMaxPlant": 0.45,
+      "aMaxMeat": 0.8,
+      "aMaxDet": 0.3,
+      "theta": 1.3,
+      "b0Mult": 1,
+      "cRep": 0.05,
+      "kCap": 1,
+      "catchRate": 1,
+      "handlingS": 30,
+      "jMaxBasal": 8,
+      "perGeneP": 0.25,
+      "mutagen": 1
+    },
+    "founders": [
+      {
+        "label": "mote grazer",
+        "count": 160
+      },
+      {
+        "label": "small grazer",
+        "count": 60
+      },
+      {
+        "label": "scavenger",
+        "count": 40
+      },
+      {
+        "label": "hunter",
+        "count": 16
+      }
+    ]
+  },
+  "simHours": 8,
+  "wallSeconds": 1192.454698126,
+  "speedup": 24.151860901098033,
+  "samples": 241,
+  "popFinal": 457,
+  "popMeanLast20pct": 1214.1224489795918,
+  "extinct": false,
+  "births": 9850,
+  "deaths": 9669,
+  "deathsByCause": {
+    "starvation": 3608,
+    "predation": 2,
+    "age": 6059
+  },
+  "generationsMeanFinal": 9.339168490153172,
+  "generationsMaxFinal": 15,
+  "generationsPerSimHourBySizeClass": {
+    "lt2mm": 1.328125,
+    "2to5mm": 1.1340027700831026,
+    "5to20mm": 1.1171875,
+    "20to50mm": 0.125,
+    "ge50mm": null
+  },
+  "swim": {
+    "vMaxStartMps": 0.11884141486624013,
+    "vMaxEndMps": 0.09906615252304843,
+    "vMaxRatio": 0.8335995716186196,
+    "vMaxBlStart": 32.90770073863336,
+    "vMaxBlEnd": 40.898822462979865,
+    "vMaxBlRatio": 1.2428343987875456,
+    "realisedSpeedStartMps": 0,
+    "realisedSpeedEndMps": 0.030552450988981114,
+    "swimIndexStart": 0.8599348612453627,
+    "swimIndexEnd": 0.8943906011859922,
+    "swimIndexRatio": 1.0400678487330197,
+    "percentPerGeneration": 0.4215439088049999
+  },
+  "size": {
+    "lengthMedianStartMm": 1.9405670464038849,
+    "lengthMedianEndMm": 2.447715171669819,
+    "lengthMaxEverMm": 24.86003004014492,
+    "massMaxEverKg": 0.0011139558628201485
+  },
+  "diversity": {
+    "speciesMeanLast20pct": 1,
+    "speciesMax": 4,
+    "speciationsTotal": 0,
+    "hill1MeanLast20pct": 1.0074587137661506,
+    "speciesGenotypeMeanLast20pct": 1,
+    "rolesOccupiedMax": 3,
+    "roleMeansLast20pct": {
+      "none": 0.061224489795918366,
+      "producer": 0,
+      "filter": 1213.795918367347,
+      "grazer": 0,
+      "predator": 0,
+      "scavenger": 0,
+      "parasite": 0,
+      "omnivore": 0.2653061224489796
+    }
+  },
+  "traitsStartEnd": {
+    "length": [
+      0.005507246388689331,
+      0.003001082451408831
+    ],
+    "aspect": [
+      0.439855064170948,
+      0.43578086627129653
+    ],
+    "finArea": [
+      0.08666666553936143,
+      0.15828301713962914
+    ],
+    "muscle": [
+      0.13115941981474558,
+      0.13128572800227276
+    ],
+    "cruise": [
+      0.15000000596046448,
+      0.09864549885383711
+    ],
+    "sprint": [
+      0.6188405916310739,
+      0.6112309815586265
+    ],
+    "wFood": [
+      0.9536231885785642,
+      0.9489286500854618
+    ],
+    "wFlee": [
+      0.5681159487669019,
+      0.42894918632161694
+    ],
+    "wHunt": [
+      0.08695652173913043,
+      0.044122641784122674
+    ],
+    "wWander": [
+      0.47246376975722937,
+      0.5195803082745759
+    ],
+    "filter": [
+      0.7086956362793411,
+      0.9594608923538509
+    ],
+    "dietPlant": [
+      0.7891304257555284,
+      0.985436540594247
+    ],
+    "dietDetritus": [
+      0.1347826101101827,
+      0.020572732763721673
+    ],
+    "senescence": [
+      0.5,
+      0.5519968425810207
+    ],
+    "lifespanMult": [
+      4,
+      4.20541310623386
+    ],
+    "sessile": [
+      0.20000000298023224,
+      0.18977820122292513
+    ],
+    "clutch": [
+      2,
+      2.2725253214721346
+    ],
+    "birthFraction": [
+      0.2760869636051897,
+      0.2823318165423312
+    ],
+    "mutRate": [
+      0.05000000074505806,
+      0.05044920528531727
+    ],
+    "odourA": [
+      0.5,
+      0.4951984301307269
+    ],
+    "odourB": [
+      0.5,
+      0.47146557457337496
+    ],
+    "odourC": [
+      0.5,
+      0.4961036560441524
+    ]
+  },
+  "ledger": {
+    "allExact": true,
+    "worstEnergyResidual": 1.7850868624993167e-9
+  },
+  "detectors": {
+    "immortalBlobs": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "lifespanMultStart": 4.002334492428164,
+        "lifespanMultEnd": 4.20541310623386,
+        "senescenceStart": 0.49940686643248583,
+        "senescenceEnd": 0.5519968425810207,
+        "maxAgeOverLifespan": 1.4565846906011544,
+        "sessileFracEnd": 0,
+        "ageDeathShare": 0.620380260628071
+      }
+    },
+    "energyLeaks": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "worstMassDiffQ": 0,
+        "worstEnergyResidual": -1.7850868624993167e-9,
+        "energyTol": 0.000001
+      }
+    },
+    "microbeFlood": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "capFillMax": 1,
+        "capFillMean": 0.6569164691943128,
+        "smallShareEnd": 0.9649890590809628,
+        "clutchEnd": 2.2725253214721346,
+        "lengthMedianMmEnd": 2.2019571624696255
+      }
+    },
+    "degenerateSwimmers": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "worstRatio": 0.26045477881762485,
+        "flaggedMax": 0
+      }
+    }
+  }
+}

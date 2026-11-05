@@ -1,0 +1,269 @@
+{
+  "engine": {
+    "engine": "toy",
+    "seed": 1,
+    "preset": {
+      "name": "small",
+      "widthM": 6,
+      "heightM": 3.375,
+      "cellM": 0.25,
+      "agentCap": 2048,
+      "mTargetKg": 3.515625,
+      "lCeilingM": 0.126
+    },
+    "dtS": 0.5,
+    "capTax": "additive",
+    "freeImmortality": false,
+    "thrustBug": 0,
+    "leakQPerStep": 0,
+    "speciesTheta": 0.12,
+    "params": {
+      "muMaxPerDay": 1.5,
+      "kNkgPerM2": 0.02,
+      "mPPerDay": 0.05,
+      "mP2": 0.5,
+      "iK": 0.3,
+      "kW": 0.2,
+      "rDPerDay": 0.15,
+      "carcassHalfDays": 1.5,
+      "diffusion": 0.005,
+      "jetMps": 0.12,
+      "aMaxPlant": 0.45,
+      "aMaxMeat": 0.8,
+      "aMaxDet": 0.3,
+      "theta": 1.3,
+      "b0Mult": 1,
+      "cRep": 0.05,
+      "kCap": 1,
+      "catchRate": 1,
+      "handlingS": 30,
+      "jMaxBasal": 8,
+      "perGeneP": 0.25,
+      "mutagen": 1
+    },
+    "founders": [
+      {
+        "label": "mote grazer",
+        "count": 160
+      },
+      {
+        "label": "small grazer",
+        "count": 60
+      },
+      {
+        "label": "scavenger",
+        "count": 40
+      },
+      {
+        "label": "hunter",
+        "count": 16
+      }
+    ]
+  },
+  "simHours": 8,
+  "wallSeconds": 1196.262468994,
+  "speedup": 24.074984166492687,
+  "samples": 241,
+  "popFinal": 1121,
+  "popMeanLast20pct": 1121.408163265306,
+  "extinct": false,
+  "births": 10102,
+  "deaths": 9257,
+  "deathsByCause": {
+    "starvation": 3003,
+    "predation": 2,
+    "age": 6252
+  },
+  "generationsMeanFinal": 10.065120428189116,
+  "generationsMaxFinal": 15,
+  "generationsPerSimHourBySizeClass": {
+    "lt2mm": 1.335237258347979,
+    "2to5mm": 1.180921052631579,
+    "5to20mm": 1.11875,
+    "20to50mm": 0.25,
+    "ge50mm": 1
+  },
+  "swim": {
+    "vMaxStartMps": 0.11884141486624013,
+    "vMaxEndMps": 0.09343652187725025,
+    "vMaxRatio": 0.7862286222561057,
+    "vMaxBlStart": 33.0282373670634,
+    "vMaxBlEnd": 44.0400986564506,
+    "vMaxBlRatio": 1.3334074769720685,
+    "realisedSpeedStartMps": 0,
+    "realisedSpeedEndMps": 0.024714859177136405,
+    "swimIndexStart": 0.8599348612453627,
+    "swimIndexEnd": 0.9446667565331396,
+    "swimIndexRatio": 1.0985329227903002,
+    "percentPerGeneration": 0.9380480433883731
+  },
+  "size": {
+    "lengthMedianStartMm": 1.9534239545464516,
+    "lengthMedianEndMm": 2.098734540465687,
+    "lengthMaxEverMm": 24.6957428753376,
+    "massMaxEverKg": 0.0010920168133452535
+  },
+  "diversity": {
+    "speciesMeanLast20pct": 1.9795918367346939,
+    "speciesMax": 4,
+    "speciationsTotal": 1,
+    "hill1MeanLast20pct": 1.0699709489909632,
+    "speciesGenotypeMeanLast20pct": 1.7959183673469388,
+    "rolesOccupiedMax": 3,
+    "roleMeansLast20pct": {
+      "none": 0.04081632653061224,
+      "producer": 0,
+      "filter": 1121,
+      "grazer": 0,
+      "predator": 0,
+      "scavenger": 0.10204081632653061,
+      "parasite": 0,
+      "omnivore": 0.2653061224489796
+    }
+  },
+  "traitsStartEnd": {
+    "length": [
+      0.005507246388689331,
+      0.0022181215251353133
+    ],
+    "aspect": [
+      0.439855064170948,
+      0.42363524742683695
+    ],
+    "finArea": [
+      0.08666666553936143,
+      0.1776399246506712
+    ],
+    "muscle": [
+      0.13115941981474558,
+      0.12309563194171431
+    ],
+    "cruise": [
+      0.15000000596046448,
+      0.08731452019768456
+    ],
+    "sprint": [
+      0.6188405916310739,
+      0.5847912260882031
+    ],
+    "wFood": [
+      0.9536231885785642,
+      0.975594311646858
+    ],
+    "wFlee": [
+      0.5681159487669019,
+      0.46012012255573304
+    ],
+    "wHunt": [
+      0.08695652173913043,
+      0.016371979989448105
+    ],
+    "wWander": [
+      0.47246376975722937,
+      0.5186189865821392
+    ],
+    "filter": [
+      0.7086956362793411,
+      0.9680324006995168
+    ],
+    "dietPlant": [
+      0.7891304257555284,
+      0.9839762185004861
+    ],
+    "dietDetritus": [
+      0.1347826101101827,
+      0.017925768003451747
+    ],
+    "senescence": [
+      0.5,
+      0.49552896721197176
+    ],
+    "lifespanMult": [
+      4,
+      4.428810169609608
+    ],
+    "sessile": [
+      0.20000000298023224,
+      0.19592015326760848
+    ],
+    "clutch": [
+      2,
+      3.047899822801697
+    ],
+    "birthFraction": [
+      0.2760869636051897,
+      0.33098849376379436
+    ],
+    "mutRate": [
+      0.05000000074505806,
+      0.055798392432154446
+    ],
+    "odourA": [
+      0.5,
+      0.48968994150886996
+    ],
+    "odourB": [
+      0.5,
+      0.4685912191947585
+    ],
+    "odourC": [
+      0.5,
+      0.5177498234902823
+    ]
+  },
+  "ledger": {
+    "allExact": true,
+    "worstEnergyResidual": 9.99796352518724e-10
+  },
+  "detectors": {
+    "immortalBlobs": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "lifespanMultStart": 3.975490180348855,
+        "lifespanMultEnd": 4.428810169609608,
+        "senescenceStart": 0.5017418150258312,
+        "senescenceEnd": 0.49552896721197176,
+        "maxAgeOverLifespan": 1.5547687831300623,
+        "sessileFracEnd": 0.0008920606601248885,
+        "ageDeathShare": 0.6713169642857143
+      }
+    },
+    "energyLeaks": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "worstMassDiffQ": 0,
+        "worstEnergyResidual": -9.99796352518724e-10,
+        "energyTol": 0.000001
+      }
+    },
+    "microbeFlood": {
+      "available": true,
+      "fired": false,
+      "firstH": 2.466666666666667,
+      "fraction": 0.0995260663507109,
+      "evidence": {
+        "capFillMax": 1,
+        "capFillMean": 0.6764083789988151,
+        "smallShareEnd": 0.9821587867975022,
+        "clutchEnd": 3.047899822801697,
+        "lengthMedianMmEnd": 1.78316340316087
+      }
+    },
+    "degenerateSwimmers": {
+      "available": true,
+      "fired": false,
+      "firstH": null,
+      "fraction": 0,
+      "evidence": {
+        "worstRatio": 0.2650727700515417,
+        "flaggedMax": 0
+      }
+    }
+  }
+}
