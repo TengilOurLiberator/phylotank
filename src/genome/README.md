@@ -30,3 +30,9 @@ Owner: genome engineer. Design: [sections/01-genome.md](../../docs/sections/01-g
 ## Acceptance tests
 
 01 §1.14 unit and property tests; genome E1, E2, E5, E9 (v0.4); same genome gives a bit-identical Phenotype in Node and Chromium; `develop` of every template under 64 parts; a new gene's default leaves 1,000 developed bodies unchanged.
+
+## Phase 1 status (2026-11-05)
+
+Implemented and tested (`tests/genome.test.ts`, 57 tests): `develop` with restage, mutation (point, structural, paralog-keyed duplication, self-adaptive rates, direct and CPPN brain genes), crossover with repair, genetic and body-plan distance, `SpeciesRegistry` (lineage rule with split detection, promotion by count, persistence and biomass, reconcile, naming), `Phylogeny`, `GenomeStore` with a parent-diff codec, the seven templates plus Blank, generated binomials, life-history and look readers, instance paths for the editor. Design notes: [docs/modules/genome.md](../../docs/modules/genome.md); contract requests: [docs/contract-requests/genome.md](../../docs/contract-requests/genome.md); spikes: [genome-1](../../docs/spikes/genome-1.md), [genome-3](../../docs/spikes/genome-3.md). Node versus Chromium identity: `NODE_PATH=$(npm root -g) node tests/genome-chromium.cjs`.
+
+Integration: create one module per world with `createGenomeModule(registry)` and save `registry.save()` with snapshots; `breed(mod, bearer, donor, ctx)` runs the operators in contract order; `lifeHistory(g, lCeilingM)` gives `tMature`, lifespan and clutch; `packedColour(g)` fills the `colour` column. A Phenotype's typed arrays share one ArrayBuffer.
