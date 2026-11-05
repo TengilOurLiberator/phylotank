@@ -8,6 +8,8 @@
 import { DAY_S, DIET, DT, exp, LIFE, log, Q_MASS, type World } from '../core/index.js';
 import { ER, ER_LANES, type EcoState } from './state.js';
 
+function sq(x: number): number { return x * x; }
+
 export const ROLES = ['producer', 'filter', 'grazer', 'predator', 'scavenger', 'parasite', 'omnivore'] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -127,7 +129,7 @@ export function computeMetrics(world: World, s: EcoState): EcoMetrics {
   if (xs.length >= 2) {
     const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
     let sxy = 0, sxx = 0;
-    for (let k = 0; k < xs.length; k++) { sxy += (xs[k]! - mx) * (ys[k]! - my); sxx += (xs[k]! - mx) ** 2; }
+    for (let k = 0; k < xs.length; k++) { sxy += (xs[k]! - mx) * (ys[k]! - my); sxx += sq(xs[k]! - mx); }
     slope = sxx > 0 ? sxy / sxx : 0;
   }
   const abund = ids.map((sp) => count.get(sp)!), biom = ids.map((sp) => bio.get(sp)!);

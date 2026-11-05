@@ -22,6 +22,8 @@ import { CH, ER, ER_LANES, scratch, type BirthRequest, type EcoState } from './s
 import { coarseIndex, consumeO2, fineIndex, tBase } from './env.js';
 import { q10 } from './producers.js';
 
+function sq(x: number): number { return x * x; }
+
 const EA_K = E_A_EV / K_BOLTZMANN_EV;
 const Q_PER_KG = 1 / Q_MASS;
 
@@ -405,7 +407,7 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
     let dmg = 0, cause: DeathCause = 'disaster';
     if (O2 < oc) { dmg += P.hypoxiaDamage * ((oc - O2) / oc) * dt; cause = 'hypoxia'; }
     if (Math.abs(Tc - e[o + ER.T_OPT]!) > 2.5 * e[o + ER.T_TOL]!) dmg += P.thermalDamage * dt;
-    for (const z of s.mods.toxins) if (z[2]! < 0 || (x - z[0]!) ** 2 + (y - z[1]!) ** 2 < z[2]! * z[2]!) dmg += z[3]! * 0.05 * dt * (1 - e[o + ER.TOXICITY]!);
+    for (const z of s.mods.toxins) if (z[2]! < 0 || sq(x - z[0]!) + sq(y - z[1]!) < z[2]! * z[2]!) dmg += z[3]! * 0.05 * dt * (1 - e[o + ER.TOXICITY]!);
     const hPrev = e[o + ER.PREV_HEALTH]!;
     const wounded = c.health[slot]! < hPrev - 1e-6;
     let hNow = c.health[slot]! - dmg;

@@ -36,6 +36,8 @@ import { inheritInfection, seedReservoirStrains, stepDisease } from './disease.j
 import { applyGod, evalModifiers, mutagenAt as mutagenAtS, natureEvent as natureEventS } from './god.js';
 import { computeMetrics as computeMetricsS, type EcoMetrics } from './metrics.js';
 
+function sq(x: number): number { return x * x; }
+
 export { agentCapFeeKg, ageingHazard, repairPowerW, FLOW_MODES, FLOW_TAU_S, P as ECO_PARAMS };
 export type { BirthRequest, CreatureEcoInit, EcoMetrics, HabitatName, Pending, SpawnRequest };
 export { basalPowerW, hollingFilter, pumpPowerW, assimilation, trait } from './metabolism.js';
@@ -137,13 +139,13 @@ function seedMass(world: World, s: EcoState): void {
   for (const j of photic) { f.qP[j] = pEach; placed += pEach; }
   // patchy mats on lit substrate, chemo mats near vents
   const seed = hash32(world.g.seedLo, world.g.seedHi, 0x3a75);
-  const bMaxQ = (P.bMax * (world.preset.widthM / fw) ** 2) / Q_MASS;
+  const bMaxQ = (P.bMax * sq(world.preset.widthM / fw)) / Q_MASS;
   const patch: number[] = [], vent: number[] = [];
   for (let k = 0; k < s.substrate.length; k++) {
     const j = s.substrate[k]!;
     const jx = j % fw, jy = (j - jx) / fw;
     const x = (jx + 0.5) * (world.preset.widthM / fw), y = (jy + 0.5) * (world.preset.widthM / fw);
-    if (s.terrain.vents.some((v) => (v.x - x) ** 2 + (v.y - y) ** 2 < 4)) vent.push(j);
+    if (s.terrain.vents.some((v) => sq(v.x - x) + sq(v.y - y) < 4)) vent.push(j);
     else if (y < 0.4 * world.preset.heightM && hash32(seed, jx >> 3, jy >> 3) / 4294967296 < 0.35) patch.push(j);
   }
   const bEach = Math.min(Math.floor(0.5 * bMaxQ), per(0.02 * M, patch.length));
@@ -259,7 +261,7 @@ function emitScents(world: World, s: EcoState, dt: number): void {
   }
   const [fw] = f.fine;
   const r = fw / w;
-  const areaF = (world.preset.widthM / fw) ** 2;
+  const areaF = sq(world.preset.widthM / fw);
   for (let iy = 0; iy < h; iy++) for (let ix = 0; ix < w; ix++) {
     let q = 0;
     for (let jy = iy * r; jy < (iy + 1) * r; jy += 2) for (let jx = ix * r; jx < (ix + 1) * r; jx += 2) q += f.qP[jy * fw + jx]! + f.qBphoto[jy * fw + jx]!;

@@ -26,7 +26,8 @@ function populate(H: Harness, n: number, sizes = [0.002, 0.004, 0.01, 0.02]): vo
   for (let i = 0; i < n; i++) {
     const L = sizes[i % sizes.length]!;
     H.spawn({ x: 2 + d.u01() * 28, y: 0.4 + d.u01() * 3, lengthM: L, species: 1 + (i % sizes.length), maturity: 0.8, reserveFrac: 0.28,
-      traits: { ADULT_LENGTH: L, DIET_PLANT: 0.95, DIET_DETRITUS: 0.05, GROWTH_RATE: 2 } });
+      traits: { ADULT_LENGTH: L, DIET_PLANT: 0.95, DIET_DETRITUS: 0.05, GROWTH_RATE: 2, CLUTCH_SIZE: 1, REPRO_RESERVE: 0.1 } });
+  H.powerFactor = 0.3;
   }
 }
 

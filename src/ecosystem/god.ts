@@ -10,7 +10,7 @@
  * and journal the result, and replay gives the same tank.
  */
 import {
-  clamp, DAY_S, DT, GOVERNOR_EVERY, isMajorPower, K_ENDOW, LEAD_MAJOR_S, LEAD_MINOR_S, LIFE, MATERIAL,
+  clamp, DAY_S, DT, exp, LN2, GOVERNOR_EVERY, isMajorPower, K_ENDOW, LEAD_MAJOR_S, LEAD_MINOR_S, LIFE, MATERIAL,
   MAX_WORLD_MASS_KG, NATURE_MAX_MAGNITUDE, NATURE_POWERS, NONE_U32, Q_MASS, RNG_STREAM, TICK_HZ, CF,
   type GodCommand, type GodEventScheduled, type PowerId, type StepContext, type Target, type World,
 } from '../core/index.js';
@@ -19,6 +19,8 @@ import { newMods, CH, ER, ER_LANES, type EcoState } from './state.js';
 import { carveCircle, paintCircle, rebuildSdf, surfaceRow } from './terrain.js';
 import { coarseIndex } from './env.js';
 import { newStrain, wakeReservoirStrain } from './disease.js';
+
+function sq(x: number): number { return x * x; }
 
 const DAY = DAY_S;
 type Env3 = { attack: number; sustain: number; release: number };
@@ -106,10 +108,10 @@ export function inTarget(world: World, tg: Target, slot: number): boolean {
     case 'species': return tg.species.includes(c.species[slot]!);
     case 'creature': return c.idLo[slot]! + c.idHi[slot]! * 4294967296 === tg.entity;
     case 'depthBand': return y >= tg.y0 && y <= tg.y1;
-    case 'stroke': return tg.points.some((p) => (p[0] - x) ** 2 + (p[1] - y) ** 2 <= 1);
+    case 'stroke': return tg.points.some((p) => sq(p[0] - x) + sq(p[1] - y) <= 1);
     default: {
       const [cx, cy, r] = targetRegion(world, tg);
-      return r < 0 || (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+      return r < 0 || sq(x - cx) + sq(y - cy) <= r * r;
     }
   }
 }
@@ -171,7 +173,7 @@ export function applyGod(world: World, s: EcoState, ev: GodEventScheduled, ctx: 
   const kill = (slots: number[]): void => { for (const sl of slots) s.pending.deaths.push({ slot: sl, id: c.idLo[sl]! + c.idHi[sl]! * 4294967296, cause: 'disaster' }); };
   const within = (x: number, y: number, r: number): number[] => {
     const out: number[] = [];
-    for (let sl = 0; sl < world.cr.highWater; sl++) if (c.life[sl] === LIFE.ALIVE && (c.posX[sl]! - x) ** 2 + (c.posY[sl]! - y) ** 2 <= r * r) out.push(sl);
+    for (let sl = 0; sl < world.cr.highWater; sl++) if (c.life[sl] === LIFE.ALIVE && sq(c.posX[sl]! - x) + sq(c.posY[sl]! - y) <= r * r) out.push(sl);
     return out;
   };
   switch (ev.power) {
@@ -183,7 +185,7 @@ export function applyGod(world: World, s: EcoState, ev: GodEventScheduled, ctx: 
         const ci = iy * cw + ix;
         if (!s.wetC[ci]) continue;
         const cs = W / cw, x = (ix + 0.5) * cs, y = (iy + 0.5) * cs;
-        if (tr >= 0 ? (x - tx) ** 2 + (y - ty) ** 2 > tr * tr : y > 0.3 * H) continue;
+        if (tr >= 0 ? sq(x - tx) + sq(y - ty) > tr * tr : y > 0.3 * H) continue;
         const take = Math.floor(0.2 * f.qN[ci]!);
         const j = (iy * rr + (rr >> 1)) * fw + ix * rr + (rr >> 1);
         transfer(f.qN, ci, f.qP, j, take, world, CH.photosynthesis);
@@ -253,7 +255,7 @@ export function applyGod(world: World, s: EcoState, ev: GodEventScheduled, ctx: 
       if (kStrain < 0) break;
       const same = members.filter((sl) => c.species[sl] === sp);
       const hx = c.posX[host]!, hy = c.posY[host]!;
-      same.sort((a, b) => ((c.posX[a]! - hx) ** 2 + (c.posY[a]! - hy) ** 2) - ((c.posX[b]! - hx) ** 2 + (c.posY[b]! - hy) ** 2) || a - b);
+      same.sort((a, b) => (sq(c.posX[a]! - hx) + sq(c.posY[a]! - hy)) - (sq(c.posX[b]! - hx) + sq(c.posY[b]! - hy)) || a - b);
       const k = Math.min(same.length, Math.round(5 + 45 * i));
       for (let n = 0; n < k; n++) {
         const sl = same[n]!;
@@ -377,7 +379,7 @@ export function evalModifiers(world: World, s: EcoState, tick: number, terrainCh
   world.g.modifiers = keep;
   s.mods = m;
   // vents installed by the vent power halve their output every 20 days
-  for (const v of s.terrain.vents) if (!v.permanent) v.output = Math.max(0.05, v.output * 0.5 ** ((15 * DT) / (20 * DAY_S)));
+  for (const v of s.terrain.vents) if (!v.permanent) v.output = Math.max(0.05, v.output * exp((-LN2 * 15 * DT) / (20 * DAY_S)));
   // sea level and ice (CONTRACT 2: ySurface > 0 during an ice age)
   const target = m.iceDrop;
   if (Math.abs(target - world.g.ySurface) >= world.preset.widthM / world.fields.sdfGrid[0]) {
@@ -406,7 +408,7 @@ function applyIce(world: World): void {
 /** Mutation-rate multiplier at a point (for the sim's MutationContext.mutagen). */
 export function mutagenAt(s: EcoState, x: number, y: number): number {
   let k = s.mods.mutagen;
-  for (const z of s.mods.mutagens) if ((x - z[0]!) ** 2 + (y - z[1]!) ** 2 <= z[2]! * z[2]!) k *= z[3]!;
+  for (const z of s.mods.mutagens) if (sq(x - z[0]!) + sq(y - z[1]!) <= z[2]! * z[2]!) k *= z[3]!;
   return k;
 }
 
