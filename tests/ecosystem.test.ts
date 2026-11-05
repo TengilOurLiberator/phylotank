@@ -445,3 +445,36 @@ describe('interest metrics (04 §4.9)', () => {
     expect(m.rolesOccupied).toBeGreaterThan(0);
   });
 });
+
+describe('safety valves (04 §4.7)', () => {
+  it('total consumer extinction asks for a reseed after half a sim day; low diversity for 10 days asks for immigrants', async () => {
+    const { checkValves, newValves } = await import('../src/ecosystem/valves.js');
+    const w = world('open');
+    const s = ecoState(w);
+    const v = newValves();
+    v.pImmPerDay = 0;
+    const rng = new RngStreams(1, 1);
+    const at = (tick: number): StepContext => ({ tick, config: w.config, rng, events: { emit() {} } });
+    const day = DAY_S / DT;
+    expect(checkValves(w, s, v, at(0))).toBe(null);
+    expect(checkValves(w, s, v, at(0.25 * day))).toBe(null);
+    expect(checkValves(w, s, v, at(0.5 * day))).toBe('extinction');
+    expect(s.pending.spawns.at(-1)!.kind).toBe('reseed');
+    // one species only: diversity collapse after 10 days
+    w.cr.highWater = 12;
+    for (let i = 0; i < 12; i++) { w.cr.c.life[i] = LIFE.ALIVE; w.cr.c.species[i] = 3; }
+    const v2 = newValves(); v2.pImmPerDay = 0;
+    expect(checkValves(w, s, v2, at(day))).toBe(null);
+    expect(checkValves(w, s, v2, at(11 * day))).toBe('diversity');
+    // background immigration happens at about 0.05 per day
+    const v3 = newValves();
+    for (let i = 0; i < 12; i++) w.cr.c.species[i] = i < 6 ? 1 : 2;
+    for (let i = 0; i < 12; i++) w.cr.c.life[i] = LIFE.ALIVE;
+    w.cr.highWater = 24;
+    for (let i = 12; i < 24; i++) { w.cr.c.life[i] = LIFE.ALIVE; w.cr.c.species[i] = i < 18 ? 1 : 2; }
+    let n = 0;
+    for (let t = 0; t < 400 * day; t += 30) if (checkValves(w, s, v3, at(t)) === 'immigration') n++;
+    expect(n).toBeGreaterThan(10);
+    expect(n).toBeLessThan(32);
+  });
+});

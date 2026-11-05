@@ -72,6 +72,7 @@ export interface EcoState {
   nAgentsAtTick: number;
   capTaxTicks: number; ecoTicks: number;
   natureOn: boolean;
+  valves: import('./valves.js').ValveState;
   /** 'additive' is the contract (9.6); 'multiplicative' is 04's old surcharge, kept for spike 3 only. */
   capTaxMode: 'additive' | 'multiplicative';
   yearOffset: number;

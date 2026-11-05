@@ -35,6 +35,7 @@ import {
 import { inheritInfection, seedReservoirStrains, stepDisease } from './disease.js';
 import { applyGod, evalModifiers, mutagenAt as mutagenAtS, natureEvent as natureEventS } from './god.js';
 import { computeMetrics as computeMetricsS, type EcoMetrics } from './metrics.js';
+import { checkValves, newValves, type ValveState } from './valves.js';
 
 function sq(x: number): number { return x * x; }
 
@@ -185,7 +186,7 @@ function newState(world: World, habitat: HabitatName): EcoState {
     history: { firstSeen: new Map(), peak: new Map(), lastCount: new Map(), speciations: [], extinctions: [] },
     uFace: new Float64Array((w + 1) * h), vFace: new Float64Array(w * (h + 1)), psiC: new Float64Array((w + 1) * (h + 1)), hFloor: new Float64Array(w).fill(world.preset.heightM),
     uFaceF: new Float64Array((fw + 1) * fh), vFaceF: new Float64Array(fw * (fh + 1)),
-    nAgentsAtTick: 0, capTaxTicks: 0, ecoTicks: 0, natureOn: true, capTaxMode: 'additive', yearOffset: 0, rActiveTargetQ: 0,
+    nAgentsAtTick: 0, capTaxTicks: 0, ecoTicks: 0, natureOn: true, valves: newValves(), capTaxMode: 'additive', yearOffset: 0, rActiveTargetQ: 0,
     scratch: new Map(),
     env: { t: 0, dayPhase: 0, yearPhase: 0, surfLight: 0, tSurf: P.tMean, yTh: 8, wTh: 2, strat: 1, ySurface: 0 },
     barriers: new Map(), mods: newMods(), diag: { nan: 0, refusedEndowments: 0 },
@@ -340,6 +341,7 @@ export const ecosystem: EcosystemModule = {
     }
     fieldPhase(world, s, ctx, ctx.tick % SLOW_EVERY);
     commitDeaths(world, s, ctx);
+    checkValves(world, s, s.valves, ctx);
   },
 
   stepSlow(world, ctx) {
@@ -419,6 +421,8 @@ export function temperatureAtPoint(world: World, x: number, y: number): number {
 export function mutagenAt(world: World, x: number, y: number): number { return mutagenAtS(getState(world), x, y); }
 export function natureEvent(world: World, ctx: StepContext): GodEventScheduled | null { return natureEventS(world, ctx, getState(world).natureOn); }
 export function setNatureMode(world: World, on: boolean): void { getState(world).natureOn = on; }
+/** Safety-valve settings (04 §4.7): enable, and the background immigration rate per sim day (0 = sealed tank). */
+export function setValves(world: World, opts: Partial<Pick<ValveState, 'enabled' | 'pImmPerDay'>>): void { Object.assign(getState(world).valves, opts); }
 export function computeMetrics(world: World): EcoMetrics { return computeMetricsS(world, getState(world)); }
 export function ecoState(world: World): EcoState { return getState(world); }
 export function ledgerStats(world: World): { tick: Float64Array; total: Float64Array } {

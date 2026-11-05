@@ -17,6 +17,7 @@ Owner: ecosystem engineer. Code: `src/ecosystem/`. Contract: CONTRACT 3, 5.4, 9,
 | `god.ts` | envelopes, lead times, `planCast`, every power's effect, the modifier stack, ice and sea level, rift barriers, leviathan endowment, mutagen field, nature mode |
 | `metrics.ts` | Hill numbers, evenness, roles, trophic levels, size spectrum, speciation and extinction rates, prevalence, immigrant share, pools |
 | `ledger.ts` | contract formulas, dither, transfer, inject, remove, the exact audit |
+| `valves.ts` | safety-valve detection (reseed, immigration requests) |
 | `state.ts` | the per-world side table (see contract request E4) |
 
 ## Decisions (made overnight, nobody to ask)
@@ -54,5 +55,5 @@ The fine plankton field (147k cells) and the light scan dominate. Next steps if 
 - Snapshot and hash coverage of the side table (request E4).
 - Pheromones (channels 4 to 7) are emitted continuously from the ODOUR genes; a brain-gated emission output does not exist yet.
 - Reef growth by shell-building sessile creatures (04 §4.1) and root uptake from sediment are not implemented.
-- Safety valves (reseed, immigration) and the gene bank are host-side and not started; `SpawnRequest.kind = 'reseed'` is reserved for them.
+- Safety valves are detected here (`valves.ts`: extinction after a 0.5-day grace, diversity collapse for 10 days, background immigration at 0.05 per day) and posted as `SpawnRequest` kind `'reseed'` plus a `reseed` event; the gene bank that fills them is host-side and not started.
 - The time-shift infectivity test and the food-web matrix `W` are not built yet; trophic levels are per-creature EMAs.
