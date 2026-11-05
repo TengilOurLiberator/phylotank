@@ -65,8 +65,12 @@ export function addLink(world: World, type: number, a: number, b: number, px: nu
 /** Break force of a claw grip (02 §2.4.4). */
 export function gripBreakForce(rTip: number): number { return SIGMA_GRIP * PI * rTip * rTip; }
 
-/** Drive of the link owner: grip on claws, bite on mouths (cmd2 adapter, contract request P2). */
-function drive(world: World, l: Link): number { return world.seg.c.cmd2[l.a]!; }
+/** Drive of the link owner: grip on claws (`cmd2`), bite or latch on mouths (`cmd3` lanes 0 and 1). */
+function drive(world: World, l: Link): number {
+  const sg = world.seg.c;
+  if (sg.kind[l.a] !== KIND.MOUTH) return sg.cmd2[l.a]!;
+  return l.type === LINK.LATCH ? sg.cmd3[l.a * 2 + 1]! : sg.cmd3[l.a * 2]!;
+}
 
 /** Remove broken links (end of tick). Returns the number removed. */
 export function pruneLinks(world: World): number {
@@ -166,7 +170,7 @@ export const H_HOST = 2e5;
 export function tryLatch(world: World, wk: Work, i: number, j: number, px: number, py: number): boolean {
   const sg = world.seg.c;
   if (sg.kind[i] !== KIND.MOUTH || wk.subtype[i] !== MOUTH_SUBTYPE.PROBOSCIS) return false;
-  if (sg.cmd2[i]! < GRIP_ON || ownsLink(world, i)) return false;
+  if (sg.cmd3[i * 2 + 1]! < GRIP_ON || ownsLink(world, i)) return false;
   const r = sg.radius[i]!;
   // piercing stress against the host's hardness H (1 + 20 armour); the host armour is not in
   // the segment pool yet, so only unarmoured hardness is tested

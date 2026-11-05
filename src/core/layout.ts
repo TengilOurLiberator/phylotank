@@ -85,6 +85,15 @@ export const CREATURE_COLUMNS = [
   { name: 'colour', type: 'u32' },
   { name: 'trophic', type: 'f32', init: 2 },
   { name: 'diet', type: 'f32', lanes: 7 },
+  // appended in phase 2 (docs/contract-requests/APPLIED.md: EV2, EV3, P1)
+  { name: 'generation', type: 'u32' },
+  { name: 'workJ', type: 'f32' },
+  { name: 'biteCooldown', type: 'f32' },
+  { name: 'wdE0', type: 'f64', init: -1 },
+  { name: 'wdIn', type: 'f64' },
+  { name: 'wdTicks', type: 'u16' },
+  { name: 'brainStage', type: 'f64' },
+  { name: 'birthY', type: 'f64' },
 ] as const satisfies readonly ColumnSpec[];
 
 export const SEGMENT_COLUMNS = [
@@ -119,6 +128,13 @@ export const SEGMENT_COLUMNS = [
   { name: 'damage', type: 'f32' },
   { name: 'drag', type: 'f32', lanes: 5 },
   { name: 'glow', type: 'f32' },
+  // appended in phase 2 (docs/contract-requests/APPLIED.md: P1, P2 with B1)
+  { name: 'cmd3', type: 'f32', lanes: 2 },
+  { name: 'subtype', type: 'u8' },
+  { name: 'muscleFrac', type: 'f32', init: 0.3 },
+  { name: 'restPrev', type: 'f64' },
+  { name: 'restInit', type: 'u8' },
+  { name: 'biteArmed', type: 'u8' },
 ] as const satisfies readonly ColumnSpec[];
 
 /** Column spec for one brain size class pool (CONTRACT 5.3). */

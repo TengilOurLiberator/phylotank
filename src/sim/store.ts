@@ -72,3 +72,29 @@ export class GenomeStore {
     return out;
   }
 }
+
+/** Snapshot form of the store: live entries as (handle, canonical bytes, refs). */
+export interface SavedStore { entries: [number, Uint8Array, number][] }
+
+export function saveStore(s: GenomeStore): SavedStore {
+  const entries: [number, Uint8Array, number][] = [];
+  const raw = (s as unknown as { entries: (StoreEntry | null)[] }).entries;
+  raw.forEach((e, h) => { if (e) entries.push([h, e.bytes, e.refs]); });
+  return { entries };
+}
+
+/**
+ * Rebuild a store from its snapshot form. The free list is every empty handle below the
+ * highest live one, ascending, which is exactly what intern and release keep.
+ */
+export function loadStore(saved: SavedStore, decode: (b: Uint8Array) => Genome): GenomeStore {
+  const s = new GenomeStore();
+  const inner = s as unknown as { entries: (StoreEntry | null)[]; byKey: Map<bigint, number>; free: number[] };
+  for (const [h, bytes, refs] of saved.entries) {
+    const key = xxh64(bytes);
+    inner.entries[h] = { genome: decode(bytes), key, bytes, refs, newbornKg: -1 };
+    inner.byKey.set(key, h);
+  }
+  for (let h = 0; h < inner.entries.length; h++) if (!inner.entries[h]) { inner.entries[h] = null; inner.free.push(h); }
+  return s;
+}

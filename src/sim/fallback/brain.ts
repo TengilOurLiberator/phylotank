@@ -36,12 +36,16 @@ export const fallbackBrain: BrainModule = {
     void ph; void g;
     return { inputs: [], outputs: [], nNeurons: 16, neuronKind: new Uint8Array(16), neuronKey: new Uint32Array(16), sizeClass: 0 };
   },
-  allocate(world: World, slot: number, ph: Phenotype, g: Genome, ctx: StepContext): boolean {
-    void ph; void ctx;
+  rehydrate(world: World, slot: number, ph: Phenotype, g: Genome): void {
+    void ph;
     const t = traitsOf(world);
     t.activity[slot] = 0.3 + 0.7 * bt(g, BT.ACTIVITY!);
     t.prefDepth[slot] = bt(g, BT.PREF_DEPTH!);
     t.explore[slot] = bt(g, BT.EXPLORATION!);
+  },
+  allocate(world: World, slot: number, ph: Phenotype, g: Genome, ctx: StepContext): boolean {
+    void ctx;
+    fallbackBrain.rehydrate!(world, slot, ph, g);
     world.cr.c.brainW[slot] = brainCostW(16, 128, 0);
     world.cr.c.brainClass[slot] = 255; // no pool in the fallback
     return true;

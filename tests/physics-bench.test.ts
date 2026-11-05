@@ -295,6 +295,7 @@ describe('physics spike: CPU throughput', () => {
         const s0 = c.segStart[s]!;
         for (let j = 1; j < c.segCount[s]!; j++) sg.cmd[s0 + j] = Math.sin(k * 0.4 + j + s);
         sg.cmd2[s0] = 0.6;
+        sg.cmd3[s0 * 2] = 0.6;
       }
       const t0 = now();
       phys.step(world, ctx);

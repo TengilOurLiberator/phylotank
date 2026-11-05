@@ -224,7 +224,7 @@ function stepLife(world: World, ctx: StepContext): void {
         const mv = c.qReserve[s]! - capKeep;
         c.qReserve[s]! -= mv; c.qRepro[s]! += mv;
       }
-      const cost = offspringCost(newbornKg(world, c.genome[s]!), feeKg).total;
+      const cost = offspringCost(newbornKg(world, c.genome[s]!), feeKg, st.store.entry(c.genome[s]!).bytes.length).total;
       if (c.qRepro[s]! >= cost) {
         const d = ctx.rng.draw(RNG_STREAM.BIRTH, ctx.tick, c.idHi[s]! * 4294967296 + c.idLo[s]!);
         let mate = -1;
@@ -339,10 +339,14 @@ function stepSlowFast(world: World, ctx: StepContext): void {
 
 /** Wrap an ecosystem module (default: the real one) with the fallback life cycle. */
 export function withFallbackLife(base: EcosystemModule = realEcosystem): EcosystemModule {
-  // the fast flow rebuild is used only over the phase-0 ecosystem, whose stepSlow it reproduces
-  const slow = base === realEcosystem ? stepSlowFast : (world: World, ctx: StepContext): void => base.stepSlow(world, ctx);
+  // Since the real ecosystem merged, its stepEcology runs its own creatures, feeding and fields.
+  // The fallback life cycle replaces all of that, so over the real module only initWorld (on the
+  // featureless 'open' habitat: fallback physics has no terrain), stepSlow, god events and the
+  // audit are delegated.
+  const real = base === realEcosystem;
   return {
     initWorld(world, ctx) {
+      if (real && world.config.habitat === undefined) (world.config as { habitat?: string }).habitat = 'open';
       base.initWorld(world, ctx);
       // start the producers: 5% of each cell's dissolved N becomes phytoplankton (exact)
       const f = world.fields;
@@ -356,11 +360,11 @@ export function withFallbackLife(base: EcosystemModule = realEcosystem): Ecosyst
     },
     flowAt: (world, x, y, out) => base.flowAt(world, x, y, out),
     stepEcology(world, ctx) {
-      base.stepEcology(world, ctx);
+      if (!real) base.stepEcology(world, ctx);
       stepLife(world, ctx);
       stepProducers(world, ctx);
     },
-    stepSlow: slow,
+    stepSlow: (world, ctx) => base.stepSlow(world, ctx),
     applyGodEvent: (world, ev, ctx) => base.applyGodEvent(world, ev, ctx),
     audit: (world) => base.audit(world),
   };

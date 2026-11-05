@@ -33,7 +33,10 @@ export class SpeciesRegistry {
   private readonly byId = new Map<number, SpeciesRecord>();
   nextId = 1;
 
-  constructor(private readonly store: GenomeStore, private readonly theta = THETA_SPECIES) {}
+  constructor(private store: GenomeStore, private readonly theta = THETA_SPECIES) {}
+
+  /** Point the registry at a restored genome store (snapshot load). */
+  rebind(store: GenomeStore): void { this.store = store; }
 
   get(id: number): SpeciesRecord | undefined { return this.byId.get(id); }
 
@@ -81,3 +84,13 @@ export class SpeciesRegistry {
 }
 
 export type { V2 };
+
+export interface SavedSpecies { nextId: number; list: SpeciesRecord[] }
+export function saveSpecies(r: SpeciesRegistry): SavedSpecies {
+  return { nextId: r.nextId, list: r.list.map((x) => ({ ...x, founders: [...x.founders] })) };
+}
+export function loadSpecies(r: SpeciesRegistry, saved: SavedSpecies): void {
+  r.nextId = saved.nextId;
+  const byId = (r as unknown as { byId: Map<number, SpeciesRecord> }).byId;
+  for (const x of saved.list) { const rec = { ...x, founders: [...x.founders] }; r.list.push(rec); byId.set(rec.id, rec); }
+}

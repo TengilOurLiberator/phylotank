@@ -16,6 +16,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { ByteReader, ByteWriter, cborDecode, cborEncode, crc32, type CborValue, type GodEventScheduled } from '../core/index.js';
+import type { ReleaseEntry } from '../sim/index.js';
 
 export type SnapshotKind = 'auto' | 'daily' | 'beforePower' | 'beforeRewind' | 'manual' | 'recovery';
 export const SNAPSHOT_KINDS: readonly SnapshotKind[] = ['auto', 'daily', 'beforePower', 'beforeRewind', 'manual', 'recovery'];
@@ -26,6 +27,8 @@ export type JournalRecord =
   | { kind: 'god'; tick: number; ev: GodEventScheduled }
   | { kind: 'governor'; tick: number; decision: { brainDiv?: 1 | 2 | 3 } }
   | { kind: 'hash'; tick: number; h: string }
+  /** A creature release (sim contract request S6): journalled so replay reproduces it. */
+  | { kind: 'release'; tick: number; release: ReleaseEntry }
   /** Host-side inputs that do not change the sim (speed leases, snapshots, rewinds), for audit. */
   | { kind: 'note'; tick: number; what: string; data?: CborValue };
 

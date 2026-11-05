@@ -11,11 +11,12 @@
  * Every mass movement is an integer number of quanta, so the ledger stays exact.
  */
 import {
-  C_G, CF, clamp, cos, decodeGenome, FAT_CAPACITY_0, GENOME_FLAG_LEVIATHAN, K_ENDOW, LIFE, MAX_WORLD_MASS_KG, NONE_U32, OVERHEAD_ABS_KG, OVERHEAD_FRACTION, packRGBA, pow, Q_MASS, RNG_STREAM,
+  C_G, CF, clamp, KAPPA_DNA_KG, cos, decodeGenome, FAT_CAPACITY_0, GENOME_FLAG_LEVIATHAN, K_ENDOW, LIFE, MAX_WORLD_MASS_KG, NONE_U32, OVERHEAD_ABS_KG, OVERHEAD_FRACTION, packRGBA, pow, Q_MASS, RNG_STREAM,
   SEGMENT_COLUMNS, sin, T, TAU, TRAITS, decodeQ, clearSlot,
   type AnyTypedArray, type DeathCause, type Genome, type MutationContext, type Phenotype, type StepContext, type V2, type World,
 } from '../core/index.js';
-import { agentCapFeeKg } from '../ecosystem/index.js';
+import { agentCapFeeKg, ecosystem as realEcosystem, loadCreatureEco } from '../ecosystem/index.js';
+import { linkState } from '../physics/index.js';
 import { cmpBirth, cmpDeath, entityId, requestsOf, type BirthRequest } from './requests.js';
 import { CH, stateOf, type ReleaseEntry, type SimState } from './state.js';
 
@@ -74,13 +75,20 @@ export function compactSegments(world: World): void {
   owners.sort((a, b) => c.segStart[a]! - c.segStart[b]! || a - b);
   const cols = segColumns(world);
   let dst = 0;
+  const links = linkState(world).links;
+  const moved = new Map<number, number>();
   for (const s of owners) {
     const src = c.segStart[s]!;
     const n = c.segCount[s]!;
-    if (src !== dst) for (const col of cols) col.arr.copyWithin(dst * col.lanes, src * col.lanes, (src + n) * col.lanes);
+    if (src !== dst) {
+      for (const col of cols) col.arr.copyWithin(dst * col.lanes, src * col.lanes, (src + n) * col.lanes);
+      if (links.length > 0) for (let k = 0; k < n; k++) moved.set(src + k, dst + k);
+    }
     c.segStart[s] = dst;
     dst += n;
   }
+  // physics links (bites, grabs, latches) name segments: follow the move
+  for (const l of links) { l.a = moved.get(l.a) ?? l.a; l.b = moved.get(l.b) ?? l.b; }
   for (const col of cols) col.arr.fill(col.init, dst * col.lanes, world.seg.highWater * col.lanes);
   world.seg.highWater = dst;
 }
@@ -166,6 +174,8 @@ function birthEnv(world: World, y: number): { depth01: number; tempC: number } {
   return { depth01: clamp((y - world.g.ySurface) / world.preset.heightM, 0, 1), tempC: 14 };
 }
 
+export const birthEnvFor = birthEnv;
+
 export function developOpts(world: World): { maxParts: number; lCeilingM: number } {
   return { maxParts: world.config.maxParts ?? 64, lCeilingM: world.lCeilingM };
 }
@@ -180,11 +190,12 @@ export function newbornKg(world: World, handle: number): number {
 
 /** Integer parts of one offspring's cost (CONTRACT 9.6), in quanta. */
 export interface OffspringCost { tissue: number; reserve: number; growthHeat: number; overhead: number; fee: number; total: number }
-export function offspringCost(mKg: number, feeKg: number): OffspringCost {
+/** `genomeBytes` adds the replication cost KAPPA_DNA x bytes to the overhead (CONTRACT 9.6, G9). */
+export function offspringCost(mKg: number, feeKg: number, genomeBytes = 0): OffspringCost {
   const tissue = Math.max(1, Math.round(mKg / Q_MASS));
   const growthHeat = Math.floor(tissue * (C_G - 1));
   const reserve = Math.floor(tissue * FAT_CAPACITY_0);
-  const overhead = Math.floor((OVERHEAD_FRACTION * mKg + OVERHEAD_ABS_KG) / Q_MASS);
+  const overhead = Math.floor((OVERHEAD_FRACTION * mKg + OVERHEAD_ABS_KG + KAPPA_DNA_KG * genomeBytes) / Q_MASS);
   const fee = Math.floor(feeKg / Q_MASS);
   return { tissue, reserve, growthHeat, overhead, fee, total: tissue + growthHeat + reserve + overhead + fee };
 }
@@ -208,6 +219,8 @@ export function tMatureS(g: Genome, adultLenM: number): number {
 export interface SpawnSpec {
   handle: number; species: number; pos: V2; heading: number; maturity: number;
   qTissue: number; qReserve: number; flags: number;
+  /** Body mass for physics when the pools are filled later (ecosystem births), kg. */
+  massKg?: number;
 }
 
 /**
@@ -229,17 +242,21 @@ export function spawn(world: World, ctx: StepContext, sp: SpawnSpec): number {
   c.genome[slot] = sp.handle;
   c.posX[slot] = sp.pos[0];
   c.posY[slot] = sp.pos[1];
+  c.birthY[slot] = sp.pos[1];
   c.heading[slot] = sp.heading;
   c.length[slot] = ph.lengthM;
   c.adultLength[slot] = ph.adultLengthM;
   c.maturity[slot] = ph.maturity;
   c.qTissue[slot] = sp.qTissue;
   c.qReserve[slot] = sp.qReserve;
-  c.massKg[slot] = (sp.qTissue + sp.qReserve) * Q_MASS;
-  const tm = tMatureS(g, ph.adultLengthM);
-  c.tMature[slot] = tm;
-  c.lifespan[slot] = traitOf(g, T.LIFESPAN_MULT!) * tm;
-  c.reproTimer[slot] = traitOf(g, T.BROOD_INTERVAL!) * tm * 0.25;
+  c.massKg[slot] = sp.massKg ?? (sp.qTissue + sp.qReserve) * Q_MASS;
+  const eco = st.modules.ecosystem === realEcosystem;
+  if (!eco) {
+    const tm = tMatureS(g, ph.adultLengthM);
+    c.tMature[slot] = tm;
+    c.lifespan[slot] = traitOf(g, T.LIFESPAN_MULT!) * tm;
+    c.reproTimer[slot] = traitOf(g, T.BROOD_INTERVAL!) * tm * 0.25;
+  }
   c.immuneKey[slot] = g.immuneKey;
   c.surfaceSig[slot] = g.surfaceSig;
   c.glow[slot] = 0.15 + 0.6 * traitOf(g, T.GLOW_BASE!);
@@ -253,10 +270,20 @@ export function spawn(world: World, ctx: StepContext, sp: SpawnSpec): number {
     sg.organs[k0 + i] = ph.organs[i]!;
   }
   physics.loadBody(world, slot, ph);
+  c.brainStage[slot] = ph.maturity; // the brain's derived constants come from this stage (rehydrate)
   if (!brain.allocate(world, slot, ph, g, ctx)) { rollback(world, slot); return -1; }
   world.g.liveCount++;
   st.species.add(sp.species);
+  // the real ecosystem decodes traits and times (tMature, lifespan) into its cache (request E1)
+  if (eco) loadEcoFor(world, slot, g, ph);
   return slot;
+}
+
+/** Load a creature into the real ecosystem's cache (birth, release, snapshot restore). */
+export function loadEcoFor(world: World, slot: number, g: Genome, ph: Phenotype): void {
+  const st = stateOf(world);
+  const adult = st.modules.genome.develop(g, 1, birthEnv(world, world.cr.c.birthY[slot]!), developOpts(world));
+  loadCreatureEco(world, slot, { traits: g.traits, phenotype: ph, adultMassKg: adult.massKg });
 }
 
 function rollback(world: World, slot: number): void {
@@ -327,7 +354,7 @@ export function commitBirthsAndDeaths(world: World, ctx: StepContext): void {
   // 3. restages, in ascending slot order: regrow the body, reallocating segments if the part count changed
   if (q.restages.length > 0) {
     const slots = [...new Set(q.restages.splice(0, q.restages.length))].sort((a, b) => a - b);
-    for (const s of slots) if (c.life[s] === LIFE.ALIVE) restage(world, s);
+    for (const s of slots) if (c.life[s] === LIFE.ALIVE) restageSlot(world, s);
   }
 
   // 4. births
@@ -338,11 +365,11 @@ export function commitBirthsAndDeaths(world: World, ctx: StepContext): void {
   for (const b of births) commitBirth(world, ctx, st, b, feeKg);
 }
 
-function restage(world: World, slot: number): void {
+export function restageSlot(world: World, slot: number): void {
   const st = stateOf(world);
   const c = world.cr.c;
   const g = st.store.get(c.genome[slot]!);
-  const ph = st.modules.genome.develop(g, c.maturity[slot]!, birthEnv(world, c.posY[slot]!), developOpts(world));
+  const ph = st.modules.genome.develop(g, c.maturity[slot]!, birthEnv(world, c.birthY[slot]!), developOpts(world));
   const old = c.segCount[slot]!;
   if (ph.nParts !== old) {
     // no room for the grown body even after compaction: keep the old body until there is
@@ -368,7 +395,7 @@ function commitBirth(world: World, ctx: StepContext, st: SimState, b: BirthReque
     if (traitOf(bearerG, T.SEX_PROB!) >= 0.98) { done(); return; }
     mode = 'bud';
   }
-  const cost = offspringCost(newbornKg(world, c.genome[p]!), feeKg);
+  const cost = offspringCost(newbornKg(world, c.genome[p]!), feeKg, st.store.entry(c.genome[p]!).bytes.length);
   const afford = Math.floor(c.qRepro[p]! / cost.total);
   const n = Math.min(b.n, afford);
   if (n < 1) { done(); return; }
@@ -407,6 +434,9 @@ function commitBirth(world: World, ctx: StepContext, st: SimState, b: BirthReque
       st.deferredBirths += n - i;
       return;
     }
+    const gp = c.generation[p]!;
+    const gd = donorG ? c.generation[b.mateSlot]! : 0;
+    c.generation[slot] = 1 + (gp > gd ? gp : gd);
     // pay (CONTRACT 9.6): tissue and starting reserve to the child, the rest burnt at the parent
     c.qRepro[p]! -= cost.total;
     burnTo(world, px, py, cost.growthHeat + cost.overhead + cost.fee);

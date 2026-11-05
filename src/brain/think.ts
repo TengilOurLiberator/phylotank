@@ -178,7 +178,6 @@ export function actBrain(world: World, c: number, s: number, st: BrainStatic, dt
   const segStart = world.cr.c.segStart[cr]!;
   const segCount = world.cr.c.segCount[cr]!;
   const seg = world.seg.c;
-  const aux = brainState(world).segAux;
   const nMotor = st.outDest.length;
   for (let j = 0; j < nMotor; j++) {
     const v = p.o[bN + j]!;
@@ -201,7 +200,7 @@ export function actBrain(world: World, c: number, s: number, st: BrainStatic, dt
     const sg = segStart + part;
     if (dest === DEST.CMD) seg.cmd[sg] = v;
     else if (dest === DEST.CMD2) seg.cmd2[sg] = v;
-    else if (dest === DEST.BITE) aux[sg * 2] = v;
-    else aux[sg * 2 + 1] = v;
+    else if (dest === DEST.BITE) seg.cmd3[sg * 2] = v;
+    else seg.cmd3[sg * 2 + 1] = v;
   }
 }

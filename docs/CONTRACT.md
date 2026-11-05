@@ -191,6 +191,13 @@ Type codes used below: `f64, f32, u32, i32, u16, i16, u8, i8`. "xN" means N lane
 | `colour` | u32 | packed RGBA8 body colour for far LOD (from the look traits) | sim |
 | `trophic` | f32 | trophic level EMA | ecosystem |
 | `diet` | f32 x7 | intake EMA: phyto, mat, plantCreature, detritus, carcass, livePrey, host | ecosystem |
+| `generation` | u32 | 0 for founders and releases, else `1 + max(parent generations)` (phase 2, request EV2) | sim |
+| `workJ` | f32 | cumulative positive muscle work over life, J (phase 2, request EV3) | physics |
+| `biteCooldown` | f32 | s until the next bite (phase 2, request P1) | physics |
+| `wdE0`, `wdIn` | f64 | exploit watchdog: water-frame energy at window start (-1 unset), work in during the window, J (P1) | physics |
+| `wdTicks` | u16 | watchdog ticks into the window (P1) | physics |
+| `brainStage` | f64 | maturity of the phenotype the brain was built from, so a snapshot load rebuilds the same brain (B2) | sim |
+| `birthY` | f64 | depth at birth, m: the `DEPTH_AT_BIRTH` axis of every later develop (restage, rehydrate) | sim |
 
 ### 5.2 Segment pool (`SEGMENT_COLUMNS`, capacity = `SEG_PER_AGENT` x agent capacity)
 
@@ -219,6 +226,11 @@ A creature owns the contiguous range `[segStart, segStart + segCount)` in parent
 | `damage` | f32 | 0 to 1 | physics |
 | `drag` | f32 x5 | `k_t1, k_n1, k_t15, k_t2, k_n2` (02 §2.7.2) | physics |
 | `glow` | f32 | current photophore emission 0 to 1 | ecosystem |
+| `cmd3` | f32 x2 | MOUTH parts: lane 0 BITE (jaws, rasp), lane 1 LATCH (proboscis, suction); unused elsewhere (phase 2, requests P2 and B1). GRIP on CLAW parts stays on `cmd2` | brain |
+| `subtype` | u8 | the Phenotype's part subtype (mouth kind) (P2) | physics (from Phenotype) |
+| `muscleFrac` | f32 | muscle fraction of the part, isometric cost `m_mus = muscleFrac x mass`, init 0.3 (P1) | physics (from Phenotype) |
+| `restPrev` | f64 | rest angle at the end of the last tick, restage blends from it (P1) | physics |
+| `restInit`, `biteArmed` | u8 | restPrev valid; bite hysteresis armed (P1) | physics |
 
 ### 5.3 Brain pools (one per size class, section 8.3)
 
@@ -624,7 +636,7 @@ Then, for each part in phenotype order, that part's inputs in this kind order, t
 | 6 | EMIT_HUE | hue shift, at most 0.15 of the palette range |
 | 7 | ROLL | roll over (`mirror := -mirror`), trigger with a 2 s cooldown |
 
-Then, per part in phenotype order: MUSCLE (every non-root part with `muscleFrac > 0` or kind FIN) writes segment `cmd`; FIN_PITCH (FIN) writes `cmd2`; MOUTH_OPEN, BITE, LATCH (each MOUTH, in that order; LATCH only acts for PROBOSCIS and SUCTION mouths); then exactly one of PHOTO_INTENSITY, CILIA_DRIVE, JET_DRIVE, BLADDER_DRIVE, GLAND_RELEASE, GRIP when the part has that organ, writing `cmd2`.
+Then, per part in phenotype order: MUSCLE (every non-root part with `muscleFrac > 0` or kind FIN) writes segment `cmd`; FIN_PITCH (FIN) writes `cmd2`; MOUTH_OPEN, BITE, LATCH (each MOUTH, in that order; LATCH only acts for PROBOSCIS and SUCTION mouths; MOUTH_OPEN writes `cmd2`, BITE and LATCH write `cmd3` lanes 0 and 1); then exactly one of PHOTO_INTENSITY, CILIA_DRIVE, JET_DRIVE, BLADDER_DRIVE, GLAND_RELEASE, GRIP when the part has that organ, writing `cmd2`.
 
 ```ts
 interface IOChannel { kind: number; part: number /* -1 global */; slot: number; key: number /* stable id */ }
@@ -662,7 +674,7 @@ Every sim tick for every brained creature whose `(slot + tick) % brainDiv == 0`,
    - oscillators: `phase += dt_b * (2 pi F + s + sum_c k_c sin(phase[src_c] - phase - lag_c))` with F from `oPrev` of the CPG_FREQ motor, `o = Amp * sin(phase + phaseOff)`, Amp from the CPG_AMP motor;
    - any NaN resets that brain's `y`, `o` and `phase` to 0 and counts a diagnostic;
    - then `oPrev := o`.
-3. **act**: output channel `j` takes `o[j]` (a motor neuron) and writes it to its destination (`out` lanes for globals, segment `cmd` or `cmd2` for per-part). Outputs hold between brain ticks (zero-order hold).
+3. **act**: output channel `j` takes `o[j]` (a motor neuron) and writes it to its destination (`out` lanes for globals, segment `cmd`, `cmd2` or `cmd3` for per-part). Outputs hold between brain ticks (zero-order hold).
 
 Reflexes (03 §3.8.2) and the innate gait are synapses placed first in each neuron's slot list, scaled by their BrainTraits gains. Learned weights (`synDw`) are never inherited.
 
@@ -729,7 +741,7 @@ From traits `x1 = DIET_PLANT`, `x2 = DIET_DETRITUS`: `e_plant = x1 (1 - x2)`, `e
 
 ### 9.6 Reproduction, per-offspring overhead and the agent-cap tax (fixes review R11)
 
-- A clutch of `n` offspring of mass `m_o` costs, from `qRepro`: `n * (m_o * C_G + m_o * FAT_CAPACITY_0 + overhead_o) + fee * n`, where `FAT_CAPACITY_0 = 0.3` (starting reserve fraction), the **per-offspring overhead** is `overhead_o = 0.15 m_o + 1e-3 * M_REF_1CM` (yolk and packaging; stops clutch-64 swarms of tiny offspring), and the **cap fee** below is per offspring. If the parent cannot pay, the clutch shrinks to what it can afford, at least 1, or waits.
+- A clutch of `n` offspring of mass `m_o` costs, from `qRepro`: `n * (m_o * C_G + m_o * FAT_CAPACITY_0 + overhead_o) + fee * n`, where `FAT_CAPACITY_0 = 0.3` (starting reserve fraction), the **per-offspring overhead** is `overhead_o = 0.15 m_o + 1e-3 * M_REF_1CM + KAPPA_DNA * genomeBytes` (yolk and packaging, which stops clutch-64 swarms of tiny offspring, plus genome replication at `KAPPA_DNA = 2.6e-14 kg` per byte, which makes bloat cost something; phase 2, request G9), and the **cap fee** below is per offspring. If the parent cannot pay, the clutch shrinks to what it can afford, at least 1, or waits.
 - **Agent-cap tax, additive and absolute** (not the multiplicative surcharge of 04 §4.7): with `n_agents = liveCount + eggCount + carcassCount` at the start of the tick,
 
 ```
@@ -786,6 +798,7 @@ interface BrainModule {
   free(world: World, slot: number): void;
   sense(world: World, ctx: StepContext): void;
   think(world: World, ctx: StepContext): void;
+  rehydrate?(world: World, slot: number, ph: Phenotype, g: Genome): void;  // after a snapshot load (B2)
 }
 interface EcosystemModule {
   initWorld(world: World, ctx: StepContext): void;       // terrain, fields, M_total

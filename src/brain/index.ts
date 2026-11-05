@@ -97,4 +97,7 @@ export const brain: BrainModule = {
   think(world, ctx) {
     think(world, ctx);
   },
+  rehydrate(world, slot, ph, g) {
+    rehydrate(world, slot, ph, g);
+  },
 };

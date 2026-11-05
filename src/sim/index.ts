@@ -16,6 +16,12 @@ import {
   type World, type WorldConfig,
 } from '../core/index.js';
 import { commitBirthsAndDeaths, release, type ReleaseResult } from './commit.js';
+import { adoptWorld, type SavedSim } from './persist.js';
+import { commitWithEcosystem, feedBites } from './eco-commit.js';
+import { ecosystem as realEcosystem, hasEcoState, terrainInfo } from '../ecosystem/index.js';
+import { createGenomeModule, genome as realGenome, InnovationRegistry, type RegistryState } from '../genome/index.js';
+import { physics as realPhysics } from '../physics/index.js';
+import { brain as realBrain } from '../brain/index.js';
 import { fallbackBrain } from './fallback/brain.js';
 import { withFallbackLife } from './fallback/ecology.js';
 import { fallbackGenome } from './fallback/genome.js';
@@ -29,13 +35,27 @@ export { allocCreature, compactSegments, freeCreature, killNow, offspringCost, r
 export { entityId, requestBirth, requestDeath, requestRestage, requestsOf } from './requests.js';
 export type { BirthRequest, DeathRequest } from './requests.js';
 export { stateOf } from './state.js';
+export { adoptWorld, exportSimState, SIM_STATE_VERSION, type SavedSim } from './persist.js';
 
 /** Founders seeded at world creation (a sim-local extension of WorldConfig, see the contract request). */
-export interface FounderSpec { template: TemplateId; count: number; genome?: Uint8Array }
+export interface FounderSpec {
+  template: TemplateId; count: number; genome?: Uint8Array;
+  /** Where to release them: open water (default), the lit surface layer, the shelf floor, or any floor. */
+  zone?: 'water' | 'surface' | 'shelf' | 'floor';
+}
 export interface SimConfig extends WorldConfig {
   founders?: FounderSpec[];
   /** Record a state hash every HASH_EVERY ticks (about 50 ms per hash on Small). */
   hashCheckpoints?: boolean;
+}
+
+/** The real module set (phase 2): genome (one innovation registry per world), physics, brain, ecosystem. */
+export function realModules(): SimModules {
+  return {
+    genome: realGenome,
+    genomeFor: (saved?: unknown) => createGenomeModule(saved ? InnovationRegistry.load(saved as RegistryState) : new InnovationRegistry()),
+    physics: realPhysics, brain: realBrain, ecosystem: realEcosystem,
+  };
 }
 
 /** The local fallback module set (phase 1). */
@@ -135,29 +155,68 @@ function actuate(world: World): void {
     if (a !== a) sg.cmd[k] = 0; else if (a > 1) sg.cmd[k] = 1; else if (a < -1) sg.cmd[k] = -1;
     const b = sg.cmd2[k]!;
     if (b !== b) sg.cmd2[k] = 0; else if (b > 1) sg.cmd2[k] = 1; else if (b < -1) sg.cmd2[k] = -1;
+    for (let l = 2 * k; l < 2 * k + 2; l++) {
+      const d = sg.cmd3[l]!;
+      if (d !== d) sg.cmd3[l] = 0; else if (d > 1) sg.cmd3[l] = 1; else if (d < -1) sg.cmd3[l] = -1;
+    }
   }
 }
 
 /** Build a SimCore over a module set; missing modules take the local fallbacks. */
-export function createSim(modules: Partial<SimModules> = {}): SimCore {
+/** A SimCore with its module set and snapshot adoption (see persist.ts). */
+export interface SimCoreWithModules extends SimCore {
+  readonly modules: SimModules;
+  /** Attach sim state to a world restored from a snapshot (pools already loaded). */
+  adopt(world: World, saved?: SavedSim | null): void;
+}
+
+export function createSim(modules: Partial<SimModules> = {}): SimCoreWithModules {
   const mods: SimModules = { ...fallbackModules(), ...modules };
   return {
+    modules: mods,
+    adopt(world: World, saved?: SavedSim | null): void { adoptWorld(world, mods, saved); },
     create(config: WorldConfig): World {
       const cfg = config as SimConfig;
       const world = allocWorld(config);
-      const st = initState(world, mods, cfg.hashCheckpoints ? HASH_EVERY : 0);
+      const perWorld: SimModules = mods.genomeFor ? { ...mods, genome: mods.genomeFor() } : mods;
+      const st = initState(world, perWorld, cfg.hashCheckpoints ? HASH_EVERY : 0);
       const ctx = contextFor(world);
-      mods.ecosystem.initWorld(world, ctx);
+      perWorld.ecosystem.initWorld(world, ctx);
       const founders: FounderSpec[] = cfg.founders ?? (cfg.skeletonMotes ? [{ template: 'motefly', count: cfg.skeletonMotes }] : []);
       founders.forEach((f, i) => {
-        const g = f.genome ?? encodeGenome(mods.genome.template(f.template));
-        // one species per founder group, spread over the upper half; mass from the dissolved N under them
+        const g = f.genome ?? encodeGenome(perWorld.genome.template(f.template));
+        // one species per founder group; mass from the dissolved N under them
         const W = world.preset.widthM;
         const H = world.preset.heightM;
-        release(world, ctx, {
-          cmdId: `founders-${i}`, genome: g, pos: [W / 2, H * 0.3], spread: [W / 2 - 0.3, H * 0.25], count: f.count,
-          asLeviathan: false, founderProtection: false,
-        }, false);
+        const zone = f.zone ?? 'water';
+        if (zone === 'water' || !hasEcoState(world)) {
+          release(world, ctx, {
+            cmdId: `founders-${i}`, genome: g, pos: [W / 2, H * 0.3], spread: [W / 2 - 0.3, H * 0.25], count: f.count,
+            asLeviathan: false, founderProtection: false,
+          }, false);
+        } else if (zone === 'surface') {
+          release(world, ctx, {
+            cmdId: `founders-${i}`, genome: g, pos: [W / 2, H * 0.12], spread: [W / 2 - 0.3, H * 0.09], count: f.count,
+            asLeviathan: false, founderProtection: false,
+          }, false);
+        } else {
+          // on the substrate: small groups just above the floor, on the shelf or anywhere
+          const t = terrainInfo(world);
+          const x0 = 0.3, x1 = zone === 'shelf' ? Math.max(x0 + 1, t.shelfEndX) : W - 0.3;
+          const groups = Math.max(1, Math.ceil(f.count / 6));
+          let left = f.count;
+          for (let k = 0; k < groups && left > 0; k++) {
+            const n = Math.min(left, Math.ceil(f.count / groups));
+            const x = x0 + ((k + 0.5) / groups) * (x1 - x0);
+            const col = Math.min(t.floorY.length - 1, Math.max(0, Math.floor((x / W) * t.floorY.length)));
+            const y = Math.max(world.g.ySurface + 0.2, t.floorY[col]! - 0.12);
+            release(world, ctx, {
+              cmdId: `founders-${i}-${k}`, genome: g, pos: [x, y], spread: [0.25, 0.05], count: n,
+              asLeviathan: false, founderProtection: false,
+            }, false);
+            left -= n;
+          }
+        }
       });
       drainEvents(world); // founder releases are not news
       st.nAgentsAtTickStart = world.g.liveCount + world.g.eggCount + world.g.carcassCount;
@@ -183,8 +242,14 @@ export function createSim(modules: Partial<SimModules> = {}): SimCore {
       physics.step(world, ctx);
       // 4. ecology at 10 Hz (eat, digest, metabolism, growth, requests), then the commit
       if (tick % ECO_EVERY === 0) {
-        ecosystem.stepEcology(world, ctx);
-        commitBirthsAndDeaths(world, ctx);
+        if (ecosystem === realEcosystem) {
+          feedBites(world);
+          ecosystem.stepEcology(world, ctx);
+          commitWithEcosystem(world, ctx);
+        } else {
+          ecosystem.stepEcology(world, ctx);
+          commitBirthsAndDeaths(world, ctx);
+        }
       }
       // 5. flow, light and temperature at 2 Hz
       if (tick % SLOW_EVERY === 0) ecosystem.stepSlow(world, ctx);
@@ -200,7 +265,10 @@ export function createSim(modules: Partial<SimModules> = {}): SimCore {
 }
 
 /** The default SimCore over the local fallback modules. */
-export const sim: SimCore = createSim();
+/** The product sim: the real genome, physics, brain and ecosystem modules (phase 2 swap). */
+export const sim: SimCoreWithModules = createSim(realModules());
+/** The phase-1 fallback set, kept for the sim's own pipeline tests (commit, cap tax, journal). */
+export const fallbackSim: SimCoreWithModules = createSim();
 
 /**
  * Digest of the non-SoA sim state that the contract hash does not cover: the genome store,
@@ -234,6 +302,8 @@ export function census(world: World): { species: number; count: number; biomassK
 }
 
 export { dayPhase, yearPhase } from './clocks.js';
+/** Re-exported for the host, which may import only src/sim (CONTRACT 16). */
+export { ecosystem } from '../ecosystem/index.js';
 export type { SimEventKind };
 export { encodeViewFrames, envFrameFor } from './frames.js';
 export { CF };
