@@ -52,4 +52,20 @@ describe('physics spike 2: B4 inertial undulator', () => {
       log('b4case', out[out.length - 1]);
     }
   });
+
+  it.runIf(LONG)('T1 and T2 for the B4 reference (compressed fish, tail envelope, 4 Hz)', { timeout: 1_800_000 }, () => {
+    const g: Gait = { f: 4, amp: lin(0.3), lag: 0.8 };
+    const body = fish(8, 0.2, 2);
+    const ref = swim(g, { nSub: 64 }, 8, body);
+    const rows = [];
+    for (const nSub of [1, 2, 4, 8, 16]) {
+      const r = swim(g, { nSub }, 8, body);
+      rows.push({ nSub, U: r.U, St: r.St, errU: (r.U - ref.U) / ref.U, errP: (r.P - ref.P) / ref.P });
+    }
+    const r60 = swim(g, { nSub: 4, dt: 1 / 60 }, 8, body);
+    const r30 = swim(g, { nSub: 4 }, 8, body);
+    const r30x8 = swim(g, { nSub: 8 }, 8, body);
+    log('b4T1', { refU: ref.U, refP: ref.P, refSt: ref.St, rows });
+    log('b4T2', { d30v60: (r30.U - r60.U) / r60.U, d30x8v60: (r30x8.U - r60.U) / r60.U, dP: (r30.P - r60.P) / r60.P });
+  });
 });
