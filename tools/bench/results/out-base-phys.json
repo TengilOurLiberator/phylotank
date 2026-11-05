@@ -1,0 +1,53 @@
+{
+  "scenario": "small-2k",
+  "physics": "on",
+  "ticks": 60,
+  "warm": 10,
+  "runs": 1,
+  "node": "v22.23.4",
+  "loadavg": [
+    16.61,
+    17.04,
+    15.75
+  ],
+  "live": {
+    "start": 1721,
+    "end": 1719,
+    "segments": 16928
+  },
+  "createMs": 3546.274303,
+  "createCpuMs": 929.121,
+  "cpuMsPerTick": {
+    "sense": 22.402966666666668,
+    "think": 10.977316666666667,
+    "physics": 246.01408333333336,
+    "ecology": 5.834333333333333,
+    "commit": 0.09004166666666666,
+    "flow": 0.31683333333333336,
+    "rest": 0.315425,
+    "total": 285.951
+  },
+  "wallMsPerTick": {
+    "sense": 49.47849236666671,
+    "think": 24.648661950000314,
+    "physics": 519.3740250500002,
+    "ecology": 16.600360316666805,
+    "commit": 0,
+    "flow": 1.6508065499999853,
+    "rest": 1.3069696500000192,
+    "total": 613.0426496000002
+  },
+  "ticksPerCpuS": 3.4971026504540985,
+  "ticksPerWallS": 1.6312078786891626,
+  "gcMsPerTick": 13.328159900195896,
+  "gcPerTick": 3.5,
+  "hash": {
+    "ms": 651.0690629999954,
+    "cpuMs": 400.662,
+    "bytes": 29771378,
+    "msPerTickAtHashEvery": 1.5650859375
+  },
+  "coresAt30Hz": 8.625482578125,
+  "stateHash": "3bd354a272537a57",
+  "stateDigest": "5a30a5e8ad43f23a"
+}
