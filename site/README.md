@@ -6,6 +6,7 @@ Owner: site engineer. Published at **https://tengilourliberator.github.io/phylot
 
 The workflow cannot turn Pages on by itself, and nobody has done it yet. Once, in the GitHub repo:
 
+0. **Settings, Secrets and variables, Actions, Variables**: add `PAGES_ENABLED` = `true` (the deploy job is skipped until then, so pushes do not fail).
 1. **Settings, Pages** (https://github.com/TengilOurLiberator/phylotank/settings/pages).
 2. Under **Build and deployment, Source**, choose **GitHub Actions**. Do not pick a branch.
 3. Push to `main`, or run the **Pages** workflow by hand from the Actions tab (it has a "Run workflow" button).

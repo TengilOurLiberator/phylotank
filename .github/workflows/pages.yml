@@ -58,6 +58,9 @@ jobs:
           path: _site
 
   deploy:
+    # Runs only once William has enabled Pages and set the repo variable PAGES_ENABLED=true
+    # (Settings > Secrets and variables > Actions > Variables), so pushes do not fail before then.
+    if: vars.PAGES_ENABLED == 'true'
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
