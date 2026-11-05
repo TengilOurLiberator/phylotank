@@ -97,6 +97,9 @@ export class EventSuite {
     return r;
   }
 
+  /** Forget the measured costs (after a warm-up, say). */
+  resetCosts(): void { for (const c of this.cost.values()) { c.runs = 0; c.total = 0; c.max = 0; } }
+
   /** Measured cost per detector (empty without a clock). `perTickMs` amortises over `every`. */
   costs(): DetectorCost[] {
     if (!this.clock) return [];

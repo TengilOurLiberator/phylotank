@@ -1,8 +1,9 @@
 /**
  * Plankton blooms and bloom fronts (CONTRACT 11 `bloomFront`, plus the `bloom` region story of
  * contract request EV2). The fine phytoplankton grid `qP` is summed into a fixed block grid
- * (32 x 18 blocks on every preset: 1 m on Small, 2 m on Default, 4 m on Large), so the cost is
- * one pass over the fine grid and O(blocks) after it, whatever the population.
+ * (32 x 18 blocks on every preset: 1 m on Small, 2 m on Default, 4 m on Large), whatever the
+ * population. A run sums at most `cellsPerRun` fine cells (whole rows), so a large grid is swept
+ * over several runs (Large: 4) and the blocks are judged once per sweep.
  *
  * A block is hot when its plankton is at least `factor` times its own slow baseline (an EMA
  * with time constant `tauS`) and at least `overMean` times the tank mean, so the day cycle,
@@ -29,6 +30,8 @@ export interface BloomOptions {
   everyS?: number;
   warmupRuns?: number;
   maxRegions?: number;
+  /** Fine cells summed per run at most (one Default grid by default). */
+  cellsPerRun?: number;
 }
 
 interface Region { id: number; blocks: Set<number>; first: number; lastUpdate: number; lastFront: number; frontPos: V2; centroid: V2 }
@@ -41,38 +44,56 @@ export class BloomDetector implements Detector {
   private colBlock = new Int32Array(0);
   private runs = 0;
   private lastT = 0;
+  private acc = new Float64Array(0);
+  private slice = 0;
   private regions: Region[] = [];
   private nextId = 1;
 
   constructor(opts: BloomOptions = {}) {
     this.o = {
       blocksW: 32, blocksH: 18, factor: 2, overMean: 1.5, tauS: 120, minBlocks: 3, frontBlocks: 2, frontEveryS: 10,
-      updateS: 30, everyS: 1, warmupRuns: 5, maxRegions: 16, ...opts,
+      updateS: 30, everyS: 1, warmupRuns: 5, maxRegions: 16, cellsPerRun: 1024 * 576, ...opts,
     };
   }
 
-  /** Block sums of the fine plankton grid (exposed for tests). */
-  sumBlocks(world: World): Float64Array {
+  /** Sweeps needed per full pass over the fine grid. */
+  slicesFor(world: World): number {
+    const [fw, fh] = world.fields.fine;
+    return Math.max(1, Math.min(fh, Math.ceil((fw * fh) / this.o.cellsPerRun)));
+  }
+
+  /**
+   * Add the next slice of rows of the fine plankton grid to the block sums. Returns the full
+   * block sums when this slice completed a sweep, else null.
+   */
+  sumBlocks(world: World): Float64Array | null {
     const [fw, fh] = world.fields.fine;
     const bw = this.o.blocksW; const bh = this.o.blocksH;
-    if (this.sums.length !== bw * bh) { this.sums = new Float64Array(bw * bh); this.ema = new Float64Array(bw * bh); this.runs = 0; }
+    if (this.sums.length !== bw * bh) { this.sums = new Float64Array(bw * bh); this.acc = new Float64Array(bw * bh); this.ema = new Float64Array(bw * bh); this.runs = 0; this.slice = 0; }
     if (this.colBlock.length !== fw) {
       this.colBlock = new Int32Array(fw);
       for (let ix = 0; ix < fw; ix++) this.colBlock[ix] = Math.min(bw - 1, Math.floor((ix * bw) / fw));
     }
+    const slices = this.slicesFor(world);
+    const y0 = Math.floor((this.slice * fh) / slices); const y1 = Math.floor(((this.slice + 1) * fh) / slices);
     const q = world.fields.qP;
-    const sums = this.sums; sums.fill(0);
-    for (let iy = 0; iy < fh; iy++) {
+    const acc = this.acc;
+    for (let iy = y0; iy < y1; iy++) {
       const row = Math.min(bh - 1, Math.floor((iy * bh) / fh)) * bw;
       const base = iy * fw;
-      for (let ix = 0; ix < fw; ix++) sums[row + this.colBlock[ix]!]! += q[base + ix]!;
+      for (let ix = 0; ix < fw; ix++) acc[row + this.colBlock[ix]!]! += q[base + ix]!;
     }
-    return sums;
+    this.slice++;
+    if (this.slice < slices) return null;
+    this.slice = 0;
+    this.sums.set(acc); acc.fill(0);
+    return this.sums;
   }
 
   run(scan: Scan, out: Derived[]): void {
     const w = scan.world; const t = scan.tick;
     const sums = this.sumBlocks(w);
+    if (!sums) return;
     const bw = this.o.blocksW; const bh = this.o.blocksH; const nb = bw * bh;
     const ema = this.ema;
     if (this.runs++ === 0) { ema.set(sums); this.lastT = t; return; }

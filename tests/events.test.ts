@@ -177,6 +177,24 @@ describe('bloom and bloomFront', () => {
     q.fill(300);
     expect(step()).toEqual([expect.objectContaining({ k: 'bloom', phase: 'end' })]);
   });
+  it('sweeps a big grid over several runs and finds the same bloom', () => {
+    const w = world();
+    const q = w.fields.qP;
+    const [fw] = w.fields.fine;
+    q.fill(100);
+    const d = new BloomDetector({ warmupRuns: 3, cellsPerRun: 512 * 72 });
+    expect(d.slicesFor(w)).toBe(4);
+    const sc = new Scanner();
+    const out: Derived[] = [];
+    let t = 0;
+    for (let i = 0; i < 40; i++) { t += 30; out.push(...runAt(d, w, t, sc)); }
+    expect(out).toEqual([]);
+    for (let y = 4 * 16; y < 7 * 16; y++) for (let x = 4 * 16; x < 7 * 16; x++) q[y * fw + x] = 3000;
+    const after: number[] = [];
+    for (let i = 0; i < 8; i++) { t += 30; const o = runAt(d, w, t, sc); if (o.length) after.push(i); out.push(...o); }
+    expect(out).toEqual([expect.objectContaining({ k: 'bloom', phase: 'start', areaM2: 9 })]);
+    expect(after[0]).toBeLessThan(4);
+  });
 });
 
 describe('records', () => {
