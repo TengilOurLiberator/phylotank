@@ -115,8 +115,10 @@ export class HostWorld {
       target = Math.max(target, rec.kind === 'god' || rec.kind === 'governor' ? rec.tick + 1 : rec.tick);
     }
     const start = this.world.g.tick;
+    let fails = 0;
     while (this.world.g.tick < target) {
-      this.stepOnce();
+      if (!this.stepOnce()) { if (++fails > 2) break; continue; }
+      fails = 0;
       const h = hashes.get(this.world.g.tick);
       if (h !== undefined) {
         r.hashChecks++;
@@ -178,8 +180,11 @@ export class HostWorld {
   /** Run n ticks; journals a state hash every HASH_EVERY ticks. Returns ticks actually advanced. */
   step(n: number): number {
     let done = 0;
-    for (let i = 0; i < n; i++) {
-      if (!this.stepOnce()) break;
+    let fails = 0;
+    while (done < n) {
+      // a tick that threw is retried (its consumed input is gone); give up after repeated failures
+      if (!this.stepOnce()) { if (++fails > 2) break; continue; }
+      fails = 0;
       done++;
       if (this.store && this.world.g.tick % HASH_EVERY === 0) {
         this.store.append({ kind: 'hash', tick: this.world.g.tick, h: toHex64(hashWorld(this.world)) });
