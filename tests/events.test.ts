@@ -359,7 +359,7 @@ describe('lineage stories', () => {
 
 describe('cost', () => {
   for (const [preset, n] of [['small', 4000], ['default', 8000]] as const) {
-    it(`is bounded: a full ${preset} tank (${n} creatures) costs well under a millisecond per tick`, () => {
+    it(`is bounded: a full ${preset} tank (${n} creatures) costs under a millisecond of CPU per tick`, () => {
       const w = sim.create({ ...CFG, preset, skeletonMotes: n });
       for (let i = 0; i < 6; i++) sim.step(w);
       const c = w.cr.c;
@@ -368,7 +368,9 @@ describe('cost', () => {
       alive.slice(0, 200).forEach((s) => { c.life[s] = LIFE.CARCASS; c.length[s] = 0.05; });
       alive.slice(200, 800).forEach((s) => { c.infStrain[2 * s] = 3; });
       alive.forEach((s, i) => { c.diet[7 * s + (i % 6)] = 1; c.maturity[s] = 1; });
-      const suite = new EventSuite({ clock: () => performance.now() });
+      // CPU time of this process: other jobs on a shared machine disturb it far less than wall time
+      const cpuMs = (): number => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+      const suite = new EventSuite({ clock: cpuMs });
       const twin = new EventSuite();
       const a: Derived[] = []; const b: Derived[] = [];
       for (let i = 0; i < 40; i++) {
@@ -383,8 +385,8 @@ describe('cost', () => {
       // eslint-disable-next-line no-console
       console.log(`events cost, ${preset}, ${alive.length} creatures: ${costs.map((x) => `${x.name} ${x.meanMs.toFixed(3)} (max ${x.maxMs.toFixed(2)})`).join(', ')} ms/run; total ${total.toFixed(4)} ms/tick`);
       expect(costs.find((x) => x.name === 'scan')!.runs).toBe(40);
-      // generous for a shared, loaded machine; the spike records the measured numbers
-      expect(total).toBeLessThan(2);
+      // the spike measured about 0.1 (Small) and 0.2 (Default) ms of CPU per tick; generous here
+      expect(total).toBeLessThan(1);
     });
   }
 });
