@@ -56,5 +56,6 @@ Every event carries `pos`, `size`, `novelty` (0 to 1) and `durationS` where they
 
 - The director does not yet read `bloom`, `lineage` or the scoring fields (request EV5); unknown kinds are ignored by its StoryBook, so nothing breaks.
 - Eggs (EV4).
+- No module writes the `diet` intake EMA or the trophic level yet, so `newRole` and the frenzy feeder rule only work on staged worlds (request EV6); disease does not exist yet, so outbreaks and epidemic fronts are staged too.
 - The renderer and UI do not yet decode deltas or send `caps.proto` (EV5), so the saving is measured in tests, not yet seen on the wire.
 - The detectors run on the main thread of the host timer; at the measured cost (spike) that is fine up to the CPU-backend cap.

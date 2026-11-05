@@ -67,3 +67,9 @@ Eggs cannot be added from the event module: they need the birth commit and the e
 - **director** (`src/director/storybook.ts`): ingest `bloom` (area story, as `bloomFront`) and `lineage` (map `founded` to `speciation`, `radiation` to a new type or `speciation` with doubled magnitude, `extinct` and `lineEnded` to `extinction`); prefer the event's `pos` over remembered positions when present; use `novelty`, `size` and `durationS` for magnitude where 06 §6.2.4 names them (novelty: archive distance; record: percentage over the previous; carcass: scavengers; migration: fraction).
 - **render / ui**: decode BODY_FRAME with `BodyDeltaDecoder` (one per connection; it accepts keyframes too), send `caps.proto: 0x0101` in HELLO, and on a `FormatError` from it send VIEWPORT with the resync bit.
 - **host** STATS: add `detectors.costs()` (per-detector mean and max ms) so the measured cost shows in the god window.
+
+## EV6. The diet EMA (request to the ecosystem owner)
+
+**What.** Write the creature columns `diet` (f32 x7: phyto, mat, plantCreature, detritus, carcass, livePrey, host) and `trophic` (CONTRACT 5.1) on every ecology tick, as an EMA of each lane's ingested quanta (time constant about 60 s of sim time), and set `CF.EATING` only while the creature is actually ingesting.
+
+**Why.** Nothing writes them today (`src/sim/fallback/ecology.ts` sets only `CF.EATING`, for grazing). `newRole` (a lineage switching diet role) and the frenzy feeder rule (a crowd at a corpse is a frenzy only when meat eaters are in it) read them; until they are written, `newRole` never fires and frenzies are crowds (docs/spikes/events-1.md section 2).

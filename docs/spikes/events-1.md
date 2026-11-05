@@ -27,15 +27,23 @@ What bounds each one: the scan is O(N) once for everyone; carcass work is capped
 
 ## 2. On a world with the real genome module
 
-`node events-bench.mjs 600` (and 1800): `createSim({ genome })` (real genome, fallback physics, brain and ecology), Small, 200 motefly, 40 meadowlamp, 20 hushmaw, 40 sievebell founders. First 10 minutes of sim time (18,000 ticks, 2,650 alive at the end):
+`node events-bench.mjs 1800`: `createSim({ genome })` (the real genome module; fallback physics, brain and ecology), Small, founders 200 motefly, 40 meadowlamp, 20 hushmaw and 40 sievebell, 30 minutes of sim time (54,000 ticks, 2,167 alive at the end), with the final detector rules:
 
-- events: `lineage:founded` 12, `lineage:radiation` 1, `novelty` 6, `frenzy` 10 starts, 11 updates, 8 ends, `carcass:start` 1;
-- novelty plans reported (the `plan` caption text): "14 parts, 6 eyes, 1 mouth"; "9 parts, 2 eyes"; "9 parts, 1 eye, 1 mouth, 1 shell"; "64 parts, 1 mouth"; "9 parts, 1 eye, 1 mouth, 6 photophore"; "11 parts, 2 eyes, 1 mouth, 5 lateral line, 2 paired" (species 2), all against an archive seeded by the founders;
-- cost per run (wall, loaded): scan 0.76, carcass 0.09, migration 0.02, bloom 0.62, records 0.31, novelty 0.34, outbreak 0.26, newRole 0.74, lineage 0.02 ms, about 3.2 ms/run or 0.1 ms/tick.
+| Events in 30 sim minutes | Count |
+|---|---|
+| `lineage` founded, radiation, extinct, lineEnded | 29, 3, 9, 1 |
+| `novelty` | 6 (all in the first 10 minutes) |
+| `carcass` start, update, end | 18, 69, 4 |
+| `frenzy` start, update, end | 89, 121, 84 |
+| record, migration, bloom, outbreak, newRole | 0 |
 
-Six novelty events in the first ten minutes is above the target of two an hour: a young world is full of new plans, and the threshold rose by only 10% per early event. It now rises by 25% (decision in docs/modules/events.md); see section 4 for the 30-minute run.
+Novelty plans reported, as their `plan` caption text: "14 parts, 6 eyes, 1 mouth"; "9 parts, 2 eyes"; "64 parts, 1 mouth"; "9 parts, 1 eye, 1 mouth, 6 photophore"; "11 parts, 2 eyes, 1 mouth, 5 lateral line, 2 paired" (species 2); "64 parts, 1 eye, 1 mouth, 20 jet" (organ names are now pluralised properly). The founders fill the archive first, so these are plans that mutation made. Six in the first ten minutes and none in the next twenty: a young world is full of new plans, the threshold rose with each early event (by 25% now; 10% in the first trial, which gave the same six) and then held.
 
-Records, migrations, blooms, outbreaks and new roles did not fire in this world, as expected: the fallback brain does not migrate, the fallback ecology has no disease and no predation, the producers do not form patches, and no size record holder changed by 5% after the warm-up. Their staged tests cover them (`tests/events.test.ts`).
+Cost per run in this world (wall clock, loaded machine): scan 0.39, carcass 0.13, migration 0.01, bloom 0.38, records 0.15, novelty 0.15, outbreak 0.04, newRole 0.08, lineage 0.03 ms: 1.4 ms per run, 46 us per tick, against a sim step of 4.3 to 6.2 ms per tick.
+
+Frenzies were tuned on this world. The first rule (crowd of 5 within max(0.2 m, 5 lengths), 3x the tank mean density, corpse at least min(0.1 L_ceiling, 4 x median adult)) gave 119 starts and 112 ends in 30 minutes: crowds at the threshold flapped. Two runs below half before an end, a 60 s cooldown per corpse and a corpse of at least max(0.05 L_ceiling, 4 x median adult) gave 100; comparing with the density of the surrounding ring instead of the tank mean gave 89. Nothing in this world eats carcasses (the fallback ecology lets them decay), and no module writes the `diet` columns yet, so these are crowds, not feeding: the final rule also requires three meat eaters among the crowd once any creature has a diet recorded, which would remove all of them. The director should weight `frenzy` by `feeding` until the ecosystem writes diets.
+
+Records, migrations, blooms, outbreaks and new roles did not fire here, as expected: the fallback brain does not migrate, the fallback ecology has no disease, no predation and no diet EMA, the producers do not form patches, and no record holder was beaten by 5% after the warm-up. Their staged tests cover them (`tests/events.test.ts`).
 
 ## 3. Protocol 1.1 bandwidth, before and after
 
@@ -51,6 +59,8 @@ Per body per frame (1,498 bodies, 15 s, a scratch run with node zlib): keyframe 
 
 Every delta stream in the tests decodes to exactly the records of the parallel 1.0 keyframe stream (host and dream-tank session included), so a 1.1 view sees the same tank as a 1.0 view.
 
-## 4. Thirty minutes on the real-genome world
+## 4. What this changes
 
-See the end of this file (filled in from `node events-bench.mjs 1800` after the threshold change).
+- The detectors are cheap enough to run on the host's main thread at the CPU-backend cap: under 0.2 ms per tick of sim at 8,192 creatures on every preset.
+- The 3 MB/s wallpaper budget (05 §5.3.5) has room for bodies: at 3.6 B per body per frame, 2,000 bodies at 15 Hz is about 105 KB/s before compression, against about 300 KB/s as keyframes.
+- Two detectors wait on other modules for real data: `newRole` and the frenzy feeder rule need the ecosystem to write the `diet` EMA; outbreaks and epidemic fronts need disease. Both are tested on staged worlds.
