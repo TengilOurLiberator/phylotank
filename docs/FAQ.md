@@ -49,7 +49,7 @@ Only if you ask. Speeds above 1x are leases that lapse when the god window close
 In your user data folder: `%LOCALAPPDATA%\Phylotank\worlds\default` on Windows, `~/.local/share/phylotank/worlds/default` on Linux, `~/Library/Application Support/Phylotank/worlds/default` on macOS. A world is that folder of `.ptk` snapshots and journal files; copy the folder to back it up or move it. `node dist/host.mjs inspect` lists and verifies what is in it.
 
 **What happens if the host crashes or the PC loses power?**
-On the next start the host loads the newest snapshot that passes its checksums and replays the journal recorded since, checking the state hash as it goes. You lose at most the last few seconds.
+On the next start the host loads the newest snapshot that passes its checksums and replays the journal recorded since, checking the state hash as it goes. You lose at most the last 9 seconds or so (the time since the last journalled hash).
 
 **The wallpaper is black, or the screensaver is not in the Windows list.**
 See the troubleshooting table in [INSTALL.md](INSTALL.md#troubleshooting).

@@ -91,7 +91,7 @@ There is one world and four ways to look at it. God events show up in every view
 
 ### 4.1 Wallpaper
 
-Pure ambience, with no text and no controls at all. A slow "idle drift" camera wanders towards lively places. Silent by default, at most 30 frames per second, and it pauses when the page is hidden. On Windows it runs through [Lively Wallpaper](https://github.com/rocksdanister/lively), which also pauses it when a game goes full screen.
+Pure ambience, with no text and no controls at all. A slow "idle drift" camera wanders towards lively places. Silent by default, at most 30 frames per second, and it stops drawing while the page is hidden. On Windows it runs through [Lively Wallpaper](https://github.com/rocksdanister/lively), which also pauses it when a game goes full screen.
 
 - Open: add the Lively package to Lively, or open `wallpaper.html`.
 - Source: your host's world if the host is running, otherwise the built-in dream tank after about 2 seconds, switching back to the host as soon as it answers.
@@ -247,7 +247,7 @@ A creature is its genome, a few kilobytes. You can share it in four ways. **Work
 
 - **A `.ptkg` file**: download it from the library and attach it anywhere. A `.ptkg` can also hold a pack of up to 64 designs.
 - **A `PTK1.` string**: the same bytes as text, to paste into a message or a forum post.
-- **A share link**: `share#ptk=PTK1....` on the project site. The creature is in the part of the link after `#`, which browsers never send to a server, so the share page works offline and tells nobody what you looked at. It shows the creature's name, notes and a still preview, with buttons to download it or copy the string.
+- **A share link**: `share#ptk=PTK1....` on the project site. The creature is in the part of the link after `#`, which browsers never send to a server, and the share page makes no network requests at all, so nobody learns what you looked at. It shows the creature's name, notes and a still preview, with buttons to download it or copy the string.
 - **A QR code**: shown in the library for designs short enough to fit.
 
 Each design has a **fingerprint** such as `3fa9-12c0-88e1-04bd`; two designs with the same fingerprint are the same creature. Imports are checked for size, damage and hostile text, and always open in the designer first, never straight into your world. Shared designs are dedicated to the public domain (CC0).
@@ -258,7 +258,7 @@ Your library lives in the browser's local storage for now; a library folder on t
 
 ## 11. Saving worlds, snapshots and rewind
 
-**With the host** (**works now**): the world saves itself every 10 minutes (keeping the last 6), once a day (keeping 7), before every major power, before every rewind, when the host shuts down and whenever you ask. Every input is journalled, so after a crash the host loads the last snapshot and replays the journal to the exact same state, losing at most a few seconds. Snapshots are `.ptk` files in the world folder.
+**With the host** (**works now**): the world saves itself every 10 minutes (keeping the last 6), once a day (keeping 7), before every major power, before every rewind, when the host shuts down and whenever you ask. Every input is journalled, so after a crash the host loads the last snapshot and replays the journal to the exact same state, losing at most the last 9 seconds or so. Snapshots are `.ptk` files in the world folder.
 
 ```sh
 node dist/host.mjs inspect   # list the snapshots and journals and verify their checksums
