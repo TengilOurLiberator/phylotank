@@ -28,6 +28,9 @@ interface ZipApi {
   zipBuffer(e: { name: string; data: Buffer | string }[]): Buffer;
   unzipBuffer(b: Buffer): Map<string, Buffer>;
 }
+interface PortableApi {
+  buildPortable(o: { dist: string; bin: string; node?: string; out: string; version: string }): { zipPath: string; files: number };
+}
 interface LivelyApi {
   appVersion(v: string): string;
   patchWallpaperHtml(html: string): string;
@@ -38,6 +41,7 @@ interface LivelyApi {
 let L: LoaderApi;
 let Z: ZipApi;
 let B: LivelyApi;
+let P: PortableApi;
 beforeAll(async () => {
   const ctx: Record<string, unknown> = {};
   ctx.globalThis = ctx;
@@ -45,6 +49,7 @@ beforeAll(async () => {
   L = ctx.PhylotankLoader as LoaderApi;
   Z = (await import(pathToFileURL(pk('shared', 'zip.mjs')).href)) as ZipApi;
   B = (await import(pathToFileURL(pk('lively', 'build-zip.mjs')).href)) as LivelyApi;
+  P = (await import(pathToFileURL(pk('windows', 'make-portable.mjs')).href)) as PortableApi;
 });
 
 /** Drive the loader machine through a list of events and collect the mounts. */
@@ -193,6 +198,46 @@ describe('Lively package', () => {
       for (const n of ['idle.js', 'loader.js']) expect(z.get('index.html')!.toString()).toContain(`src="${n}"`);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Windows portable zip', () => {
+  it('renames the binaries, ships dist without source maps and the install scripts', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const tmp = mkdtempSync(join(tmpdir(), 'pt-win-'));
+    try {
+      const dist = join(tmp, 'dist');
+      const bin = join(tmp, 'bin');
+      mkdirSync(dist);
+      mkdirSync(bin);
+      for (const f of ['host.mjs', 'screensaver.html', 'app.js', 'app.js.map', 'sim-worker.js']) writeFileSync(join(dist, f), f);
+      writeFileSync(join(bin, 'phylotank-tray.exe'), 'MZtray');
+      writeFileSync(join(bin, 'phylotank-scr.exe'), 'MZscr');
+      writeFileSync(join(tmp, 'node.exe'), 'MZnode');
+      const r = P.buildPortable({ dist, bin, node: join(tmp, 'node.exe'), out: join(tmp, 'out'), version: '0.2.0' });
+      expect(r.zipPath.endsWith('phylotank-windows-0.2.0.zip')).toBe(true);
+      const z = Z.unzipBuffer(readFileSync(r.zipPath));
+      expect([...z.keys()].sort()).toEqual([
+        'Phylotank/Phylotank.exe', 'Phylotank/README.txt', 'Phylotank/install.cmd', 'Phylotank/install.ps1', 'Phylotank/node/node.exe',
+        'Phylotank/phylotank.scr', 'Phylotank/uninstall.ps1', 'Phylotank/web/app.js', 'Phylotank/web/host.mjs',
+        'Phylotank/web/screensaver.html', 'Phylotank/web/sim-worker.js',
+      ]);
+      expect(z.get('Phylotank/phylotank.scr')!.toString()).toBe('MZscr');
+      const readme = z.get('Phylotank/README.txt')!.toString();
+      expect(readme).toContain('Phylotank 0.2.0 for Windows');
+      expect(readme).toContain('\r\n');
+      expect(() => P.buildPortable({ dist, bin: join(tmp, 'nope'), out: join(tmp, 'out'), version: '0.2.0' })).toThrow(/missing/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+  it('the install scripts stay per-user', () => {
+    for (const f of ['install.ps1', 'uninstall.ps1']) {
+      // code only: the help text may name what the scripts do not touch
+      const s = readFileSync(pk('windows', f), 'utf8').replace(/<#[\s\S]*?#>/g, '').replace(/^\s*#.*$/gm, '');
+      expect(s).not.toMatch(/HKLM:|HKEY_LOCAL_MACHINE|System32|Program Files|RunAs|-Verb\s+RunAs/i);
+      expect(s).toContain('HKCU:');
     }
   });
 });

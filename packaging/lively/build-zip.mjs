@@ -1,7 +1,7 @@
 // Build the Lively Wallpaper package: packaging/out/phylotank-lively-<version>.zip, plus the
 // unpacked folder packaging/out/lively/ (handy for "Add wallpaper" from a folder, and for tests).
 //
-//   npm run build && node packaging/lively/build-zip.mjs [--out <dir>]
+//   npm run build && node packaging/lively/build-zip.mjs [--out <dir>] [--version <semver>]
 //
 // Zip layout:
 //   LivelyInfo.json, LivelyProperties.json, thumbnail.png
@@ -114,7 +114,7 @@ export function buildLively({ dist = join(repo, 'dist'), out = join(repo, 'packa
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const i = process.argv.indexOf('--out');
-  const r = buildLively(i > 0 ? { out: resolve(process.argv[i + 1]) } : {});
+  const opt = (n) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : undefined; };
+  const r = buildLively({ ...(opt('out') ? { out: resolve(opt('out')) } : {}), ...(opt('version') ? { version: opt('version') } : {}) });
   console.log(`Lively package: ${r.zipPath} (${r.files} files, ${(r.bytes / 1024).toFixed(0)} KiB); unpacked in ${r.folder}`);
 }
