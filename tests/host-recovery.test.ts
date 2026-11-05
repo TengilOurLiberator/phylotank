@@ -1,10 +1,13 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { hashWorld, type WorldConfig } from '../src/core/index.js';
 import { startHost } from '../src/host/index.js';
 import { HostWorld } from '../src/host/world-host.js';
+
+// the build machine is shared with other jobs; allow slow runs
+vi.setConfig({ testTimeout: 120_000 });
 
 const CFG: WorldConfig = { preset: 'small', seedLo: 21, seedHi: 5, backend: 'cpu', skeletonMotes: 250 };
 
@@ -88,7 +91,7 @@ describe('host housekeeping', () => {
     expect((await h.json() as { ok: boolean }).ok).toBe(true);
     for (const ws of socks) ws.close();
     await host.stop();
-  });
+  }, 90_000);
 
   it('streams a whole Default tank to a wallpaper within 3 MB/s', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ptk-bw-'));

@@ -16,6 +16,7 @@ import {
 import { envFrameFor } from '../sim/index.js';
 import { DEFAULT_DREAM_CONFIG, welcomeFor } from '../sim/session.js';
 import { CommandError, HOST_EVENT_ID_BASE, planCast, RateLimit, validateCommand } from './commands.js';
+import { Detectors, type DerivedEvent } from './detectors.js';
 import { InterestStream, type Caps } from './interest.js';
 import { TickScheduler } from './scheduler.js';
 import {
@@ -299,10 +300,16 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
 
   /** Births, deaths and bites reach views only as aggregates (CONTRACT 11). */
   const notable = (ev: SimEvent): boolean => ev.k !== 'birth' && ev.k !== 'death' && ev.k !== 'bite';
+  const detectors = new Detectors();
+  const stamp = (o: DerivedEvent): SimEvent => ({ ...o, t: hw.tick, eid: ++hostEventId, epoch: hw.epoch }) as SimEvent;
   hw.onEvents((evs) => {
     const keep = evs.filter(notable);
-    if (keep.length === 0) return;
-    for (const c of clients.values()) c.events.push(...keep);
+    if (keep.length > 0) for (const c of clients.values()) c.events.push(...keep);
+    const primitive = evs.filter((e) => e.eid < HOST_EVENT_ID_BASE);
+    if (primitive.length > 0) {
+      const derived = detectors.onPrimitive(hw.world, primitive);
+      if (derived.length > 0) hw.emitHostEvents(derived.map(stamp));
+    }
   });
 
   function resyncAll(): void {
@@ -562,6 +569,8 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
   const secondTimer = setInterval(() => {
     try {
       lastSummary = summarise(hw.world);
+      const derived = detectors.run(hw.world);
+      if (derived.length > 0) hw.emitHostEvents(derived.map(stamp));
       updateThrottle();
       const t = now();
       if (hw.store && t - lastAutosave >= autosaveMs) {

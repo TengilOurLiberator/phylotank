@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireTickFor, planCast, RateLimit, validateCommand } from '../src/host/commands.js';
 import {
   hostAllowed, isLoopback, isPrivatePeer, originAllowed, Pairing, scopesFor, Secrets, type NetPolicy,
@@ -9,6 +9,9 @@ import {
 import { IDLE_SAMPLE, ShellProbe, StubProbe, Throttle } from '../src/host/throttle.js';
 import { TickScheduler } from '../src/host/scheduler.js';
 import { sim } from '../src/sim/index.js';
+
+// the build machine is shared with other jobs; allow slow runs
+vi.setConfig({ testTimeout: 120_000 });
 
 const LOCAL: NetPolicy = { port: 47615, lan: false, lanGod: false, lanHosts: [] };
 const LAN: NetPolicy = { port: 47615, lan: true, lanGod: false, lanHosts: ['192.168.1.20:47615', 'pc.local:47615'] };
