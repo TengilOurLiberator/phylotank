@@ -7,7 +7,8 @@
  * What the SoA does not expose (genome traits beyond lifespan/maturity, generations, cumulative
  * muscle work) is reported as missing, and the detectors that need it say `available: false`.
  * Muscle work is integrated here from `powerW` (an upper bound on mechanical input, since powerW is
- * the metabolic demand), keyed by entity id.
+ * the metabolic demand), keyed by entity id, until the requested `workJ` column exists; the
+ * requested `generation` column is used as soon as it appears.
  */
 import {
   CF, DIET, DT, LIFE, PRESETS, type PresetName, type SimEvent, type World, type WorldConfig,
@@ -88,6 +89,10 @@ export class SimCoreEngine implements EvoEngine {
     const role = new Uint8Array(n), sessile = new Uint8Array(n);
     const workInJ = new Float32Array(n), workOutJ = new Float32Array(n);
     const adultLength = new Float32Array(n), lifespanMult = new Float32Array(n);
+    // forward compatible with the contract requests in docs/contract-requests/evolab.md
+    const cols = c as unknown as Record<string, ArrayLike<number> | undefined>;
+    const genCol = cols.generation, workCol = cols.workJ;
+    const generation = genCol ? new Uint32Array(n) : undefined;
     let k = 0;
     const live = new Set<number>();
     for (let s = 0; s < w.cr.highWater; s++) {
@@ -109,7 +114,8 @@ export class SimCoreEngine implements EvoEngine {
       lifespanMult[k] = c.tMature[s]! > 0 ? c.lifespan[s]! / c.tMature[s]! : NaN;
       role[k] = roleFromDiet(c.diet, s * 7);
       sessile[k] = (c.flags[s]! & CF.SESSILE_ATTACHED) !== 0 ? 1 : 0;
-      workInJ[k] = this.work.get(eid) ?? 0;
+      workInJ[k] = workCol ? workCol[s]! : (this.work.get(eid) ?? 0);
+      if (generation && genCol) generation[k] = genCol[s]!;
       workOutJ[k] = m > 0 ? 0.5 * m * v * v : 0; // kinetic energy only; drag dissipation is not exposed
       adultLength[k] = c.adultLength[s]!;
       k++;
@@ -120,6 +126,7 @@ export class SimCoreEngine implements EvoEngine {
       tS: this.timeS(), n, id, species, lengthM, massKg, speedMps, ageS, lifespanS, tMatureS, role, sessile,
       // without bodies (phase-0 motes) there is no muscle, so the swimmer audit is not meaningful
       ...(anyBodies ? { workInJ, workOutJ } : {}),
+      ...(generation ? { generation } : {}),
       traits: { length: adultLength, lifespanMult },
       traitBounds: { length: [0.0005, 1], lifespanMult: [1, 20] },
       agents: w.g.liveCount + w.g.eggCount + w.g.carcassCount,
