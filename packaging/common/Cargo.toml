@@ -1,0 +1,14 @@
+[package]
+name = "phylotank-common"
+description = "Host discovery, health probe, restart policy and Windows helpers shared by the Phylotank screensaver and tray shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
