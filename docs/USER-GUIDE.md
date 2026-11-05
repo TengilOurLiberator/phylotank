@@ -200,7 +200,7 @@ The sim runs at a fixed 30 steps per sim second on every machine, so worlds beha
 - **Speeds**: pause, 0.25x, 1x, 4x, 16x and max. The god window shows the speed you asked for and the speed the machine actually achieves.
 - **Speed leases**: anything above 1x is a lease that lapses when you close the god window, so the wallpaper always returns to calm on its own. Phylotank never fast-forwards silently: a caption says when time runs faster.
 - **Overnight lease**: "Run at max until ..." asks the world to evolve flat out until a time you choose, even with the god window closed. It shows a banner and a Stop button while it runs.
-- **Your PC comes first**: the host backs off when a game goes full screen, another program uses the GPU or the laptop runs on battery.
+- **Your PC comes first**: the host backs off when a game goes full screen, another program uses the GPU or the laptop runs on battery. The probes that notice these are Windows only, in the tray app, and untested on real hardware so far.
 
 Status: **Works now** in the dream tank and the host; the god window's buttons drive the practice world (and will drive the host once the god token is wired).
 
@@ -218,7 +218,7 @@ Eight original starter designs, each with a matching set of instincts. They are 
 | **Tetherling** | *Haerentula furtiva* | Tjuderling | parasite | A 2 mm latcher with a proboscis, hooked spikes and long smell antennae. Bold, quick to mutate, and lost without a host. |
 | **Ashpicker** | *Cineralegus sedulus* | Askplockare | scavenger | A 2 cm, seven-segment cold-water scavenger with a suction mouth, a long flexible tail and keen senses for movement and smell. Starves when nothing dies. |
 | **Deepcrown** | *Bathycorona patiens* | Djupkrona | leviathan seed | A 25 cm deep giant with a crown of spikes, great pectoral fins, a fluke, jaws plus a filter comb and a slow deep glow. Released as a leviathan: very slow to mature and breed. |
-| **Motefly** | *Flagellux minima* | Stoftfluga | whip microbe | A tiny whip-tailed microbe at the bottom of the zoom, where water feels like syrup. A pure budder. |
+| **Motefly** | *Flagellux minima* | Stoftfluga | whip microbe | A 0.8 mm cell with a beating whip, an eyespot and a filter mouth, at the bottom of the zoom where water feels like syrup. A pure budder. |
 | **Blank** | *Nudisoma simplex* | Tom | none | One segment and default genes: a clean start for your own design. |
 
 Status: **Works now** as genomes (they grow, pass their tests and can be shared). In the running tank today, every creature is the Motefly stand-in.
