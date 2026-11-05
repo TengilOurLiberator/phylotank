@@ -23,6 +23,7 @@ export interface OutbreakOptions {
   growthPerMin?: number;
   minInfected?: number;
   windowS?: number;
+  /** Nominal seconds between runs (unused by the rules, which are in sim time). */
   everyS?: number;
   updateS?: number;
   frontStepM?: number;
@@ -36,7 +37,7 @@ interface Active { first: number; lastUpdate: number; origin: V2; reach: number;
 export class OutbreakDetector implements Detector {
   readonly name = 'outbreak';
   private readonly o: Required<OutbreakOptions>;
-  private readonly hist = new Map<string, number[]>();
+  private readonly hist = new Map<string, { t: number[]; p: number[] }>();
   private readonly active = new Map<string, Active>();
   private readonly ever = new Set<number>();
 
@@ -66,7 +67,7 @@ export class OutbreakDetector implements Detector {
     let list = [...pairs.entries()];
     list.sort((x, y) => y[1].slots.length - x[1].slots.length || (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
     if (list.length > this.o.maxPairs) list = list.slice(0, this.o.maxPairs);
-    const keep = Math.max(2, Math.round(this.o.windowS / this.o.everyS) + 1);
+    const win = this.o.windowS * TICK_HZ;
     const live = new Set<string>();
     for (const [key, p] of list) {
       live.add(key);
@@ -74,10 +75,11 @@ export class OutbreakDetector implements Detector {
       const hosts = scan.species.get(p.host)?.n ?? n;
       const prev = Math.max(0, Math.min(1, n / Math.max(1, hosts)));
       let h = this.hist.get(key);
-      if (!h) { h = []; this.hist.set(key, h); }
-      h.push(prev);
-      if (h.length > keep) h.shift();
-      const growth = h.length > 1 ? ((prev - h[0]!) * 60) / ((h.length - 1) * this.o.everyS) : 0;
+      if (!h) { h = { t: [], p: [] }; this.hist.set(key, h); }
+      h.t.push(t); h.p.push(prev);
+      while (h.t.length > 1 && (t - h.t[0]! > win || h.t.length > 256)) { h.t.shift(); h.p.shift(); }
+      const span = (t - h.t[0]!) / TICK_HZ / 60;
+      const growth = span > 0 ? (prev - h.p[0]!) / span : 0;
       let sx = 0; let sy = 0;
       for (const s of p.slots) { sx += c.posX[s]!; sy += c.posY[s]!; }
       const centroid: V2 = [sx / n, sy / n];

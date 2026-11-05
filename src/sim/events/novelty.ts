@@ -7,7 +7,7 @@
  * the mean distance to its `k` nearest archived plans. Above `rho`, with its nearest archived
  * plan more than `rho / 2` away, it is news (`novelty` event with a new morph cluster); above
  * `rho / 2` (nearest more than `rho / 4` away) it joins the archive, so near copies are not news
- * again. `rho` adapts so the detector fires about `targetPerHour` times an hour: it rises by 10%
+ * again. `rho` adapts so the detector fires about `targetPerHour` times an hour: it rises by 25%
  * after an event that comes sooner than the target interval and falls by 10% for each target
  * interval without one, never below `rhoFloor`.
  *
@@ -128,7 +128,7 @@ export class NoveltyDetector implements Detector {
             pos: [c.posX[s]!, c.posY[s]!], size: c.length[s]!, novelty: Math.min(1, sparse / (2 * this.rho)),
             durationS: (t - c.birthTick[s]!) / TICK_HZ,
           });
-          if (this.lastEvent >= 0 && t - this.lastEvent < interval) this.rho *= 1.1;
+          if (this.lastEvent >= 0 && t - this.lastEvent < interval) this.rho *= 1.25;
           this.lastEvent = t; this.lastDecay = t;
         }
       }

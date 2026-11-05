@@ -25,6 +25,7 @@ export interface BloomOptions {
   frontBlocks?: number;
   frontEveryS?: number;
   updateS?: number;
+  /** Nominal seconds between runs (the EMA uses the actual sim time between runs). */
   everyS?: number;
   warmupRuns?: number;
   maxRegions?: number;
@@ -39,6 +40,7 @@ export class BloomDetector implements Detector {
   private ema = new Float64Array(0);
   private colBlock = new Int32Array(0);
   private runs = 0;
+  private lastT = 0;
   private regions: Region[] = [];
   private nextId = 1;
 
@@ -73,8 +75,9 @@ export class BloomDetector implements Detector {
     const sums = this.sumBlocks(w);
     const bw = this.o.blocksW; const bh = this.o.blocksH; const nb = bw * bh;
     const ema = this.ema;
-    const a = Math.min(1, this.o.everyS / this.o.tauS);
-    if (this.runs++ === 0) { ema.set(sums); return; }
+    if (this.runs++ === 0) { ema.set(sums); this.lastT = t; return; }
+    const a = Math.min(1, Math.max(0, (t - this.lastT) / TICK_HZ) / this.o.tauS);
+    this.lastT = t;
     let total = 0;
     for (let i = 0; i < nb; i++) total += sums[i]!;
     const mean = total / nb;
