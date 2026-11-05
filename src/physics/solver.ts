@@ -345,7 +345,24 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
       const kt2 = tc[o + TC_KT2]!; const kn2 = tc[o + TC_KN2]!;
       const ux = tc[o + TC_UX]!; const uy = tc[o + TC_UY]!;
       const xi = tc[o + TC_XI]!;
-      for (let g = -1; g <= 1; g += 2) {
+      // the two Gauss points, unrolled (loop-carried doubles can be boxed by the engine)
+      {
+        const g = -1;
+        const rx = g * xi * cs; const ry = g * xi * sn;
+        const relx = v0 - om * ry - ux; const rely = v1 + om * rx - uy;
+        const vt = relx * cs + rely * sn; const vn = -relx * sn + rely * cs;
+        const avt = vt < 0 ? -vt : vt; const avn = vn < 0 ? -vn : vn;
+        const ct = 0.5 * (kt1 + kt15 * Math.sqrt(avt) + kt2 * avt);
+        const cn = 0.5 * (kn1 + kn2 * avn);
+        const D00 = ct * cs * cs + cn * sn * sn; const D01 = (ct - cn) * cs * sn; const D11 = ct * sn * sn + cn * cs * cs;
+        const d3x = -D00 * ry + D01 * rx; const d3y = -D01 * ry + D11 * rx;
+        a00 += h * D00; a01 += h * D01; a11 += h * D11; a02 += h * d3x; a12 += h * d3y;
+        a22 += h * (-ry * d3x + rx * d3y);
+        const fux = D00 * ux + D01 * uy; const fuy = D01 * ux + D11 * uy;
+        r0 += h * fux; r1 += h * fuy; r2 += h * (-ry * fux + rx * fuy);
+      }
+      {
+        const g = 1;
         const rx = g * xi * cs; const ry = g * xi * sn;
         const relx = v0 - om * ry - ux; const rely = v1 + om * rx - uy;
         const vt = relx * cs + rely * sn; const vn = -relx * sn + rely * cs;
