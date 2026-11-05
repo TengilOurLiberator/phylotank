@@ -143,9 +143,9 @@ function flagShape(t: number, ang: Float64Array, rate: Float64Array): void {
   }
 }
 
-function flagellumSim(nSub: number, cycles: number, iterations = 1, solver: 'tree' | 'gs' = 'tree'): number {
+function flagellumSim(nSub: number, cycles: number, iterations = 1, solver: 'tree' | 'gs' = 'tree', dt = 1 / 30): number {
   const tw = makeWorld();
-  const phys = createPhysics({ nSub, iterations, solver, gravity: false, prescribed: true, contacts: false, linearDrag: true, addedMass: false });
+  const phys = createPhysics({ nSub, iterations, solver, dt, gravity: false, prescribed: true, contacts: false, linearDrag: true, addedMass: false });
   const ang = new Float64Array(FN); const rate = new Float64Array(FN);
   flagShape(0, ang, rate);
   const parts = chain(FN, FDS, () => FR, { limit: 3 });
@@ -187,6 +187,11 @@ describe('physics spike: flagellum (B2) and low-Re convergence', () => {
     for (const [nSub, it, solver] of [[1, 1, 'tree'], [4, 1, 'tree'], [16, 1, 'tree'], [64, 1, 'tree'], [4, 1, 'gs'], [16, 1, 'gs'], [64, 1, 'gs'], [16, 8, 'gs'], [4, 32, 'gs']] as const) {
       const U = flagellumSim(nSub, 2, it, solver);
       rows.push({ nSub, iterations: it, solver, U, errRef: (U - ref) / ref, errGH: (U - Math.abs(gh)) / Math.abs(gh) });
+    }
+    // tick-rate dependence of the prescribed shape (rest angles are interpolated linearly per tick)
+    for (const dtx of [1 / 60, 1 / 120, 1 / 240]) {
+      const U = flagellumSim(4, 2, 1, 'tree', dtx);
+      rows.push({ nSub: 4, iterations: 1, solver: `tree dt=1/${Math.round(1 / dtx)}`, U, errRef: (U - ref) / ref, errGH: (U - Math.abs(gh)) / Math.abs(gh) });
     }
     log('flagellum', { gamma, V, grayHancockU: gh, refU: ref, refOverGH: ref / gh, rows });
   });

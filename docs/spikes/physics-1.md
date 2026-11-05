@@ -49,7 +49,7 @@ Gray-Hancock flagellum (B2): 24 links of 0.1 mm, radius 2 µm, two wavelengths, 
 | Sim, tree solver, `n_sub` 1 / 4 / 16 / 64 | 2.32e-5 m/s at every `n_sub` (-14.4% against the reference, -17.4% against Gray-Hancock) |
 | Sim, GS | see 3.1 |
 
-The tree solver converges in `n_sub` but sits 14% below the reference. This is **open**: B2's 10% pass mark is not met. Suspects: the per-tick linear interpolation of the prescribed joint angles, or one linearised solve per substep on 24 very short links. Purcell (3 links) agrees to 0.09%, so the drag law and the projection are right.
+The tree solver converges in `n_sub` but sits 14% below the reference. This is **open**: B2's 10% pass mark is not met. It is not the per-tick linear interpolation of the prescribed joint angles (with 60, 120 and 240 Hz ticks the error is -14.0%, -13.9% and -13.8%) and not the substep count; the remaining suspect is the kinematic set-up of a 24-link chain in one of the two codes. Purcell (3 links) agrees to 0.09%, so the drag law and the projection are right for short chains.
 
 ### 3.3 High Re (B4, T1, T2)
 
