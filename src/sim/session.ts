@@ -25,9 +25,18 @@ export const DUST_EVERY = 2;
 /** Derived events per client per second of 1x time (CONTRACT 11). */
 export const DERIVED_PER_S = 20;
 
+/**
+ * The v0.1 dream tank (DESIGN 6): a small food web of the template creatures on the Small
+ * Basin. The agent cap bounds the CPU cost of the real physics and brains on one worker core
+ * (docs/spikes/integration-1.md has the measured cost per agent).
+ */
 export const DEFAULT_DREAM_CONFIG: SimConfig = {
-  preset: 'small', seedLo: 0x5eed1234, seedHi: 0x0000beef, backend: 'cpu',
-  founders: [{ template: 'motefly', count: 2000 }],
+  preset: 'small', seedLo: 0x5eed1234, seedHi: 0x0000beef, backend: 'cpu', agentCap: 1200,
+  founders: [
+    { template: 'motefly', count: 260, zone: 'surface' }, { template: 'meadowlamp', count: 50, zone: 'shelf' },
+    { template: 'ashpicker', count: 24, zone: 'floor' }, { template: 'sievebell', count: 8, zone: 'surface' },
+    { template: 'hushmaw', count: 5 },
+  ],
 };
 
 export { paletteBytes };
@@ -61,10 +70,11 @@ export class SimSession {
   /** Counts of primitive events since the last STATS frame (aggregates for stats). */
   private counts: Record<string, number> = {};
 
-  constructor(config: WorldConfig, core: SimCore = defaultSim) {
+  /** `restored` is a world loaded from a snapshot (dream-tank autosave); otherwise a new one. */
+  constructor(config: WorldConfig, core: SimCore = defaultSim, restored?: World) {
     if (!PRESETS[config.preset]) throw new Error(`unknown preset ${config.preset}`);
     this.core = core;
-    this.world = core.create(config);
+    this.world = restored ?? core.create(config);
   }
 
   /** Attach the pacer that drives this session, for `speed` commands and the speed display. */

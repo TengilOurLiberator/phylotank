@@ -56,7 +56,7 @@ const config: WorldConfig = {
   ...DEFAULT_DREAM_CONFIG,
   preset: (arg('preset') ?? 'small') as PresetName,
   seedLo: seed >>> 0,
-  skeletonMotes: Number(arg('motes') ?? DEFAULT_DREAM_CONFIG.skeletonMotes),
+  ...(arg('motes') !== undefined ? { skeletonMotes: Number(arg('motes')) } : {}),
 };
 const worldDir = flag('memory') ? undefined : (arg('world') ?? defaultWorldDir(arg('name') ?? 'default'));
 

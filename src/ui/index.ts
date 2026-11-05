@@ -22,6 +22,7 @@ import { detectLocale, setLocale, t } from './i18n.js';
 import { MockSimLink } from './mock-sim.js';
 import { GodApp } from './god/app.js';
 import { HostFirstLink } from './link.js';
+import { GenomeTemplates } from './genomes.js';
 
 export const MODES: readonly ViewMode[] = ['wallpaper', 'screensaver', 'tv', 'god'];
 
@@ -63,6 +64,23 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   root.appendChild(canvas);
   const renderer = createRenderer(canvas, mode);
   const link = chooseLink(window.location, mode);
+  // real bodies: regrow every creature from its genome with develop() (GENOME_REQ / GENOME)
+  const genomes = new GenomeTemplates();
+  renderer.setTemplateSource(genomes.source);
+  let builtSeen = 0;
+  const feedGenomes = (f: Uint8Array): void => {
+    try {
+      const h = readHeader(f);
+      if (h.type === FRAME.WELCOME) {
+        const w = decodeCborFrame(f).payload as { lCeiling?: number };
+        if (typeof w.lCeiling === 'number') genomes.lCeilingM = w.lCeiling;
+        return;
+      }
+      if (h.type !== FRAME.BODY_ENTER && h.type !== FRAME.GENOME) return;
+      for (const req of genomes.ingest(f)) link.send(req);
+      if (genomes.built !== builtSeen) { builtSeen = genomes.built; renderer.setTemplateSource(genomes.source); }
+    } catch { /* a malformed frame never breaks the view */ }
+  };
   let god: GodApp | null = null;
   let tankH = 18;
   const species = new Map<number, string>();
@@ -77,10 +95,11 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   if (mode === 'god') {
     god = new GodApp(root, link, canvas); // sends its own HELLO
     const client = god.client;
-    link.onFrame((f) => { renderer.ingest(f); client.ingest(f); lastTick = client.tick; });
+    link.onFrame((f) => { renderer.ingest(f); client.ingest(f); feedGenomes(f); lastTick = client.tick; });
   } else {
     link.onFrame((f) => {
       renderer.ingest(f);
+      feedGenomes(f);
       try { lastTick = readHeader(f).tick; } catch { /* ignore */ }
       if (!captions) return;
       try {
@@ -126,6 +145,8 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   };
   resize();
   window.addEventListener('resize', resize);
+  // the dream tank saves its world when the page goes away (best effort, v0.1 autosave)
+  window.addEventListener('pagehide', () => { try { link.send(encodeCborFrame(FRAME.BYE, lastTick, {})); } catch { /* closing */ } });
 
   let cam: Camera = { cx: 16, cy: 9, zeta: 5 };
   let running = true;
@@ -133,6 +154,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   const minInterval = profile.fpsCap > 0 ? 1000 / profile.fpsCap - 1 : 0;
   const t0 = performance.now();
   const stats: Record<string, unknown> = { mode, mock: (link as { mock?: boolean }).mock === true, glOk: renderer.ok, renderer: renderer.stats };
+  Object.defineProperty(stats, 'genomeTemplates', { get: () => genomes.built, enumerable: true });
   Object.defineProperty(stats, 'link', { get: () => link.kind, enumerable: true });
   if (captions) stats.captions = captions.history;
   if (god) (window as unknown as { __phylotankGod?: GodApp }).__phylotankGod = god;

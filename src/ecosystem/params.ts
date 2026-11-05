@@ -12,7 +12,8 @@ import { DAY_S } from '../core/index.js';
 export const DENS = 3.1e-5 * 5.6; // kg/m^2 per old mu/m^2
 const PER_DAY = 1 / DAY_S;
 
-export const P = {
+export const P: { -readonly [K in keyof typeof P_BASE]: number } = {} as never;
+const P_BASE = {
   // Light (04 §4.2)
   kW: 0.2, // /m
   kChl: 1 / (500 * DENS), // per (kg/m^2) per m: a 500 old-mu bloom doubles attenuation
@@ -64,7 +65,12 @@ export const P = {
   // Feeding and digestion (DESIGN R11, 02 §2.6.5)
   scrapeRate: 0.5, // body lengths per second swept by a rasping mouth
   photoEff: 2e-6, // kg/s of reserve per m^2 of photosynthetic area at full light
-  hollingK: 8, // J_max = 8 B / (f E_B)
+  hollingK: 12, // J_max = 12 B / (f E_B) (CONTRACT 9.5; raised from 8 in integration, docs/spikes/integration-1.md)
+  // Feeding current of a filter feeder, body lengths per second of water drawn through the
+  // mouth on top of the creature's own speed through the water (cilia and pumping, 04 §4.5).
+  pumpFloorBL: 1,
+  // Retention of a particle kind by a filter with no enzyme for it (1 = unselective, 04 §4.5).
+  filterSelect0: 0.25,
   gutDensity: 1060,
   // Health
   hypoxiaDamage: 0.2, // health per s at O2 = 0
@@ -80,5 +86,28 @@ export const P = {
   // Nature mode (William's Q7): 1 per 10 sim days
   natureRate: 0.1 * PER_DAY,
 } as const;
+Object.assign(P, P_BASE);
+
+/** The defaults, for tuning harnesses (04 §4.10). */
+export const ECO_PARAM_DEFAULTS: Readonly<Record<string, number>> = Object.freeze({ ...P_BASE });
+
+let applied: Readonly<Record<string, number>> | undefined;
+/**
+ * Make `P` the defaults plus a world's `config.params` overrides (request EV1). Called at the
+ * entry of every ecosystem method, so worlds with different overrides can share a process.
+ * Unknown names are an error.
+ */
+export function useParams(over: Readonly<Record<string, number>> | undefined): void {
+  if (over === applied) return;
+  Object.assign(P, P_BASE);
+  if (over) {
+    for (const [k, v] of Object.entries(over)) {
+      if (!(k in P_BASE)) throw new Error(`unknown ecosystem parameter '${k}'`);
+      if (!Number.isFinite(v)) throw new Error(`ecosystem parameter '${k}' is not finite`);
+      (P as Record<string, number>)[k] = v;
+    }
+  }
+  applied = over;
+}
 
 export type Params = typeof P;

@@ -9,7 +9,9 @@ const { world: b } = decodeWorld(encodeWorld(a, { kind: 'auto', journalSeq: 1, p
 console.log('after load equal', hashWorld(a) === hashWorld(b));
 function diff(x: World, y: World): string[] {
   const out: string[] = [];
-  for (const [pn, pa, pb] of [['cr', x.cr, y.cr], ['seg', x.seg, y.seg]] as const) {
+  const pools: [string, { c: object }, { c: object }][] = [['cr', x.cr, y.cr], ['seg', x.seg, y.seg]];
+  x.brains.forEach((b, i) => pools.push([`brain${i}`, b, y.brains[i]!]));
+  for (const [pn, pa, pb] of pools) {
     for (const k of Object.keys(pa.c)) {
       const A = (pa.c as Record<string, ArrayLike<number>>)[k]!, B = (pb.c as Record<string, ArrayLike<number>>)[k]!;
       for (let i = 0; i < A.length; i++) if (!(A[i] === B[i] || (A[i] !== A[i] && B[i] !== B[i]))) { out.push(`${pn}.${k}[${i}] ${A[i]} vs ${B[i]}`); break; }
@@ -25,6 +27,11 @@ function diff(x: World, y: World): string[] {
 for (let t = 0; t < 400; t++) {
   sim.step(a); sim.step(b);
   const d = diff(a, b);
-  if (d.length) { console.log('first diff at step', t + 1, 'tick', a.g.tick, d.slice(0, 8)); process.exit(0); }
+  if (d.length) {
+    console.log('first diff at step', t + 1, 'tick', a.g.tick, d.slice(0, 8));
+    const m = /cr\.(\w+)\[(\d+)\]/.exec(d[0]!);
+    if (m) { const lanes = m[1] === 'out' ? 8 : 1; const sl = Math.floor(Number(m[2]) / lanes); const c = a.cr.c; console.log('slot', sl, 'birthTick', c.birthTick[sl], 'brainClass', c.brainClass[sl], 'maturity', c.maturity[sl], 'brainStage', c.brainStage[sl], 'segCount', c.segCount[sl], 'nSub', c.nSub[sl]); }
+    process.exit(0);
+  }
 }
 console.log('no diff over 400 ticks');

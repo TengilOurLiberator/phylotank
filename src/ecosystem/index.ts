@@ -15,10 +15,11 @@
  */
 import {
   DT, DT_ECO, hash32, RNG_STREAM, LIFE, MATERIAL, Q_MASS, SCENT, smoothstep, SLOW_EVERY, exp, CF, NONE_U32,
-  type DeathCause, type EcosystemModule, type GodEventScheduled, type LedgerAudit, type StepContext, type World,
+  type CborValue, type DeathCause, type EcosystemModule, type GodEventScheduled, type LedgerAudit, type StepContext, type World,
 } from '../core/index.js';
 import { agentCapFeeKg, ageingHazard, audit as ledgerAudit, Dither, repairPowerW } from './ledger.js';
-import { P } from './params.js';
+import { P, useParams } from './params.js';
+export { ECO_PARAM_DEFAULTS, useParams } from './params.js';
 import {
   ER, ER_LANES, getState, hasState, N_CHANNELS, newMods, newPending, newSpores, newStrains, scratch, setState,
   type BirthRequest, type EcoState, type Pending, type SpawnRequest,
@@ -310,6 +311,7 @@ function commitDeaths(world: World, s: EcoState, ctx: StepContext): void {
 
 export const ecosystem: EcosystemModule = {
   initWorld(world, ctx) {
+    useParams(world.config.params);
     const s = newState(world, habitatOf(world));
     setState(world, s);
     initFlowModes(world, ctx);
@@ -326,6 +328,7 @@ export const ecosystem: EcosystemModule = {
   },
 
   stepEcology(world, ctx) {
+    useParams(world.config.params);
     const s = getState(world);
     // requests not taken by the sim lapse (CONTRACT 9.6: deferred, never dropped: the parent asks again)
     for (const b of s.pending.births) clearRequest(s, b.parentSlot);
@@ -345,6 +348,7 @@ export const ecosystem: EcosystemModule = {
   },
 
   stepSlow(world, ctx) {
+    useParams(world.config.params);
     const s = getState(world);
     evalModifiers(world, s, ctx.tick, refreshTerrain);
     updateEnv(world, s);
@@ -354,6 +358,7 @@ export const ecosystem: EcosystemModule = {
   },
 
   applyGodEvent(world: World, ev: GodEventScheduled, ctx: StepContext) {
+    useParams(world.config.params);
     applyGod(world, getState(world), ev, ctx, refreshTerrain);
   },
 
@@ -368,10 +373,75 @@ function refreshTerrain(world: World, s: EcoState): void {
   rebuildFlow(world, s);
 }
 
+// ---------------- snapshot of the ecosystem's side state (request E4) ----------------
+
+/** Derived from the terrain and the flow modes: rebuilt on restore, never saved. */
+const ECO_DERIVED = new Set(['terrain', 'wetC', 'wetF', 'floorRowC', 'substrate', 'subMask', 'kernel', 'uFace', 'vFace', 'psiC', 'hFloor', 'uFaceF', 'vFaceF']);
+const TA: Record<string, new (b: ArrayBuffer) => ArrayBufferView> = {
+  Float64Array, Float32Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array,
+};
+function encV(v: unknown): CborValue {
+  if (v === null || v === undefined || typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v as CborValue;
+  if (ArrayBuffer.isView(v)) {
+    const name = v.constructor.name;
+    const b = new Uint8Array(v.buffer, v.byteOffset, v.byteLength).slice();
+    return { $ta: name, b };
+  }
+  if (v instanceof Map) return { $map: [...v.entries()].map(([k, x]) => [encV(k), encV(x)]) as CborValue };
+  if (Array.isArray(v)) return v.map(encV);
+  const o: Record<string, CborValue> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) o[k] = encV(x);
+  return o;
+}
+function decV(v: unknown): unknown {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map(decV);
+  const o = v as Record<string, unknown>;
+  if (typeof o.$ta === 'string' && o.b instanceof Uint8Array) {
+    const C = TA[o.$ta];
+    if (!C) throw new Error(`unknown typed array ${o.$ta}`);
+    const buf = o.b.slice().buffer;
+    return new C(buf);
+  }
+  if (Array.isArray(o.$map)) return new Map((o.$map as unknown[][]).map(([k, x]) => [decV(k), decV(x)]));
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(o)) out[k] = decV(x);
+  return out;
+}
+
+/** The ecosystem's per-world state that is not in the pools, for the .ptk SIMS section. */
+export function saveEcoState(world: World): CborValue {
+  const s = getState(world) as unknown as Record<string, unknown>;
+  const out: Record<string, CborValue> = {};
+  for (const [k, v] of Object.entries(s)) if (!ECO_DERIVED.has(k)) out[k] = encV(v);
+  return out;
+}
+
+/**
+ * Rebuild the ecosystem's state for a world whose pools and fields were restored from a
+ * snapshot: terrain, masks and flow faces are regenerated, everything else comes from `saved`,
+ * and the field grids are put back exactly as loaded (the regeneration writes some of them).
+ */
+export function restoreEcoState(world: World, saved: CborValue | null | undefined): void {
+  useParams(world.config.params);
+  const f = world.fields as unknown as Record<string, unknown>;
+  const keep: [string, ArrayBufferView & { slice(): ArrayBufferView }][] = [];
+  for (const [k, v] of Object.entries(f)) if (ArrayBuffer.isView(v)) keep.push([k, (v as unknown as { slice(): ArrayBufferView & { slice(): ArrayBufferView } }).slice()]);
+  const s = newState(world, habitatOf(world));
+  setState(world, s);
+  refreshMasks(world, s);
+  rebuildFlow(world, s);
+  if (saved && typeof saved === 'object') {
+    for (const [k, v] of Object.entries(saved as Record<string, unknown>)) (s as unknown as Record<string, unknown>)[k] = decV(v);
+  }
+  for (const [k, copy] of keep) ((f[k] as { set(a: ArrayBufferView): void })).set(copy);
+}
+
 // ---------------- extensions the sim and host need (contract requests) ----------------
 
 /** Decode a creature's genome traits and phenotype values into the ecosystem's cache. */
 export function loadCreatureEco(world: World, slot: number, init: CreatureEcoInit): void {
+  useParams(world.config.params);
   loadCreature(world, getState(world), slot, init);
 }
 /** Build a creature's body from dissolved N (founders, releases, reseeds). */

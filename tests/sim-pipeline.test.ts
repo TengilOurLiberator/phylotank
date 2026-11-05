@@ -8,12 +8,11 @@ import {
   agentCapFeeKgFn, CF, encodeGenome, GOVERNOR_EVERY, LIFE, M_REF_1CM, Q_MASS, T, TRAITS, encodeQ,
   type Genome, type WorldConfig,
 } from './sim-helpers.js';
-import { ecosystem, rebuildFlowGrid } from '../src/ecosystem/index.js';
+import { ecosystem } from '../src/ecosystem/index.js';
 import {
   appliedJournal, compactSegments, createSim, drainChannels, drainEvents, entityId, killNow, requestBirth, requestDeath, requestRestage,
   requestsOf, schedule, sim, stateDigest, stateOf, type SimConfig,
 } from '../src/sim/index.js';
-import { rebuildFlowGridFast } from '../src/sim/fallback/ecology.js';
 import { fallbackGenome } from '../src/sim/fallback/genome.js';
 import { runHeadless } from '../src/sim/runner.js';
 import { fastGenome } from './sim-helpers.js';
@@ -239,17 +238,8 @@ describe('journal (CONTRACT 4.4, 10.1 step 0)', { timeout: 180_000 }, () => {
 });
 
 describe('fallback modules', { timeout: 180_000 }, () => {
-  it('the fast flow rebuild is bit-identical to the ecosystem one', () => {
-    const w = sim.create(cfg(51, { founders: [] }));
-    for (let i = 0; i < 60; i++) sim.step(w);
-    rebuildFlowGrid(w);
-    const u = w.fields.flowU.slice(), v = w.fields.flowV.slice();
-    w.fields.flowU.fill(0); w.fields.flowV.fill(0);
-    rebuildFlowGridFast(w);
-    expect(Buffer.from(w.fields.flowU.buffer).equals(Buffer.from(u.buffer))).toBe(true);
-    expect(Buffer.from(w.fields.flowV.buffer).equals(Buffer.from(v.buffer))).toBe(true);
-  });
-
+  // 'the fast flow rebuild is bit-identical to the ecosystem one' was removed at the ecosystem
+  // merge: the real flow is now terrain-following, and the fallback uses the real stepSlow.
   it('createSim takes a partial module set and falls back for the rest', () => {
     const core = createSim({ genome: fallbackGenome });
     const w = core.create(cfg(52) as WorldConfig);
