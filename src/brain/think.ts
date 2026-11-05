@@ -8,8 +8,8 @@
  * `oPrev := o`, and the act step writing `out`, `cmd`, `cmd2`.
  */
 import {
-  BRAIN_CLASSES, BRAIN_STATE_CLAMP, DT, LIFE, cos, NEURON_KIND, NONE_U32, PI, RNG_STREAM, TAU, log, sin, sigmoid,
-  splitU64, tanh, philox4x32, type World,
+  BRAIN_CLASSES, BRAIN_STATE_CLAMP, DT, LIFE, NEURON_KIND, NONE_U32, PI, RNG_STREAM, TAU, log, sin, sigmoid,
+  sinCos, tanh, philox4x32, type World,
 } from '../core/index.js';
 import { W_MAX, etaOf } from './develop.js';
 import { DEST, brainState, recomputeAlphas, type BrainStatic } from './pool.js';
@@ -27,20 +27,26 @@ const noiseBuf = new Float64Array(256);
 
 /** Fill noiseBuf[0..n) with N(0, sigma): Box-Muller on 24-bit uniforms, drawIndex = index / 4. */
 export function gaussianBlock(k0: number, k1: number, tick: number, entityId: number, n: number, sigma: number, out: Float64Array): void {
-  const [lo, hi] = splitU64(entityId);
-  for (let b = 0; b * 4 < n; b++) {
-    philox4x32(tick >>> 0, lo, hi, b, k0, k1, blk);
-    for (let pair = 0; pair < 2; pair++) {
-      const u1 = 1 - ((blk[pair * 2]! >>> 8) * TWO_M24);
-      const u2 = (blk[pair * 2 + 1]! >>> 8) * TWO_M24;
-      const r = Math.sqrt(-2 * log(u1)) * sigma;
-      const t = TAU * u2;
-      const i = b * 4 + pair * 2;
-      if (i < n) out[i] = r * cos(t);
-      if (i + 1 < n) out[i + 1] = r * sin(t);
+  // splitU64 without the tuple: entityId is a non-negative safe integer
+  const lo = entityId % 4294967296 >>> 0, hi = Math.floor(entityId / 4294967296) >>> 0;
+  const t0 = tick >>> 0;
+  const sc = sinCosBuf;
+  for (let b = 0, i = 0; i < n; b++, i += 4) {
+    philox4x32(t0, lo, hi, b, k0, k1, blk);
+    // pair 0 -> out[i], out[i + 1]; pair 1 -> out[i + 2], out[i + 3]; sin and cos share one reduction
+    const r0 = Math.sqrt(-2 * log(1 - ((blk[0]! >>> 8) * TWO_M24))) * sigma;
+    sinCos(TAU * ((blk[1]! >>> 8) * TWO_M24), sc);
+    out[i] = r0 * sc[1]!;
+    if (i + 1 < n) out[i + 1] = r0 * sc[0]!;
+    if (i + 2 < n) {
+      const r1 = Math.sqrt(-2 * log(1 - ((blk[2]! >>> 8) * TWO_M24))) * sigma;
+      sinCos(TAU * ((blk[3]! >>> 8) * TWO_M24), sc);
+      out[i + 2] = r1 * sc[1]!;
+      if (i + 3 < n) out[i + 3] = r1 * sc[0]!;
     }
   }
 }
+const sinCosBuf = new Float64Array(2);
 
 /** Run the brain tick for every due brain. */
 export function think(world: World, ctx: StepContext): void {

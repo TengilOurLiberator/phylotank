@@ -35,6 +35,7 @@ function pow2(k: number): number {
 
 /** x * 2^k with exact power-of-two scaling, handling the extreme exponent ranges. */
 export function scalbn(x: number, k: number): number {
+  if (k <= 1023 && k >= -1022) return x * pow2(k);
   let y = x;
   let n = k;
   while (n > 1023) { y *= pow2(1023); n -= 1023; }
@@ -134,16 +135,36 @@ function cosPoly(r: number): number {
   return 1 - z * p;
 }
 
-function reduce(x: number): { r: number; q: number } {
+// reduce() results, in module registers so sin and cos allocate nothing
+let redR = 0, redQ = 0;
+function reduce(x: number): void {
   const k = Math.round(x * TWO_OVER_PI);
-  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
-  const q = ((k % 4) + 4) % 4;
-  return { r, q };
+  redR = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  // k & 3 is ((k % 4) + 4) % 4 for every int32 k (two's complement), without a float modulo
+  redQ = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
+}
+
+/**
+ * sin(x) and cos(x) from one argument reduction: out[0] = sin(x), out[1] = cos(x), the same
+ * bits as sin(x) and cos(x) called separately.
+ */
+export function sinCos(x: number, out: Float64Array): void {
+  if (x !== x || x === Infinity || x === -Infinity) { out[0] = NaN; out[1] = NaN; return; }
+  reduce(x);
+  const r = redR;
+  const s = sinPoly(r), c = cosPoly(r);
+  switch (redQ) {
+    case 0: out[0] = s; out[1] = c; return;
+    case 1: out[0] = c; out[1] = -s; return;
+    case 2: out[0] = -s; out[1] = -c; return;
+    default: out[0] = -c; out[1] = s;
+  }
 }
 
 export function sin(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
-  const { r, q } = reduce(x);
+  reduce(x);
+  const r = redR, q = redQ;
   switch (q) {
     case 0: return sinPoly(r);
     case 1: return cosPoly(r);
@@ -154,7 +175,8 @@ export function sin(x: number): number {
 
 export function cos(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
-  const { r, q } = reduce(x);
+  reduce(x);
+  const r = redR, q = redQ;
   switch (q) {
     case 0: return cosPoly(r);
     case 1: return -sinPoly(r);
@@ -168,10 +190,18 @@ export function tan(x: number): number { return sin(x) / cos(x); }
 const TAN_PI_8 = 0.41421356237309503;
 const QUARTER_PI = 0.7853981633974483;
 
+// the atanSeries coefficients ((n odd ? -1 : 1) / (2n + 1)), computed once, n = 0..22
+const ATAN_C = new Float64Array(23);
+for (let n = 0; n <= 22; n++) ATAN_C[n] = ((n & 1) === 1 ? -1 : 1) / (2 * n + 1);
 function atanSeries(t: number): number {
   const z = t * t;
+  const C = ATAN_C;
   let p = -1 / 47;
-  for (let n = 22; n >= 0; n--) p = p * z + ((n & 1) === 1 ? -1 : 1) / (2 * n + 1);
+  p = p * z + C[22]!; p = p * z + C[21]!; p = p * z + C[20]!; p = p * z + C[19]!; p = p * z + C[18]!;
+  p = p * z + C[17]!; p = p * z + C[16]!; p = p * z + C[15]!; p = p * z + C[14]!; p = p * z + C[13]!;
+  p = p * z + C[12]!; p = p * z + C[11]!; p = p * z + C[10]!; p = p * z + C[9]!; p = p * z + C[8]!;
+  p = p * z + C[7]!; p = p * z + C[6]!; p = p * z + C[5]!; p = p * z + C[4]!; p = p * z + C[3]!;
+  p = p * z + C[2]!; p = p * z + C[1]!; p = p * z + C[0]!;
   return t * p;
 }
 

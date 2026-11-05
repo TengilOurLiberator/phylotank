@@ -96,8 +96,12 @@ const nbBuf = new Int32Array(NB_CAP);
 let nbCount = 0;
 const nearBuf = new Int32Array(NB_CAP);
 let nearCount = 0;
+// positions and radii (0.5 * length) of the gathered neighbours, contiguous for the eye loops
+const nbX = new Float64Array(NB_CAP);
+const nbY = new Float64Array(NB_CAP);
+const nbR = new Float64Array(NB_CAP);
 /** Gather the neighbours of one creature once; every eye and lateral organ filters this list. */
-function gather(g: Grid, x: number, y: number, r: number, self: number): void {
+function gather(g: Grid, x: number, y: number, r: number, self: number, posX: ArrayLike<number>, posY: ArrayLike<number>, length: ArrayLike<number>): void {
   nbCount = 0;
   const cx = Math.floor(x / GRID_CELL_M), cy = Math.floor(y / GRID_CELL_M);
   let ext = Math.ceil(r / GRID_CELL_M);
@@ -109,10 +113,23 @@ function gather(g: Grid, x: number, y: number, r: number, self: number): void {
       const cell = iy * g.w + ix;
       for (let k = g.start[cell]!; k < g.start[cell + 1]!; k++) {
         const j = g.items[k]!;
-        if (j !== self && nbCount < NB_CAP) nbBuf[nbCount++] = j;
+        if (j !== self && nbCount < NB_CAP) {
+          nbX[nbCount] = posX[j]!; nbY[nbCount] = posY[j]!; nbR[nbCount] = 0.5 * length[j]!;
+          nbBuf[nbCount++] = j;
+        }
       }
     }
   }
+}
+// partPos() result registers
+let PX = 0, PY = 0, PA = 0;
+/** Position and angle of part p (its segment once grown, else the creature centre) into PX, PY, PA. */
+function partPos(sgPosX: ArrayLike<number>, sgPosY: ArrayLike<number>, sgAngle: ArrayLike<number>, segStart: number, segCount: number, p: number, x: number, y: number, heading: number): void {
+  if (segStart !== NONE_U32 && p >= 0 && p < segCount) {
+    const sg = segStart + p;
+    PX = sgPosX[sg]!; PY = sgPosY[sg]!; PA = sgAngle[sg]!; return;
+  }
+  PX = x; PY = y; PA = heading;
 }
 const depthBuf = new Float64Array(16);
 const objBuf = new Int32Array(16);
@@ -141,7 +158,8 @@ export function sense(world: World, ctx: StepContext): void {
         const I = BRAIN_CLASSES[c]!.i;
         const nIn = pool.c.nIn[s]!;
         gaussianBlock(sn.k0, sn.k1, tick, st.entityId, nIn, st.sensorNoise, noise);
-        for (let i = 1; i < nIn; i++) pool.c.inputs[s * I + i]! += noise[i]!;
+        const inputs = pool.c.inputs, bI = s * I;
+        for (let i = 1; i < nIn; i++) inputs[bI + i]! += noise[i]!;
       }
     }
   }
@@ -198,35 +216,30 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   inp[bI + IN.FATIGUE] = clamp01(1 - cr.anaerobic[k]!);
   inp[bI + IN.ITCH] = 0; // parasite latching arrives with disease (v0.4)
 
-  let PX = 0, PY = 0, PA = 0;
-  const partPos = (p: number): void => {
-    if (segStart !== NONE_U32 && p >= 0 && p < segCount) {
-      const sg = segStart + p;
-      PX = seg.posX[sg]!; PY = seg.posY[sg]!; PA = seg.angle[sg]!; return;
-    }
-    PX = x; PY = y; PA = heading;
-  };
+  // part positions go through the module registers PX, PY, PA (partPos), no closures
+  const sgPosX = seg.posX, sgPosY = seg.posY, sgAngle = seg.angle;
+  const posX = cr.posX, posY = cr.posY, length = cr.length;
 
   nbCount = 0;
   if (grid) {
     let r = 4 * len + len;
     for (const e of L.eyes) r = Math.max(r, Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + len);
-    if (L.needsNeighbours) gather(grid, x, y, r, k);
+    if (L.needsNeighbours) gather(grid, x, y, r, k, posX, posY, length);
   }
   // the lateral line only feels the near list (4 body lengths of an organ, so 5 of the centre)
   nearCount = 0;
   const near2 = 25 * len * len;
   for (let q = 0; q < nbCount; q++) {
-    const j = nbBuf[q]!;
-    const dx = cr.posX[j]! - x, dy = cr.posY[j]! - y;
-    if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = j;
+    const dx = nbX[q]! - x, dy = nbY[q]! - y;
+    if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = nbBuf[q]!;
   }
-  // organs on parts not grown yet (segCount < nParts at an early stage) read 0 (03 §3.3.2)
-  const grown = (p: number): boolean => segStart === NONE_U32 || p < segCount;
+  // organs on parts not grown yet (segCount < nParts at an early stage) read 0 (03 §3.3.2):
+  // grown(p) is segStart === NONE_U32 || p < segCount
+  const ungrown = segStart !== NONE_U32;
   // eyes
   for (const e of L.eyes) {
-    if (!grown(e.part)) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
-    partPos(e.part);
+    if (ungrown && e.part >= segCount) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
+    partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, e.part, x, y, heading);
     const ex = PX, ey = PY;
     const R = e.receptors;
     const lanes = e.bands.length + 1;
@@ -235,19 +248,19 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const binW = e.fovRad / R;
     const ax = cos(axis), ay = sin(axis);
     for (let r = 0; r < R; r++) { depthBuf[r] = Infinity; objBuf[r] = -1; }
+    const half = e.fovRad / 2;
     for (let q = 0; q < nbCount; q++) {
       {
-        const j = nbBuf[q]!;
-        const dx = cr.posX[j]! - ex, dy = cr.posY[j]! - ey;
+        const dx = nbX[q]! - ex, dy = nbY[q]! - ey;
         const d2 = dx * dx + dy * dy;
-        const rad = 0.5 * cr.length[j]!;
+        const rad = nbR[q]!;
         if (d2 > (range + rad) * (range + rad) || d2 <= 0) continue;
+        const j = nbBuf[q]!;
         const dist = Math.sqrt(d2);
         const ratio = rad / dist;
         // atan(x) = x (1 - x^2/3) within 2e-3 relative for x < 0.1
         const a = dist <= rad ? PI / 2 : ratio < 0.1 ? ratio * (1 - (ratio * ratio) / 3) : atan(ratio);
         if (a < MIN_ANGLE) continue;
-        const half = e.fovRad / 2;
         // cone pre-check with dot products before the atan2
         if (half + a < PI && dx * ax + dy * ay < dist * cos(half + a)) continue;
         const rel = wrapAngle(atan2(dy, dx) - axis);
@@ -291,8 +304,8 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // chemo organs: level and rate per channel (rate = tauSmell * d(level)/dt along own motion)
   for (const ch of L.chemos) {
-    if (!grown(ch.part)) { inp.fill(0, bI + ch.base, bI + ch.base + 2 * ch.channels.length); continue; }
-    partPos(ch.part);
+    if (ungrown && ch.part >= segCount) { inp.fill(0, bI + ch.base, bI + ch.base + 2 * ch.channels.length); continue; }
+    partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, ch.part, x, y, heading);
     const cx = PX, cy = PY;
     let at = bI + ch.base;
     for (const chan of ch.channels) {
@@ -313,8 +326,8 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const kind = chn.kind;
     if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
     const p = chn.part;
-    if (!grown(p)) { inp[bI + i] = 0; continue; }
-    partPos(p);
+    if (ungrown && p >= segCount) { inp[bI + i] = 0; continue; }
+    partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, p, x, y, heading);
     const px = PX, py = PY, pa = PA;
     const sg = segStart !== NONE_U32 && p < segCount ? segStart + p : -1;
     switch (kind) {
