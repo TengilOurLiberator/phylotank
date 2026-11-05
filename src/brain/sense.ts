@@ -135,7 +135,7 @@ export function sense(world: World, ctx: StepContext): void {
       if (cr === NONE_U32 || (cr + tick) % div !== 0 || life[cr] !== LIFE.ALIVE) continue;
       const st = statics[s];
       if (!st) continue;
-      if (!grid && (st.L.eyes.length > 0 || st.L.inputs.some((ch) => ch.kind === IN.LATERAL))) grid = buildGrid(world, tick);
+      if (!grid && st.L.needsNeighbours) grid = buildGrid(world, tick);
       senseOne(world, c, s, st, tick, div * DT, grid);
       if (st.sensorNoise > 0) {
         const I = BRAIN_CLASSES[c]!.i;
@@ -211,7 +211,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   if (grid) {
     let r = 4 * len + len;
     for (const e of L.eyes) r = Math.max(r, Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + len);
-    if (L.eyes.length > 0 || r > 0) gather(grid, x, y, r, k);
+    if (L.needsNeighbours) gather(grid, x, y, r, k);
   }
   // the lateral line only feels the near list (4 body lengths of an organ, so 5 of the centre)
   nearCount = 0;

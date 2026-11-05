@@ -97,6 +97,8 @@ export interface FullLayout extends BrainLayout {
   chemos: ChemoDesc[];
   /** What trimming did, for the inspector (empty when nothing was trimmed). */
   trims: string[];
+  /** Whether any input needs the neighbour list (eyes or lateral line). */
+  needsNeighbours: boolean;
   traits: BrainTraitValues;
 }
 
@@ -315,6 +317,7 @@ function build(ph: Phenotype, g: Genome, tv: BrainTraitValues, ts: TrimState): F
     base: { motor: 0, drive: driveBase, mod: modBase, osc: oscBase, head: headBase, gang: gangBase, direct: directBase },
     count: { motor: nMotor, osc: oscPart.length, head: ts.headHidden, gang: directBase - gangBase, direct: directInnov.length },
     oscPart: Int16Array.from(oscPart), partOsc, directInnov, eyes, chemos, trims: [], traits: tv,
+    needsNeighbours: eyes.length > 0 || inputs.some((c) => c.kind === IN.LATERAL),
   };
 }
 
