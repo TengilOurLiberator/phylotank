@@ -302,6 +302,12 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     const vn = rvx * nx + rvy * ny;
     let Jn = 0; let Jt = 0; let tx = -ny; let ty = nx;
     const gap = depth < 0 ? -depth : 0;
+    if (depth > 0) {
+      // tangential slip at the contact (for scraping off parasites, 02 §2.4.5)
+      const vs = Math.abs(rvx * tx + rvy * ty);
+      if (vs > wk.slip[i]!) wk.slip[i] = vs;
+      if (vs > wk.slip[j]!) wk.slip[j] = vs;
+    }
     if (vn < -gap / dt) {
       Jn = -(vn + gap / dt) / (wa + wb);
       const vt = rvx * tx + rvy * ty;
@@ -447,6 +453,8 @@ function terrainContacts(world: World, st: ContactState, wk: Work, dt: number): 
       const push = r - d;
       sg.posX[i] = x + gx * push; sg.posY[i] = y + gy * push;
       const vn = sg.velX[i]! * gx + sg.velY[i]! * gy;
+      const vs = Math.abs(-sg.velX[i]! * gy + sg.velY[i]! * gx) + Math.abs(sg.angVel[i]!) * r;
+      if (vs > wk.slip[i]!) wk.slip[i] = vs;
       if (vn < 0) {
         const m = sg.mass[i]!;
         wk.contactHeat[s] = wk.contactHeat[s]! + 0.5 * m * vn * vn;

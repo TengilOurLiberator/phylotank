@@ -10,13 +10,17 @@
  * the body by force balance (resistive force theory), not by inertia.
  */
 import {
-  DT, GRAVITY, KIND, NU_WATER, PI, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
+  CF, DT, GRAVITY, KIND, LIFE, NU_WATER, PI, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
   K_BOLTZMANN_EV, T_REF_K, KLEIBER_EXP, pow, type World,
 } from '../core/index.js';
 import { C_ADDED, CILIA_SLIP, ETA_CILIA, ETA_MUSCLE, GAUSS_XI, KAPPA_CILIA, KAPPA_ISO, MU_WATER, Q10_MUSCLE } from './constants.js';
 import { isPlate, segVolume } from './body.js';
 import { SC, sincos } from './sincos.js';
 import { solveTree } from './tree.js';
+import { FRAGMENT_SINK_RATIO } from './sever.js';
+import { updateOrgans, updateRoll } from './organs.js';
+
+function slipAt(wk: Work, i: number, v: number): void { const a = v < 0 ? -v : v; if (a > wk.slip[i]!) wk.slip[i] = a; }
 import type { Work } from './work.js';
 
 export interface PhysicsOptions {
@@ -92,6 +96,12 @@ const fl = new Float64Array(2);
 export interface CreatureTick {
   slot: number; s0: number; n: number; nSub: number; h: number; dt: number; mir: number; ca: number; q10: number;
   mTot: number; tempC: number; ciliaP: number;
+  /** A carcass: muscles and organ drives off. */
+  dead: boolean;
+  /** A corpse fragment: waterlogged, always sinks (DESIGN Q5). */
+  sink: boolean;
+  /** Just rolled: joint limits relaxed while the pose swings over. */
+  noLimits: boolean;
 }
 
 /**
@@ -138,6 +148,7 @@ export function beginCreature(
     if (sg.cmd[i] !== 0 || sg.act[i] !== 0) active = true;
     wk.netWork[i] = 0; wk.dragWork[i] = 0; sg.work[i] = 0;
     wk.leaf[i] = k > 0 ? 1 : 0;
+    wk.slip[i] = 0;
   }
   for (let k = 1; k < n; k++) wk.leaf[s0 + sg.parent[s0 + k]!] = 0;
   const L = c.length[slot]! > 0 ? c.length[slot]! : lenTot;
@@ -151,9 +162,10 @@ export function beginCreature(
   const kAct = 1 - exp(-dt / tauAct(L));
   const tempC = c.tempC[slot]!;
   const q10 = exp(LN2_Q10 * (tempC - 15) / 10);
+  const dead = c.life[slot] === LIFE.CARCASS;
   for (let k = 1; k < n; k++) {
     const i = s0 + k;
-    let u = sg.cmd[i]!;
+    let u = dead ? 0 : sg.cmd[i]!;
     u = u > 1 ? 1 : u < -1 ? -1 : u;
     sg.act[i] = sg.act[i]! + (u - sg.act[i]!) * kAct;
   }
@@ -167,7 +179,10 @@ export function beginCreature(
     if (nSub < floor) nSub = floor;
     if (nSub > 16) nSub = 16;
   }
-  return { slot, s0, n, nSub, h: dt / nSub, dt, mir, ca, q10, mTot, tempC, ciliaP: 0 };
+  const sink = dead && (c.flags[slot]! & CF.FRAGMENT) !== 0;
+  const noLimits = updateRoll(world, wk, slot, dt);
+  const organP = updateOrgans(world, wk, slot, s0, n, dt, dead);
+  return { slot, s0, n, nSub, h: dt / nSub, dt, mir: c.mirror[slot]! < 0 ? -1 : 1, ca, q10, mTot, tempC, ciliaP: organP, dead, sink, noLimits };
 }
 
 /** One substep of one creature. */
@@ -262,10 +277,13 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
     // explicit forces: buoyancy (constant over the tick) and cilia
     let fx = 0; let fy = 0;
     if (opts.gravity) {
-      const V = segVolume(plate, l, r, span);
+      let V = segVolume(plate, l, r, span);
+      if (ct.sink) { const vMax = m / (FRAGMENT_SINK_RATIO * rhoW); if (V > vMax) V = vMax; } else V += wk.gasV[i]!;
       fy += (m - rhoW * V) * GRAVITY;
     }
-    if ((sg.organs[i]! & ORGAN.CILIA) !== 0) {
+    const jf = wk.jetF[i]!;
+    if (jf !== 0) { fx += jf * cs; fy += jf * sn; }
+    if (!ct.dead && (sg.organs[i]! & ORGAN.CILIA) !== 0) {
       let ac = sg.cmd2[i]!;
       ac = ac < 0 ? 0 : ac > 1 ? 1 : ac;
       const F = ac * MU_WATER * KAPPA_CILIA * l * CILIA_SLIP;
@@ -324,7 +342,7 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
   // (symmetric GS), which carries corrections from the tips back to the root.
   if (opts.solver === 'tree') {
     solveTree(wk, sg, s0, n, h, mir, frac, opts.prescribed, opts.angularFix);
-    for (let k = 1; k < n; k++) solveLimit(wk, sg, s0 + k, s0 + sg.parent[s0 + k]!, mir, frac);
+    if (!ct.noLimits) for (let k = 1; k < n; k++) solveLimit(wk, sg, s0 + k, s0 + sg.parent[s0 + k]!, mir, frac);
   } else for (let it = 0; it < opts.iterations; it++) {
     const fwd = (it & 1) === 0;
     for (let q = 1; q < n; q++) {
@@ -351,8 +369,9 @@ export function substepCreatureEnd(world: World, ct: CreatureTick, wk: Work, opt
     if (opts.walls) {
       const r = sg.radius[i]!;
       const x = posX[i]!; const y = posY[i]!;
-      if (x < r) posX[i] = r; else if (x > W - r) posX[i] = W - r;
-      if (y < top + r) posY[i] = top + r; else if (y > H - r) posY[i] = H - r;
+      // tangential slip along a wall the segment is pressed on (for scraping, 02 §2.4.5)
+      if (x < r) { posX[i] = r; slipAt(wk, i, (posY[i]! - yp[i]!) / h); } else if (x > W - r) { posX[i] = W - r; slipAt(wk, i, (posY[i]! - yp[i]!) / h); }
+      if (y < top + r) posY[i] = top + r; else if (y > H - r) { posY[i] = H - r; slipAt(wk, i, (posX[i]! - xp[i]!) / h); }
     }
     vx[i] = (posX[i]! - xp[i]!) / h; vy[i] = (posY[i]! - yp[i]!) / h; w[i] = (th[i]! - thp[i]!) / h;
   }

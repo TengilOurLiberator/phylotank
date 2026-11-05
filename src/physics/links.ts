@@ -29,6 +29,8 @@ export interface Link {
   breakF: number;
   /** Peak constraint force over the last tick (N). */
   force: number;
+  /** Latches: time the host segment has been scraping (s). */
+  scrape?: number;
 }
 
 interface LinkState { links: Link[] }
@@ -166,7 +168,7 @@ export const H_HOST = 2e5;
 export function tryLatch(world: World, wk: Work, i: number, j: number, px: number, py: number): boolean {
   const sg = world.seg.c;
   if (sg.kind[i] !== KIND.MOUTH || wk.subtype[i] !== MOUTH_SUBTYPE.PROBOSCIS) return false;
-  if (sg.cmd2[i]! < GRIP_ON || ownsLink(world, i)) return false;
+  if (sg.cmd2[i]! < GRIP_ON || ownsLink(world, i) || wk.latchCool[i]! > 0) return false;
   const r = sg.radius[i]!;
   // piercing stress against the host's hardness H (1 + 20 armour); the host armour is not in
   // the segment pool yet, so only unarmoured hardness is tested
@@ -181,4 +183,49 @@ export function latches(world: World): { parasite: number; host: number; hostSeg
   const out: { parasite: number; host: number; hostSeg: number }[] = [];
   for (const l of linkState(world).links) if (l.type === LINK.LATCH) out.push({ parasite: sg.owner[l.a]!, host: sg.owner[l.b]!, hostSeg: l.b });
   return out;
+}
+
+/** Scraping threshold: tangential slip of the latched host segment, in host body lengths per second
+ * (0.2 m/s for the 20 cm reference fish, 02 §2.4.5), held for `SCRAPE_S`. */
+export const SCRAPE_BL_PER_S = 1;
+export const SCRAPE_S = 0.5;
+/** A scraped-off parasite is dislodged: it cannot latch again for this long, s. */
+export const SCRAPE_COOLDOWN_S = 2;
+
+/**
+ * Parasite removal by scraping (02 §2.4.5): a latch breaks when its host segment has slipped
+ * against terrain, a wall or another creature faster than `SCRAPE_BL_PER_S` host lengths per
+ * second for `SCRAPE_S` without a break. Call after contacts. Returns the removed latches.
+ */
+export function scrapeLatches(world: World, wk: Work, dt: number): Link[] {
+  const st = linkState(world);
+  const sg = world.seg.c; const c = world.cr.c;
+  const gone: Link[] = [];
+  const keep: Link[] = [];
+  for (const l of st.links) {
+    if (l.type !== LINK.LATCH) { keep.push(l); continue; }
+    const host = sg.owner[l.b]!;
+    const L = c.length[host]! > 0 ? c.length[host]! : 0.01;
+    if (wk.slip[l.b]! > SCRAPE_BL_PER_S * L) l.scrape = (l.scrape ?? 0) + dt; else l.scrape = 0;
+    if (l.scrape >= SCRAPE_S - 1e-9) { gone.push(l); wk.latchCool[l.a] = SCRAPE_COOLDOWN_S; } else keep.push(l);
+  }
+  st.links = keep;
+  return gone;
+}
+
+/** Count down the re-latch cooldowns (once per tick). */
+export function coolLatches(world: World, wk: Work, dt: number): void {
+  const hw = world.seg.highWater;
+  for (let i = 0; i < hw; i++) if (wk.latchCool[i]! > 0) wk.latchCool[i] = Math.max(0, wk.latchCool[i]! - dt);
+}
+
+/** The brain's itch input (03, PH2-6): fraction of a creature's segments that hold a latch. */
+export function itch(world: World, slot: number): number {
+  const c = world.cr.c; const sg = world.seg.c;
+  const n = c.segCount[slot]!;
+  if (n === 0) return 0;
+  const s0 = c.segStart[slot]!;
+  const hit = new Set<number>();
+  for (const l of linkState(world).links) if (l.type === LINK.LATCH && l.b >= s0 && l.b < s0 + n && sg.owner[l.b] === slot) hit.add(l.b);
+  return hit.size / n;
 }

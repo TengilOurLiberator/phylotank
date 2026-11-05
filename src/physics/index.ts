@@ -16,11 +16,12 @@ import {
   DEFAULT_OPTIONS, beginCreature, endCreature, stepCreature, substepCreature, substepCreatureEnd, type FlowSampler,
   type PhysicsOptions,
 } from './solver.js';
-import { islands, linkState, pruneLinks, resetLinkForces, solveLinks } from './links.js';
+import { coolLatches, islands, linkState, pruneLinks, resetLinkForces, scrapeLatches, solveLinks } from './links.js';
 import type { Work } from './work.js';
 import { stepContacts } from './contacts.js';
 import { workFor } from './work.js';
 import { watch } from './watchdog.js';
+import { fadeFragments, findSevers } from './sever.js';
 
 export type { SegmentSpec, PhysicsOptions };
 export { toSegmentSpecs } from './segment-spec.js';
@@ -29,7 +30,14 @@ export { massProps, dragCoeffs, segVolume, tissueDensity } from './body.js';
 export { workFor } from './work.js';
 export { drainFlags, waterFrameEnergy } from './watchdog.js';
 export { drainBites, type BiteRecord } from './contacts.js';
-export { LINK, latches, linkState, type Link } from './links.js';
+export { LINK, itch, latches, linkState, scrapeLatches, SCRAPE_BL_PER_S, SCRAPE_S, type Link } from './links.js';
+export {
+  gasVolume, molesFor, pressureAt, setBladder, JET_FRAC, BLADDER_RATE, ROLL_ON, ROLL_OFF, ROLL_COOLDOWN_S,
+} from './organs.js';
+export {
+  commitSevers, findSevers, fadeFragments, fragmentGlow, localSeverHooks, pendingSevers, FRAGMENT_GLOW_S,
+  type SeverHooks, type SeverRequest, type SeverResult,
+} from './sever.js';
 
 /** Drag rate for passive drifters (1/s): a mote follows the water with a ~0.5 s lag. */
 export const DRIFTER_DRAG = 2;
@@ -138,7 +146,11 @@ export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule
         if (opts.watchdog) watch(world, s, wk, opts.dt, opts.gravity);
       }
       if (opts.contacts) stepContacts(world, ctx, wk, opts);
+      coolLatches(world, wk, opts.dt);
+      scrapeLatches(world, wk, opts.dt);
       pruneLinks(world);
+      findSevers(world);
+      fadeFragments(world, opts.dt);
     },
   };
 }

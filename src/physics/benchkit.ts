@@ -3,6 +3,7 @@
  */
 import { createPhysics, type PhysicsOptions } from './index.js';
 import { StokesReference, type RefLink } from './reference.js';
+import { PI, sin } from '../core/index.js';
 import { workFor } from './work.js';
 import { bodyMass, com, elastic, fish, kinetic, makePhenotype, makeWorld, nextTick, purcell, spawn, type PartDef } from './testkit.js';
 
@@ -43,7 +44,7 @@ export function swim(gait: Gait, over: Partial<PhysicsOptions> = {}, seconds = 8
   let tipMin = Infinity; let tipMax = -Infinity;
   for (let k = 0; k < ticks; k++) {
     const t = k * dt;
-    for (let j = 1; j < n; j++) sg.cmd[s0 + j] = (gait.amp[j - 1] ?? gait.amp[0]!) * Math.sin(2 * Math.PI * gait.f * t - gait.lag * j);
+    for (let j = 1; j < n; j++) sg.cmd[s0 + j] = (gait.amp[j - 1] ?? gait.amp[0]!) * sin(2 * PI * gait.f * t - gait.lag * j);
     phys.step(w, tw.ctx); nextTick(tw);
     if (k === half) { xA = com(w, slot)[0]; tA = t; E0 = kinetic(w, slot) + elastic(w, slot); }
     if (k > half) {
@@ -51,7 +52,7 @@ export function swim(gait: Gait, over: Partial<PhysicsOptions> = {}, seconds = 8
       for (let q = 0; q < n; q++) { wNet += wk.netWork[s0 + q]!; dragW += wk.dragWork[s0 + q]!; }
       // lateral tail-tip excursion (y, since the fish swims along +x)
       const i = s0 + tail;
-      const tipY = sg.posY[i]! + Math.sin(sg.angle[i]!) * 0.5 * sg.len[i]! - com(w, slot)[1];
+      const tipY = sg.posY[i]! + sin(sg.angle[i]!) * 0.5 * sg.len[i]! - com(w, slot)[1];
       tipMin = Math.min(tipMin, tipY); tipMax = Math.max(tipMax, tipY);
     }
   }

@@ -38,6 +38,18 @@ export interface Work {
   subtype: Uint8Array;
   /** Diagnostics, per segment, accumulated over the last tick: net muscle work, drag work by the water. */
   netWork: Float64Array; dragWork: Float64Array;
+  /** Phenotype part index of each segment (changes only when a part is severed; contract request PH2-3). */
+  part: Uint16Array;
+  /** Jet bell volume (m^3) and bladder gas (mol), persistent (contract request PH2-4). */
+  jetVol: Float64Array; gasMol: Float64Array;
+  /** This tick: jet force along the axis (N, + towards the tip) and bladder gas volume (m^3). */
+  jetF: Float64Array; gasV: Float64Array;
+  /** Largest tangential slip speed at a contact this tick (m/s), for scraping. */
+  slip: Float64Array;
+  /** Seconds until a scraped-off proboscis may latch again. */
+  latchCool: Float32Array;
+  /** Roll state per creature: armed (u8), cooldown and limit-relax timers (s). */
+  rollArmed: Uint8Array; rollCool: Float32Array; rollRelax: Float32Array;
   /** 1 on leaf segments (free tips) this tick. */
   leaf: Uint8Array;
   /** Trailing-edge thrust (N) on each leaf this substep (diagnostics). */
@@ -57,7 +69,9 @@ export function workFor(world: World): Work {
       cap, th: f(), vx: f(), vy: f(), w: f(), xp: f(), yp: f(), thp: f(), ai: f(6), am: f(6), mm: f(3), ie: f(),
       rhs: f(3), tau: f(), cm: f(), tauReal: f(), lam: f(), ux: f(), uy: f(), phi: f(), restPrev: f(), restInit: new Uint8Array(cap),
       muscleFrac: new Float32Array(cap).fill(0.3), subtype: new Uint8Array(cap), netWork: f(), dragWork: f(),
-      contactHeat: new Float64Array(world.cr.capacity), leaf: new Uint8Array(cap), teF: f(),
+      contactHeat: new Float64Array(world.cr.capacity), leaf: new Uint8Array(cap), teF: f(), part: new Uint16Array(cap),
+      jetVol: f(), gasMol: f(), latchCool: new Float32Array(cap), jetF: f(), gasV: f(), slip: f(),
+      rollArmed: new Uint8Array(world.cr.capacity), rollCool: new Float32Array(world.cr.capacity), rollRelax: new Float32Array(world.cr.capacity),
     };
     works.set(world, wk);
   }
