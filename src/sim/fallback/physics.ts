@@ -13,7 +13,7 @@
 import {
   cos, DT, LIFE, PI, sin, wrapAngle, type Phenotype, type PhysicsModule, type StepContext, type World,
 } from '../../core/index.js';
-import { physics as realPhysics, sampleFlow } from '../../physics/index.js';
+import { sampleFlow, stepDrifters } from '../../physics/index.js';
 
 /** Swim speed at full CPG amplitude, body lengths per second. */
 export const SWIM_BL_PER_S = 2;
@@ -86,8 +86,10 @@ function step(world: World, ctx: StepContext): void {
     sg.posX[seg] = nx; sg.posY[seg] = ny; sg.angle[seg] = c.heading[s]!;
     sg.velX[seg] = vx; sg.velY[seg] = vy;
   }
-  // passive drifters (segCount 0) keep the real module's phase-0 behaviour
-  realPhysics.step(world, ctx);
+  // passive drifters (segCount 0) keep the real module's phase-0 behaviour. Only the drifters:
+  // since the physics merge the full module also steps every segmented body, which would
+  // integrate the fallback's bodies twice (and NaN the unfilled segments of a restaged body).
+  stepDrifters(world, ctx);
 }
 
 export const fallbackPhysics: PhysicsModule = {

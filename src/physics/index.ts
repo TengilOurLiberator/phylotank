@@ -61,7 +61,8 @@ export function sampleFlow(world: World, x: number, y: number, out: Float64Array
 
 const flow = new Float64Array(2);
 
-function stepDrifters(world: World, ctx: StepContext): void {
+/** Passive point drifters only (creatures with no segments); the sim fallback physics uses this. */
+export function stepDrifters(world: World, ctx: StepContext): void {
   const c = world.cr.c;
   const W = world.preset.widthM;
   const H = world.preset.heightM;
