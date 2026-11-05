@@ -46,8 +46,9 @@ function relPos(v: number, lo: number, hi: number): number {
 }
 
 /**
- * Immortal blobs (R10): LIFESPAN_MULT walking to its bound while SENESCENCE walks to 0, or
- * creatures outliving their own t_life many times over (the hazard is broken or free).
+ * Immortal blobs (R10's degenerate attractors): LIFESPAN_MULT walking to its bound while SENESCENCE
+ * walks to 0, creatures outliving their own t_life many times over (the hazard is broken or free),
+ * or sessile filter feeders taking over more than 80% of the population (the jet-parked blob).
  */
 export function immortalBlobs(rows: Row[], obs: Observation | null, o = DEFAULT_DETECTOR_OPTIONS): Verdict {
   const w = windowRows(rows, o);
@@ -55,12 +56,10 @@ export function immortalBlobs(rows: Row[], obs: Observation | null, o = DEFAULT_
   const sb = obs?.traitBounds.senescence;
   const has = w.length > 0 && w[0]!.maxAgeOverLifespan !== undefined;
   if (!has) return { name: 'immortalBlobs', available: false, fired: false, firstH: null, fraction: 0, evidence: {} };
-  const life0 = w.find((r) => Number.isFinite(r.trait_lifespanMult!))?.trait_lifespanMult;
   const hold = (r: Row): boolean => {
     const outlived = r.maxAgeOverLifespan! > 3;
-    // the jet-parked filter blob of R10: sessile takes over while lifespan creeps up
-    const blob = r.sessileFrac! > 0.8 && life0 !== undefined && r.trait_lifespanMult! > 1.25 * life0;
-    if (blob) return true;
+    // the jet-parked filter blob of R10: sessile filter feeders take over the population
+    if (r.sessileFrac! > 0.8) return true;
     let walked = false;
     if (lb && sb && r.trait_lifespanMult !== undefined && r.trait_senescence !== undefined) {
       walked = relPos(r.trait_lifespanMult, lb[0], lb[1]) > 0.8 && relPos(r.trait_senescence, sb[0], sb[1]) < 0.2;
@@ -73,6 +72,8 @@ export function immortalBlobs(rows: Row[], obs: Observation | null, o = DEFAULT_
     senescenceStart: first?.trait_senescence ?? NaN, senescenceEnd: last?.trait_senescence ?? NaN,
     maxAgeOverLifespan: Math.max(...w.map((r) => r.maxAgeOverLifespan ?? 0)),
     sessileFracEnd: last?.sessileFrac ?? NaN,
+    sessileFracMax: Math.max(0, ...w.map((r) => r.sessileFrac ?? 0)),
+    outlivedMax: Math.max(0, ...w.map((r) => r.maxAgeOverLifespan ?? 0)),
     ageDeathShare: (() => {
       const d = w.reduce((s, r) => s + (r.deaths ?? 0), 0);
       return d ? w.reduce((s, r) => s + (r.deaths_age ?? 0), 0) / d : NaN;
