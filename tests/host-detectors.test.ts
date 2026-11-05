@@ -87,4 +87,34 @@ describe('host detectors', () => {
     }
     expect(mig[0]).toEqual(expect.objectContaining({ species: sp, direction: 'up' }));
   });
+
+  it('finds aligned schools, big carcasses and frenzies', () => {
+    const w = sim.create(CFG);
+    const c = w.cr.c;
+    const d = new Detectors({ every: 1 });
+    // scatter everything far apart first, with random-ish headings
+    for (let s = 0; s < w.cr.highWater; s++) { c.posX[s] = 20 + (s % 20) * 0.6; c.posY[s] = 1 + Math.floor(s / 20) * 1.1; c.heading[s] = s * 2.4; }
+    d.run(w);
+    const sp = c.species[0]!;
+    const members = [...Array(w.cr.highWater).keys()].filter((s) => c.species[s] === sp).slice(0, 10);
+    members.forEach((s, i) => { c.posX[s] = 5 + (i % 5) * 0.1; c.posY[s] = 5 + Math.floor(i / 5) * 0.1; c.heading[s] = 0.1 * (i % 3); });
+    w.g.tick = 30;
+    const start = d.run(w).filter((e) => e.k === 'school');
+    expect(start).toEqual([expect.objectContaining({ phase: 'start', species: sp, n: 10 })]);
+    w.g.tick = 31 + 300;
+    expect(d.run(w).filter((e) => e.k === 'school')).toEqual([expect.objectContaining({ phase: 'update' })]);
+    members.forEach((s, i) => { c.heading[s] = i * 0.7; });
+    w.g.tick = 400;
+    expect(d.run(w).filter((e) => e.k === 'school')).toEqual([expect.objectContaining({ phase: 'end', species: sp })]);
+    // a carcass at a quarter of the ceiling, then scavengers arrive
+    const k = members[0]!;
+    c.life[k] = LIFE.CARCASS; c.length[k] = 0.3 * w.lCeilingM; c.posX[k] = 10; c.posY[k] = 10;
+    w.g.tick = 500;
+    expect(d.run(w).filter((e) => e.k === 'carcass')).toEqual([expect.objectContaining({ id: entityId(w, k), scavengers: 0 })]);
+    members.slice(1, 7).forEach((s) => { c.posX[s] = 10.05; c.posY[s] = 10.05; });
+    w.g.tick = 600;
+    const out = d.run(w);
+    expect(out.filter((e) => e.k === 'carcass')).toHaveLength(0);
+    expect(out.filter((e) => e.k === 'frenzy')).toEqual([expect.objectContaining({ n: 6 })]);
+  });
 });
