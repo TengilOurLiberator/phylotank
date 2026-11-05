@@ -47,6 +47,7 @@ Zip: 11 files, 69 KiB (`phylotank-lively-0.0.1.zip`), loader, idle animation and
 |---|---|
 | `cargo clippy -D warnings`, `x86_64-pc-windows-gnu`, whole workspace (wry 0.57.1, tao 0.37.2, tray-icon 0.26.1, windows-sys 0.61.2) | clean |
 | `cargo check`, `x86_64-pc-windows-msvc` | clean |
+| Release cross-build, `x86_64-pc-windows-gnu`, MinGW-w64 GCC 13 linker (`opt-level = "s"`, LTO, stripped) | links: `phylotank-scr.exe` 722 KiB, `phylotank-tray.exe` 559 KiB, both GUI subsystem. The GNU build of the screensaver imports `WebView2Loader.dll` (webview2-com-sys links the loader statically only for MSVC), so CI and releases use the MSVC toolchain; a GNU build needs that DLL next to the `.scr` |
 | `cargo test` on Linux (host-agnostic parts) | 37 tests pass: 17 common, 10 screensaver, 10 tray |
 | Supervisor with the real host (Linux, Small world) | healthy **337 ms** after spawn; after `kill -9`, restarted and healthy again **385 ms** later (test policy: 20 ms backoff, 200 ms health polls; the shipped policy is 1 s, 5 s, 30 s, 120 s with 5 s polls) |
 
@@ -64,4 +65,4 @@ Zip: 11 files, 69 KiB (`phylotank-lively-0.0.1.zip`), loader, idle animation and
 4. Two monitors: frame time and GPU use with one instance per monitor at 4K.
 5. WebGPU inside Lively's WebView2, top level and in the iframe (render's half of the spike).
 6. The screensaver: whether Screen Saver Settings lists `phylotank.scr` outside System32 once `SCRNSAVE.EXE` points at it; whether a god window or a casting Chrome tab holds a wake lock that stops it; first-frame time with the host cold (the built-in tank shows at once, then the switch to the host page within 10 s); exit latency on a key press (target under 100 ms).
-7. Binary sizes of `phylotank.scr` and `Phylotank.exe` from the Windows CI job (expected a few MB each).
+7. Binary sizes of the MSVC builds from the Windows CI job (the GNU cross-build above is under 1 MB each), and that they start on a clean Windows 10 with only the WebView2 runtime.

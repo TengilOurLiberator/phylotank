@@ -1,6 +1,6 @@
 # Screensaver (`phylotank.scr`)
 
-Rust with wry 0.57 and tao 0.37 on the system WebView2 runtime. Build on Windows with `cargo build --release -p phylotank-scr` (in `packaging/`) and rename `target/release/phylotank-scr.exe` to `phylotank.scr`; CI does this and puts it in the portable zip. On Linux, `cargo test` runs the argument parser, the exit gate and the source logic, and `cargo clippy --target x86_64-pc-windows-gnu` checks the Windows code.
+Rust with wry 0.57 and tao 0.37 on the system WebView2 runtime. Build on Windows with `cargo build --release -p phylotank-scr` (in `packaging/`) and rename `target/release/phylotank-scr.exe` to `phylotank.scr`; CI does this and puts it in the portable zip. Build with the MSVC toolchain: it links the WebView2 loader statically. A `x86_64-pc-windows-gnu` build (for example cross-built from Linux with MinGW-w64, about 720 KiB) imports `WebView2Loader.dll` instead, which must then sit next to the `.scr`. On Linux, `cargo test` runs the argument parser, the exit gate and the source logic, and `cargo clippy --target x86_64-pc-windows-gnu` checks the Windows code.
 
 | Argument | Behaviour |
 |---|---|
