@@ -16,7 +16,7 @@ import {
   RNG_STREAM, SDA_FRACTION, T, TRAITS, T_REF_K, B0_KLEIBER, ENZYME_THETA, ORGAN, MATERIAL,
   type DeathCause, type MouthDescriptor, type Phenotype, type StepContext, type World,
 } from '../core/index.js';
-import { ageingHazard, agentCapFeeKg, book, repairPowerW } from './ledger.js';
+import { ageingHazard, agentCapFeeKg, book, bookS, repairPowerW } from './ledger.js';
 import { P } from './params.js';
 import { CH, ER, ER_LANES, scratch, type BirthRequest, type EcoState } from './state.js';
 import { coarseIndex, consumeO2, fineIndex, tBase } from './env.js';
@@ -272,8 +272,8 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
       f.qN[ci] = f.qN[ci]! + burnt;
       consumeO2(world, ci, burnt);
       if (Ptot > 0) {
-        book(world, CH.heatBasal, (burnt * B) / Ptot); book(world, CH.heatRepair, (burnt * Prep) / Ptot);
-        book(world, CH.heatMuscle, (burnt * Pmus) / Ptot); book(world, CH.heatOrgans, (burnt * Pbr) / Ptot);
+        bookS(s, CH.heatBasal, (burnt * B) / Ptot); bookS(s, CH.heatRepair, (burnt * Prep) / Ptot);
+        bookS(s, CH.heatMuscle, (burnt * Pmus) / Ptot); bookS(s, CH.heatOrgans, (burnt * Pbr) / Ptot);
       }
     }
     if (c.qTissue[slot]! < P.starveFloor * e[o + ER.TISSUE_PEAK_Q]! || c.qTissue[slot]! <= 0) { requestDeath(s, world, slot, 'starvation'); continue; }
@@ -359,7 +359,7 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
       f.qN[ci] = f.qN[ci]! + toN + sda;
       f.qD[ci] = f.qD[ci]! + toD;
       if (sda > 0) consumeO2(world, ci, sda);
-      book(world, CH.absorption, toRes); book(world, CH.faeces, toD);
+      bookS(s, CH.absorption, toRes); bookS(s, CH.faeces, toD);
     }
     // 4. growth (C_G = 1.4) and restage requests
     const fatCap = e[o + ER.FAT_CAP]!;
@@ -375,7 +375,7 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
         c.qReserve[slot] = c.qReserve[slot]! - cost;
         c.qTissue[slot] = c.qTissue[slot]! + dm;
         f.qN[ci] = f.qN[ci]! + (cost - dm);
-        book(world, CH.growth, dm);
+        bookS(s, CH.growth, dm);
       }
     }
     if (c.qTissue[slot]! > e[o + ER.TISSUE_PEAK_Q]!) e[o + ER.TISSUE_PEAK_Q] = c.qTissue[slot]!;
@@ -490,13 +490,13 @@ function resolveAndCollect(world: World, s: EcoState, d: Demands, intakeRate: Fl
     const o = slot * ER_LANES;
     if (fld === FIELD.N) {
       c.qReserve[slot] = c.qReserve[slot]! + q;
-      book(world, CH.photosynthesis, q);
+      bookS(s, CH.photosynthesis, q);
       s.er[o + ER.PHOTO_EMA] = s.er[o + ER.PHOTO_EMA]! * 0.999 + 0.001 * q;
       continue;
     }
     const lane = fld === FIELD.D || fld === FIELD.SED ? GUT.DETRITUS : GUT.PLANT;
     c.qGut[slot * 3 + lane] = c.qGut[slot * 3 + lane]! + q;
-    book(world, CH.ingestion, q);
+    bookS(s, CH.ingestion, q);
     const src = fld === FIELD.P ? DIET.PHYTO : fld === FIELD.BP || fld === FIELD.BC ? DIET.MAT : DIET.DETRITUS;
     intakeRate[slot * 7 + src] = intakeRate[slot * 7 + src]! + (q * Q_MASS) / DT_ECO;
     c.flags[slot] = c.flags[slot]! | CF.EATING;
@@ -526,7 +526,7 @@ function leachCarcass(world: World, s: EcoState, slot: number, dt: number): void
   const toD = Math.floor(taken / 2);
   f.qD[ci] = f.qD[ci]! + toD; f.qN[ci] = f.qN[ci]! + (taken - toD);
   consumeO2(world, ci, taken - toD);
-  book(world, CH.decay, taken);
+  bookS(s, CH.decay, taken);
   if (tot - taken <= 0 && !s.pending.free.includes(slot)) s.pending.free.push(slot);
 }
 

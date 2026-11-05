@@ -66,6 +66,16 @@ export function book(world: World, channel: number, q: number): void {
 }
 
 /**
+ * book() for a caller that already holds the world's EcoState: the same two additions without
+ * the two WeakMap lookups (hot per-cell loops).
+ */
+export function bookS(s: { ledgerTick: Float64Array; ledgerTotal: Float64Array }, channel: number, q: number): void {
+  if (q === 0) return;
+  s.ledgerTick[channel] = s.ledgerTick[channel]! + q;
+  s.ledgerTotal[channel] = s.ledgerTotal[channel]! + q;
+}
+
+/**
  * Move up to q quanta between two pool cells (any Float64Array pools), capped by what the
  * source holds. Returns the amount moved. The only way pools change (CONTRACT 9.1).
  */

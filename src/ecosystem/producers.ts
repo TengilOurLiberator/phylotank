@@ -8,7 +8,7 @@
  * and no cell is overdrawn.
  */
 import { exp, LN2, Q_MASS, type StepContext, type World } from '../core/index.js';
-import { Dither, qRound, book } from './ledger.js';
+import { Dither, qRound, book, bookS } from './ledger.js';
 import { P } from './params.js';
 import { CH, scratch, type EcoState } from './state.js';
 import { consumeO2, produceO2, tBase } from './env.js';
@@ -107,7 +107,7 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
       const pd = (p * Q_MASS) / areaF;
       let loss = qRound((P.mP + P.mP2 * pd) * p * dt, dith.at(j * 2 + 1));
       if (loss > p) loss = p;
-      if (loss > 0) { f.qP[j] = p - loss; f.qD[i] = f.qD[i]! + loss; book(world, CH.decay, loss); }
+      if (loss > 0) { f.qP[j] = p - loss; f.qD[i] = f.qD[i]! + loss; bookS(s, CH.decay, loss); }
     }
   }
   // 2. mats on substrate (Lenia ring kernel on normalised density)
@@ -144,7 +144,7 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
       } else if (b > 0) {
         let dec = qRound(P.dB * -G * b * dt, dith2.at(k * 2 + pass));
         if (dec > b) dec = b;
-        if (dec > 0) { B[j] = b - dec; f.qD[i] = f.qD[i]! + dec; book(world, CH.decay, dec); }
+        if (dec > 0) { B[j] = b - dec; f.qD[i] = f.qD[i]! + dec; bookS(s, CH.decay, dec); }
       }
     }
   }
@@ -158,7 +158,7 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
     f.qN[i] = f.qN[i]! - q;
     to[j] = to[j]! + q;
     if (o2) produceO2(world, i, q);
-    book(world, ch, q);
+    bookS(s, ch, q);
   };
   for (let jy = 0; jy < fh; jy++) {
     const row = ((jy / r) | 0) * w;
