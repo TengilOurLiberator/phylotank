@@ -12,11 +12,12 @@
  * interval without one, never below `rhoFloor`.
  *
  * Bounded: at most `perRun` new genomes are described per run (slot order, the rest next run),
- * the archive holds `archiveMax` plans (oldest out) and the set of described genome handles is
- * capped at `seenMax`.
+ * the archive holds `archiveMax` plans (oldest out) and the set of described genomes (by
+ * content key, so a reused store handle is described again) is capped at `seenMax`.
  */
 import { exp, LN2, ORGAN, log, type World } from '../../core/index.js';
 import { BoundedMap, entityIdOf, TICK_HZ } from './util.js';
+import { hasState, stateOf } from '../state.js';
 import type { Derived, Detector, Scan } from './types.js';
 
 export interface NoveltyOptions {
@@ -84,11 +85,17 @@ function dist(a: Float64Array, b: Float64Array): number {
 
 interface Entry { d: Float64Array; cluster: number }
 
+/** The genome's content key, or its handle when the store does not know it (staged worlds). */
+function keyOf(store: { key(h: number): bigint } | null, handle: number): number | bigint {
+  if (!store || handle === 0xffffffff) return handle;
+  try { return store.key(handle); } catch { return handle; }
+}
+
 export class NoveltyDetector implements Detector {
   readonly name = 'novelty';
   private readonly o: Required<NoveltyOptions>;
   private readonly archive: Entry[] = [];
-  private readonly seen: BoundedMap<number, true>;
+  private readonly seen: BoundedMap<number | bigint, true>;
   rho: number;
   private lastEvent = -1;
   private lastDecay = -1;
@@ -109,11 +116,14 @@ export class NoveltyDetector implements Detector {
     const interval = (3600 / this.o.targetPerHour) * TICK_HZ;
     if (t - this.lastDecay >= interval && t - this.lastEvent >= interval) { this.rho = Math.max(this.o.rhoFloor, this.rho * 0.9); this.lastDecay = t; }
     const warm = t - this.firstTick >= this.o.warmupS * TICK_HZ;
+    const store = hasState(w) ? stateOf(w).store : null;
     let done = 0;
     for (let i = 0; i < scan.nAlive && done < this.o.perRun; i++) {
       const s = scan.alive[i]!;
       if (c.maturity[s]! < 0.99) continue;
-      const h = c.genome[s]!;
+      // the genome's content key when the sim's store is there (handles can be reused), else the handle
+      const handle = c.genome[s]!;
+      const h = keyOf(store, handle);
       if (this.seen.has(h)) continue;
       this.seen.set(h, true);
       done++;
