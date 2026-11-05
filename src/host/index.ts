@@ -327,12 +327,16 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
     }
   });
 
+  /** Free a view's body slots with BODY_LEAVE before forgetting them (stable slots, CONTRACT 12.2). */
+  function releaseAll(c: HostClient): void {
+    const slots = c.stream.bodies.liveIds().map((id) => c.stream.bodies.slotOf(id)!).sort((a, b) => a - b);
+    if (slots.length > 0) c.send(encodeBodyLeave(hw.tick, slots));
+    c.stream.reset();
+  }
+
   function resyncAll(): void {
     for (const c of clients.values()) {
-      // free the view's body slots before the new world's WELCOME (stable slots, CONTRACT 12.2)
-      const slots = c.stream.bodies.liveIds().map((id) => c.stream.bodies.slotOf(id)!).sort((a, b) => a - b);
-      if (slots.length > 0) c.send(encodeBodyLeave(hw.tick, slots));
-      c.stream.reset();
+      releaseAll(c);
       resetDue(c);
       c.send(encodeCborFrame(FRAME.WELCOME, hw.tick, welcomeFor(hw.world, c.scopes)));
     }
@@ -551,7 +555,7 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
           }
           case FRAME.ACK:
             c.lastAckMs = now();
-            if (c.frozen) { c.frozen = false; c.stream.reset(); resetDue(c); }
+            if (c.frozen) { c.frozen = false; releaseAll(c); resetDue(c); }
             break;
           case FRAME.COMMAND: {
             const payload = decodeCborFrame(bytes).payload as { id?: unknown } | null;
