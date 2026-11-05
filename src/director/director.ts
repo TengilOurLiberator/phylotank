@@ -26,6 +26,8 @@ export interface DirectorConfig {
   lCeilingM?: number;
   reducedMotion?: boolean;
   calmDirector?: boolean;
+  /** Open on the first shot's framing instead of gliding in from the whole tank (live views). */
+  startSettled?: boolean;
   params?: Partial<DirectorParams>;
 }
 
@@ -125,6 +127,7 @@ export class Director implements DirectorModule {
   private readonly so: SpringOut = { x: 0, v: 0 };
   private trackHold: [number, number] | null = null;
   private observed: { id: Id; species: number; prominence: number }[] = [];
+  private readonly startSettled: boolean;
   /** Cost of the last decide() in ms, if a clock was supplied (spike and property 10). */
   lastScoreCount = 0;
 
@@ -142,6 +145,7 @@ export class Director implements DirectorModule {
     this.rng = new RngStream(cfg.seedLo ?? 0, cfg.seedHi ?? 0, RNG_STREAM.VIEW_DIRECTOR);
     this.drift = new DriftPlanner(this.rng, cfg, this.p.wobble);
     this.x = cfg.tankW / 2; this.y = cfg.tankH / 2; this.z = this.zMin();
+    this.startSettled = cfg.startSettled ?? false;
   }
 
   // ---------------- adapter API (see docs/contract-requests/director.md) ----------------
@@ -178,6 +182,14 @@ export class Director implements DirectorModule {
       this.clampView();
       this.decide();
       this.forceDecide = false;
+      if (this.startSettled && !current && this.shot) {
+        // twice: the first pass clamps the centre for the whole-tank view the rig starts in
+        this.shotTarget(this.shot, this.wall);
+        this.z = this.tgt.zeta;
+        this.shotTarget(this.shot, this.wall);
+        this.x = this.tgt.x; this.y = this.tgt.y; this.z = this.tgt.zeta;
+        this.clampView();
+      }
     }
     let maxT = -Infinity;
     for (const ev of events) {

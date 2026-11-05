@@ -47,6 +47,18 @@ export interface SimConfig extends WorldConfig {
   founders?: FounderSpec[];
   /** Record a state hash every HASH_EVERY ticks (about 50 ms per hash on Small). */
   hashCheckpoints?: boolean;
+  /**
+   * Release every founder group into this many patches (each at most 3 m wide) instead of across
+   * the whole zone, so a close view finds groups rather than lone creatures. Unset: spread out.
+   */
+  founderPatches?: number;
+}
+
+/** Patch centres and half-width for `n` founder patches across [x0, x1] (deterministic). */
+export function founderPatchesIn(x0: number, x1: number, n: number): { centres: number[]; hw: number } {
+  const centres: number[] = [];
+  for (let p = 0; p < n; p++) centres.push(x0 + ((p + 0.5) / n) * (x1 - x0));
+  return { centres, hw: Math.min(1.5, (x1 - x0) / (2 * n)) };
 }
 
 /** The real module set (phase 2): genome (one innovation registry per world), physics, brain, ecosystem. */
@@ -189,7 +201,22 @@ export function createSim(modules: Partial<SimModules> = {}): SimCoreWithModules
         const W = world.preset.widthM;
         const H = world.preset.heightM;
         const zone = f.zone ?? 'water';
-        if (zone === 'water' || !hasEcoState(world)) {
+        const P = Math.max(0, Math.floor(cfg.founderPatches ?? 0));
+        if (P > 0 && (zone === 'water' || zone === 'surface' || !hasEcoState(world))) {
+          // open water or the surface layer, split over the patches
+          const { centres, hw } = founderPatchesIn(0.3, W - 0.3, P);
+          const surface = zone === 'surface' && hasEcoState(world);
+          let left = f.count;
+          centres.forEach((cx, k) => {
+            const n = Math.min(left, Math.ceil(f.count / P));
+            if (n <= 0) return;
+            release(world, ctx, {
+              cmdId: `founders-${i}-p${k}`, genome: g, pos: [cx, surface ? H * 0.12 : H * 0.3],
+              spread: [hw, surface ? H * 0.09 : Math.min(H * 0.25, 1.5)], count: n, asLeviathan: false, founderProtection: false,
+            }, false);
+            left -= n;
+          });
+        } else if (zone === 'water' || !hasEcoState(world)) {
           release(world, ctx, {
             cmdId: `founders-${i}`, genome: g, pos: [W / 2, H * 0.3], spread: [W / 2 - 0.3, H * 0.25], count: f.count,
             asLeviathan: false, founderProtection: false,
@@ -207,7 +234,13 @@ export function createSim(modules: Partial<SimModules> = {}): SimCoreWithModules
           let left = f.count;
           for (let k = 0; k < groups && left > 0; k++) {
             const n = Math.min(left, Math.ceil(f.count / groups));
-            const x = x0 + ((k + 0.5) / groups) * (x1 - x0);
+            let x = x0 + ((k + 0.5) / groups) * (x1 - x0);
+            if (P > 0) {
+              // group k goes to patch k mod P, groups spaced evenly inside their patch
+              const { centres, hw } = founderPatchesIn(x0, x1, P);
+              const per = Math.ceil(groups / P);
+              x = centres[k % P]! + ((Math.floor(k / P) + 0.5) / per - 0.5) * 2 * hw;
+            }
             const col = Math.min(t.floorY.length - 1, Math.max(0, Math.floor((x / W) * t.floorY.length)));
             const y = Math.max(world.g.ySurface + 0.2, t.floorY[col]! - 0.12);
             release(world, ctx, {

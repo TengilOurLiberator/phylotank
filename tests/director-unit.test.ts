@@ -190,10 +190,11 @@ describe('idle drift (the wallpaper camera)', () => {
       const f = d.step([], 1 / 30);
       if (i > 30 * 120 && i % 30 === 0) {
         n++;
-        // the bright patch is in view (the zoom breathes between the whole tank and one school)
+        // the view overlaps the bright patch (x 48 to 56 m, y 26 to 32 m); the drift zoom is now
+        // tied to the size ceiling, so a view is often smaller than the patch itself
         const c = f.camera;
         const hw = 1920 / 2 ** c.zeta / 2; const hh = 1080 / 2 ** c.zeta / 2;
-        if (Math.abs(52 - c.cx) < hw && Math.abs(29 - c.cy) < hh) near++;
+        if (c.cx + hw > 48 && c.cx - hw < 56 && c.cy + hh > 26 && c.cy - hh < 32) near++;
       }
     }
     expect(near / n).toBeGreaterThan(0.8);

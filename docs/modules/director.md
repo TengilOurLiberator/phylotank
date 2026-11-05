@@ -50,6 +50,12 @@ f.caption, f.captionAlpha               // the lower third, side 'left' | 'right
 - **D15** The diversity rule needs at least 120 s of featured time in its 20 min window before it acts.
 - **D16 Tracking dead zone**: the track target is held until the desired target moves more than 7.5% of the screen width from it (a 15% zone).
 
+## Wired into the views (2026-11-06)
+
+- `src/ui/index.ts` builds one `Director` per view (not god) on the first CENSUS, with `startSettled: true`, feeds it EVENT frames, the census heat (box-blurred over 5 x 5 cells by `directorHeat`) and `renderer.locate` as the locator. The phase-0 `PassThroughDirector` and whole-tank `idleDrift` are only used before the first census.
+- **D17 Drift zoom tied to the size ceiling.** Visible height from 3 to 30 `L_ceiling` (0.4 m to 3.8 m on Small), tight details at 0.3 to 0.7 of the lower bound. The old fixed 3 m floor showed every founder (1 to 5 cm) under the stream's 6 px body cutoff, so the wallpaper was empty water.
+- **D18 `startSettled`.** Live views open on the first waypoint's framing instead of gliding in from the whole tank (a 2.5 octave glide at the wallpaper's 0.12 octaves/s takes 20 s). The framing is computed twice because `finishTarget` clamps the centre for the wider of the current and target views.
+
 ## Not done yet
 
 - Golden shot lists for the three real recorded logs and the diff report (the logs do not exist until the host detectors run); the synthetic logs stand in.

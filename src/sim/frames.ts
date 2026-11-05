@@ -113,8 +113,13 @@ export function censusPayload(world: World, env: Record<string, CborValue> = {})
   const c = world.cr.c;
   const by = new Map<number, { count: number; biomassKg: number }>();
   const HW = 64, HH = 36;
+  // heat channels (contract request director §3): 0 visible life, 1 emissive, 2 activity (live
+  // count), 3 carcasses. Channel 0 counts creatures at least L_ceiling / 32 long (4 mm on Small),
+  // so a cell of microbes does not outscore a group of grazers and one big animal does not either;
+  // channel 1 is their glow weighted by length.
   const count = new Uint16Array(HW * HH), carc = new Uint16Array(HW * HH);
-  const mass = new Float64Array(HW * HH), glow = new Float64Array(HW * HH);
+  const vis = new Float64Array(HW * HH), glow = new Float64Array(HW * HH);
+  const lMin = world.lCeilingM / 32;
   for (let s = 0; s < world.cr.highWater; s++) {
     const life = c.life[s]!;
     if (life === LIFE.FREE) continue;
@@ -123,17 +128,20 @@ export function censusPayload(world: World, env: Record<string, CborValue> = {})
     const i = hy * HW + hx;
     if (life === LIFE.CARCASS) { carc[i]!++; continue; }
     if (life !== LIFE.ALIVE) continue;
-    count[i]!++; mass[i]! += c.massKg[s]!; glow[i]! += c.glow[s]!;
+    count[i]!++;
+    const len = c.length[s]!;
+    if (len >= lMin) { vis[i]! += 1; glow[i]! += len * c.glow[s]!; }
     const r = by.get(c.species[s]!) ?? { count: 0, biomassKg: 0 };
     r.count++; r.biomassKg += c.massKg[s]!;
     by.set(c.species[s]!, r);
   }
+  let maxV = 0, maxG = 0;
+  for (let i = 0; i < HW * HH; i++) { if (vis[i]! > maxV) maxV = vis[i]!; if (glow[i]! > maxG) maxG = glow[i]!; }
   const heat = new Uint8Array(HW * HH * 4);
   for (let i = 0; i < HW * HH; i++) {
-    const n = count[i]!;
-    heat[i * 4] = Math.min(255, n * 8);
-    heat[i * 4 + 1] = mass[i]! > 0 ? clamp(Math.round((log2(mass[i]!) + 30) * 10), 0, 255) : 0;
-    heat[i * 4 + 2] = n > 0 ? Math.round((glow[i]! / n) * 255) : 0;
+    heat[i * 4] = maxV > 0 ? Math.round((vis[i]! / maxV) * 255) : 0;
+    heat[i * 4 + 1] = maxG > 0 ? Math.round((glow[i]! / maxG) * 255) : 0;
+    heat[i * 4 + 2] = Math.min(255, count[i]! * 8);
     heat[i * 4 + 3] = Math.min(255, carc[i]! * 16);
   }
   const species = [...by.entries()].sort((a, b) => a[0] - b[0]).map(([id, r]) => ({

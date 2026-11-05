@@ -14,7 +14,20 @@ export const HEAT_EMISSIVE = 1;
 
 export interface Waypoint { x: number; y: number; visH: number; t: number }
 
-export interface DriftView { tankW: number; tankH: number; viewWpx: number; viewHpx: number }
+export interface DriftView { tankW: number; tankH: number; viewWpx: number; viewHpx: number; lCeilingM?: number }
+
+/**
+ * Drift zoom range as visible heights (m), tied to the creature-size ceiling: the tightest view is
+ * 3 ceilings tall, the widest 30 ceilings or the tank. With the Small tank's 12.6 cm ceiling that
+ * is about 0.4 m to 3.8 m (geometric mean 1.2 m), so the 1 cm founders are 3 to 28 px at 1080p and
+ * about 9 px at the base zoom. The old fixed 3 m to tank-height range left every founder under the
+ * 6 px body cutoff: the wallpaper showed empty water.
+ */
+export function driftRange(v: DriftView): { lo: number; hi: number } {
+  const l = v.lCeilingM ?? 0.126;
+  const hi = Math.min(v.tankH, 30 * l);
+  return { lo: Math.min(hi, 3 * l), hi };
+}
 
 function catmull(p0: number, p1: number, p2: number, p3: number, t0: number, t1: number, t2: number, t3: number, t: number): number {
   // Barry and Goldman's pyramidal formulation of the Catmull-Rom spline with knots t0..t3.
@@ -35,7 +48,8 @@ export class DriftPlanner {
   heat: HeatMap | null = null;
 
   constructor(private readonly rng: RngStream, private readonly view: DriftView, private readonly wobble: boolean) {
-    this.zBaseVisH = view.tankH * 0.6;
+    const r = driftRange(view);
+    this.zBaseVisH = Math.sqrt(r.lo * r.hi);
   }
 
   private draw(): Draw { return this.rng.draw(this.draws++, 7); }
@@ -76,13 +90,14 @@ export class DriftPlanner {
       }
     }
     // zeta_base random-walks between "whole region" (the tank height) and "a single school" (3 m).
-    const lo = log(3);
-    const hi = log(tankH);
+    const rg = driftRange(this.view);
+    const lo = log(rg.lo);
+    const hi = log(rg.hi);
     let lz = log(this.zBaseVisH) + (d.u01() - 0.5) * 0.8;
     lz = clamp(lz, lo, hi);
     this.zBaseVisH = exp(lz);
     let visH = this.zBaseVisH;
-    if (d.u01() < 0.1) visH = 0.25 + 0.5 * d.u01(); // a tight detail now and then (10%)
+    if (d.u01() < 0.1) visH = rg.lo * (0.3 + 0.4 * d.u01()); // a tight detail now and then (10%)
     // Segment duration 20 to 40 s, longer when the hop is far, so the drift speed stays slow.
     let dur = 20 + 20 * d.u01();
     if (prev) {
@@ -98,8 +113,10 @@ export class DriftPlanner {
     const wps = this.wps;
     if (wps.length === 0) {
       const { tankW, tankH } = this.view;
-      wps.push({ x: tankW / 2, y: tankH / 2, visH: tankH * 0.8, t: t - 30 });
-      wps.push({ x: tankW / 2, y: tankH / 2, visH: tankH * 0.8, t });
+      // open on the place the first waypoint would pick, at the base zoom, rather than the whole tank
+      const first = this.pick(t - 30, regionLoad, undefined);
+      first.visH = this.zBaseVisH;
+      wps.push({ ...first, t: t - 30 }, { ...first, t });
     }
     while (wps.length < 4) wps.push(this.pick(wps[wps.length - 1]!.t, regionLoad, wps[wps.length - 1]));
     while (t >= wps[2]!.t) { wps.shift(); wps.push(this.pick(wps[wps.length - 1]!.t, regionLoad, wps[wps.length - 1])); }

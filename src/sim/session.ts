@@ -31,7 +31,7 @@ export const DERIVED_PER_S = 20;
  * (docs/spikes/integration-1.md has the measured cost per agent).
  */
 export const DEFAULT_DREAM_CONFIG: SimConfig = {
-  preset: 'small', seedLo: 0x5eed1234, seedHi: 0x0000beef, backend: 'cpu', agentCap: 1200,
+  preset: 'small', seedLo: 0x5eed1234, seedHi: 0x0000beef, backend: 'cpu', agentCap: 1200, founderPatches: 3,
   founders: [
     { template: 'motefly', count: 260, zone: 'surface' }, { template: 'meadowlamp', count: 50, zone: 'shelf' },
     { template: 'ashpicker', count: 24, zone: 'floor' }, { template: 'sievebell', count: 8, zone: 'surface' },

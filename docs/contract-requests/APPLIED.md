@@ -28,3 +28,5 @@ Phase 2 (integration, 2026-11-05 night). One line per request: **applied**, **pa
 | G1, G3, G4, G6, G7, G8 conventions | **Deferred** to the contract text; the module behaviour is already as proposed. |
 | G5 Deepcrown flagged | **Accepted** as implemented in genome; the UI and host must confirm a leviathan release. |
 | EV1 `WorldConfig.params` | Pending round 2. |
+
+| director §3 CENSUS heat channels | **Applied** 2026-11-06: `heat` is now `0 visible life (count of creatures at least L_ceiling / 32 long), 1 emissive (glow x length of those), 2 activity (live count x 8), 3 carcasses x 16`, channels 0 and 1 normalised to 255 per frame. Only the view's director reads it (src/host/summary.ts builds its own). |

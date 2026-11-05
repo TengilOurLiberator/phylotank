@@ -223,6 +223,12 @@ export class WebGL2Renderer implements RendererModule {
     this.settings = settingsFor(mode, canvas.width, canvas.height, this.options);
   }
 
+  /** Live position (m) of a streamed body by entity id, for the director's locator. */
+  locate(id: number): [number, number] | null {
+    for (const b of this.bodies.values()) if (b.id === id && b.have > 0) return [b.cx, b.cy];
+    return null;
+  }
+
   /** Replace the template source (the genome-backed source arrives with `genome.develop`). */
   setTemplateSource(src: TemplateSource): void { this.templates = src; for (const b of this.bodies.values()) b.tpl = null; }
 

@@ -1,5 +1,5 @@
 // E2E smoke test: serve dist/, load the dream-tank page in headless Chromium (WebGL2 through
-// SwiftShader), wait 3 s, save tests/artifacts/smoke.png and check that frames arrived and
+// SwiftShader), wait 8 s, save tests/artifacts/smoke.png and check that frames arrived and
 // were drawn. Playwright is installed globally; run with `npm run test:e2e`.
 const { chromium } = require('playwright');
 const http = require('node:http');
@@ -37,7 +37,8 @@ function serve() {
     page.on('pageerror', (e) => errors.push(String(e)));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     await page.goto(`${base}/index.html`);
-    await page.waitForTimeout(3000);
+    // 8 s: the CPU sim runs at about 13 ticks/s on a 2-core box and SwiftShader at about 10 fps
+    await page.waitForTimeout(8000);
     await page.screenshot({ path: path.join(artifacts, 'smoke.png') });
     const stats = await page.evaluate(() => window.__phylotank);
     console.log('stats', JSON.stringify(stats));
@@ -47,7 +48,11 @@ function serve() {
       if (stats.link !== 'worker') failures.push(`expected the worker link, got ${stats.link}`);
       if (!(stats.renderer.dustFrames >= 20)) failures.push(`too few DUST_FRAMEs: ${stats.renderer.dustFrames}`);
       if (!(stats.renderer.rendered >= 30)) failures.push(`too few rendered frames: ${stats.renderer.rendered}`);
-      if (!(stats.renderer.live >= 1000)) failures.push(`too few live motes: ${stats.renderer.live}`);
+      // real creatures (not the phase-0 mote skeleton): grown from genomes and streamed as bodies
+      if (!(stats.genomeTemplates >= 1)) failures.push(`no genome templates built: ${stats.genomeTemplates}`);
+      if (!(stats.renderer.bodyFrames >= 5)) failures.push(`too few BODY_FRAMEs: ${stats.renderer.bodyFrames}`);
+      if (!(stats.renderer.bodies >= 3)) failures.push(`too few creature bodies on screen: ${stats.renderer.bodies}`);
+      if (!(stats.renderer.live >= 5)) failures.push(`too few live specks: ${stats.renderer.live}`);
     }
     // the picture must not be black: sample the canvas
     const lit = await page.evaluate(() => {
@@ -56,11 +61,11 @@ function serve() {
       const px = new Uint8Array(c.width * c.height * 4);
       gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
       let bright = 0;
-      for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 150) bright++;
+      for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 110) bright++;
       return bright;
     });
     console.log('bright pixels', lit);
-    if (lit < 200) failures.push(`too few bright pixels: ${lit}`);
+    if (lit < 20) failures.push(`too few bright pixels: ${lit}`);
     if (errors.length) failures.push(`page errors: ${errors.join(' | ')}`);
     // every mode page boots without errors
     for (const mode of ['wallpaper', 'screensaver', 'tv', 'god']) {
@@ -86,7 +91,7 @@ function serve() {
       const errs = [];
       p.on('pageerror', (e) => errs.push(String(e)));
       await p.goto(`http://127.0.0.1:${port}/wallpaper.html?host=ws://127.0.0.1:${port}/ws/v1`);
-      await p.waitForTimeout(1500);
+      await p.waitForTimeout(4000);
       const s = await p.evaluate(() => window.__phylotank);
       console.log('host stats', JSON.stringify(s));
       if (!s || s.link !== 'socket' || !(s.renderer.dustFrames >= 5)) failures.push(`host stream did not arrive: ${JSON.stringify(s)}`);

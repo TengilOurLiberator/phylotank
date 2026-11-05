@@ -14,7 +14,7 @@ import {
   type Camera, type SimEvent, type SimLink, type ViewMode,
 } from '../core/index.js';
 import { audio } from '../audio/index.js';
-import { director, idleDrift } from '../director/index.js';
+import { createDirector, idleDrift, type Director } from '../director/index.js';
 import { createRenderer } from '../render/index.js';
 import { SocketLink, WorkerLink } from '../sim/client.js';
 import { CaptionLayer, CaptionScheduler, captionFor } from './captions.js';
@@ -54,6 +54,40 @@ export function chooseLink(loc: Location, mode: ViewMode = 'wallpaper'): SimLink
     return new HostFirstLink(`ws://127.0.0.1:${HOST_PORT}/ws/v1`, { socket: (u) => new SocketLink(u), worker: () => new WorkerLink(workerUrl) });
   }
   return new WorkerLink(workerUrl);
+}
+
+/**
+ * Census heat for the director: the sim's channels [visible biomass, emissive, activity, carcasses]
+ * (src/sim/frames.ts, contract request director §3) with the first two box-blurred over 5 x 5
+ * cells (2.5 m on Small, about one drift view), so a waypoint scores what a view around it would
+ * hold rather than one cell.
+ */
+export function directorHeat(h: Uint8Array, W = 64, H = 36): Uint8Array {
+  const n = W * H;
+  const m = new Float64Array(n), gl = new Float64Array(n);
+  for (let i = 0; i < n; i++) { m[i] = h[i * 4]!; gl[i] = h[i * 4 + 1]!; }
+  const bm = new Float64Array(n), bg = new Float64Array(n);
+  let maxM = 0, maxG = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let sm = 0, sg = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      sm += m[yy * W + xx]!; sg += gl[yy * W + xx]!;
+    }
+    const i = y * W + x;
+    bm[i] = sm; bg[i] = sg;
+    if (sm > maxM) maxM = sm;
+    if (sg > maxG) maxG = sg;
+  }
+  const out = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    out[i * 4] = maxM > 0 ? Math.round((bm[i]! / maxM) * 255) : 0;
+    out[i * 4 + 1] = maxG > 0 ? Math.round((bg[i]! / maxG) * 255) : 0;
+    out[i * 4 + 2] = h[i * 4 + 2]!;
+    out[i * 4 + 3] = h[i * 4 + 3]!;
+  }
+  return out;
 }
 
 export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
@@ -100,6 +134,38 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
     setSound: (v) => { const a = audio as typeof audio & { setVolume?: (x: number) => void }; if (v === 0) a.stop(); else { void a.start(); a.setVolume?.(v / 10); } },
   }) : null;
   let epoch = -1;
+  // the camera director (06 §6.2): built on the first CENSUS so its first waypoint already knows
+  // where the life is; wallpaper mode is calm idle drift only (DESIGN R30, D13)
+  let dir: Director | null = null;
+  let dirTank = '';
+  const pendingEvents: SimEvent[] = [];
+  const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const feedDirector = (f: Uint8Array): void => {
+    if (mode === 'god') return;
+    try {
+      const hd = readHeader(f);
+      if (hd.type === FRAME.EVENT) {
+        const evs = decodeCborFrame(f).payload as unknown as SimEvent[];
+        if (Array.isArray(evs)) { pendingEvents.push(...evs); if (pendingEvents.length > 4096) pendingEvents.splice(0, pendingEvents.length - 4096); }
+        return;
+      }
+      if (hd.type !== FRAME.CENSUS) return;
+      const c = decodeCborFrame(f).payload as { species?: { id: number; count: number; biomassKg: number }[]; heat?: Uint8Array };
+      const key = `${renderer.tank.w}x${renderer.tank.h}`;
+      if (!dir || key !== dirTank) {
+        dirTank = key;
+        dir = createDirector({
+          mode, tankW: renderer.tank.w, tankH: renderer.tank.h, viewWpx: canvas.width || 1280, viewHpx: canvas.height || 720,
+          lCeilingM: genomes.lCeilingM, reducedMotion, startSettled: true,
+        });
+        dir.setLocator((id) => renderer.locate(Number(id)));
+        (window as unknown as { __phylotankDirector?: Director }).__phylotankDirector = dir;
+      }
+      dir.setSimTick(hd.tick);
+      const h = c.heat instanceof Uint8Array && c.heat.length === 64 * 36 * 4 ? c.heat : null;
+      dir.setCensus({ species: c.species ?? [], heat: h ? directorHeat(h) : undefined, heatW: 64, heatH: 36, heatCh: 4 });
+    } catch { /* a malformed frame never breaks the view */ }
+  };
 
   let lastTick = 0;
   if (mode === 'god') {
@@ -110,6 +176,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
     link.onFrame((f) => {
       renderer.ingest(f);
       feedGenomes(f);
+      feedDirector(f);
       tv?.ingest(f);
       try { lastTick = readHeader(f).tick; } catch { /* ignore */ }
       if (!captions) return;
@@ -182,13 +249,19 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
       god.frame(now);
       cam = god.camera();
     } else {
-      const drift = idleDrift(tS, renderer.tank.w, renderer.tank.h, canvas.width, canvas.height);
-      cam = profile.camera === 'idleDrift' ? drift : director.update([], 0, drift);
+      const dtS = Math.min(0.25, (now - lastFrameAt) / 1000);
+      if (dir) {
+        dir.resize(canvas.width, canvas.height);
+        cam = dir.step(pendingEvents.splice(0), dtS).camera;
+      } else {
+        cam = idleDrift(tS, renderer.tank.w, renderer.tank.h, canvas.width, canvas.height);
+      }
       if (tv) cam = tv.camera(cam, Math.min(0.1, (now - lastFrameAt) / 1000));
       lastFrameAt = now;
       if (captions && captionLayer) { const c = captions.update(now / 1000); captionLayer.show(tv && !tv.captionsOn ? null : c); }
     }
     renderer.render(now, cam);
+    stats.camera = cam;
     // VIEWPORT at most 10 Hz when the view moves, ACK at 2 Hz (CONTRACT 12.2)
     if (now - lastVp > 100) {
       const ppm = 2 ** cam.zeta, hw = canvas.width / (2 * ppm), hh = canvas.height / (2 * ppm);
