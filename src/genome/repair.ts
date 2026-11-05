@@ -88,25 +88,27 @@ export function repairInPlace(g: Genome): Genome {
   const modSet = new Set(g.modules.map((m) => m.innov));
   g.links = g.links.filter((l) => modSet.has(l.fromInnov) && modSet.has(l.toInnov));
   g.regs = g.regs.filter((r) => r.targetInnov === 0 || modSet.has(r.targetInnov));
-  // 5. caps, silent first
-  let ex = expressedSets(g);
+  // 5. caps, silent first (only when a cap is exceeded, which is rare)
   const rootInnov = g.rootModuleInnov;
-  g.modules = capList(g.modules, MODULE_RECORD.max, (m) => m.innov === rootInnov || ex.modules.has(m.innov));
-  if (g.modules.length < MODULE_RECORD.max + 1) {
+  if (g.modules.length > MODULE_RECORD.max) {
+    const ex = expressedSets(g);
+    g.modules = capList(g.modules, MODULE_RECORD.max, (m) => m.innov === rootInnov || ex.modules.has(m.innov));
     const ms = new Set(g.modules.map((m) => m.innov));
     g.links = g.links.filter((l) => ms.has(l.fromInnov) && ms.has(l.toInnov));
     g.regs = g.regs.filter((r) => r.targetInnov === 0 || ms.has(r.targetInnov));
   }
-  ex = expressedSets(g);
-  g.links = capList(g.links, LINK_RECORD.max, (l) => ex.links.has(l.innov));
+  if (g.links.length > LINK_RECORD.max) {
+    const ex = expressedSets(g);
+    g.links = capList(g.links, LINK_RECORD.max, (l) => ex.links.has(l.innov));
+  }
   g.regs = capList(g.regs, REG_RECORD.max, () => false);
   g.cppnNodes = capList(g.cppnNodes, CPPN_NODE_RECORD.max, () => false);
   g.cppnConns = capList(g.cppnConns, CPPN_CONN_RECORD.max, () => false);
   g.hiddenNeurons = capList(g.hiddenNeurons, HIDDEN_NEURON_RECORD.max, () => false);
   if (g.directSynapses.length > DIRECT_SYNAPSE_RECORD.max) g.directSynapses = g.directSynapses.slice(0, DIRECT_SYNAPSE_RECORD.max);
   // 4. silent flag
-  ex = expressedSets(g);
-  const silent = g.modules.some((m) => !ex.modules.has(m.innov)) || g.links.some((l) => !ex.links.has(l.innov));
+  const ex = expressedSets(g);
+  const silent = g.modules.length !== ex.modules.size || g.links.length !== ex.links.size;
   g.flags = silent ? g.flags | GENOME_FLAG_HAS_SILENT : g.flags & ~GENOME_FLAG_HAS_SILENT;
   return g;
 }

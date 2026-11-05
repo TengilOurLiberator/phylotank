@@ -70,3 +70,9 @@ export interface MutationContext {
 - `G_SLENDERNESS` divides every part's width (slender means thinner).
 - `G_TAPER` narrows the root chain towards the tail: width x `G_TAPER^-AP`.
 - `OrganKind` has no entry for SHELL, PHOTOSYNTH or PAIRED; those exist only as organ flags, which is enough for brains (they have no I/O channel).
+
+## G9. Genome replication cost (01 §1.6.4) is missing from CONTRACT 9.6
+
+**What.** 01 charges `E_dna = kappa x genomeBytes` per offspring so that silent genes and bloat cost something (strongly for microbes, negligibly for giants). CONTRACT 9.6's clutch cost has no such term. Without selection, mutation alone grows genomes: 400 unselected births at 4x the default rate took Meadowlamp from 7 to 47 modules (8 expressed parts); see spike genome-1.
+
+**Proposed diff** to the clutch cost in 9.6: add `+ n x KAPPA_DNA x genomeBytes` with `KAPPA_DNA` set so a 4 KB genome costs 2% of the build cost of a 0.5 mm newborn (a 0.5 mm newborn is about 3.9e-9 kg, so about `2.6e-14 kg` per byte; to be tuned with the ecosystem). `encodedSize(g)` in `src/genome` gives the byte count without encoding.

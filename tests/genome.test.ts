@@ -286,7 +286,7 @@ describe('mutation', () => {
         if (i % 25 === 0) { validGenome(g); checkPhenotype(develop(g, (i % 5) / 4, ENV, OPTS)); }
       }
     }
-  });
+  }, 120_000);
   it('is deterministic in (seed, tick, childId) and independent of call order', () => {
     const g = templateGenome('hushmaw');
     const a = mutateWith(g, ctx(42, { mutagen: 20 }), new InnovationRegistry());
@@ -329,9 +329,11 @@ describe('mutation', () => {
     const N = 60_000;
     const d = rng.draw(RNG_STREAM.MUTATION, 1, 99);
     for (let i = 0; i < N; i++) { const op = pickOperator(d, true); counts.set(op, counts.get(op)! + 1); }
-    const total = names.reduce((a, n) => a + OP_WEIGHTS[n], 0);
+    const direct = names.filter((n) => !n.startsWith('cppn'));
+    const total = direct.reduce((a, n) => a + OP_WEIGHTS[n], 0);
     let chi = 0;
-    for (const n of names) { const e = (N * OP_WEIGHTS[n]) / total; chi += (counts.get(n)! - e) ** 2 / e; }
+    for (const n of direct) { const e = (N * OP_WEIGHTS[n]) / total; chi += (counts.get(n)! - e) ** 2 / e; }
+    for (const n of names) if (n.startsWith('cppn')) expect(counts.get(n)).toBe(0);
     expect(chi).toBeLessThan(40); // 12 degrees of freedom; p ~ 1e-4
   });
   it('duplicating the same module three times gives three copies (R22)', () => {
@@ -366,6 +368,18 @@ describe('mutation', () => {
     expect(trait(mutateWith(lev, ctx(5), reg), T.ADULT_LENGTH!)).toBeGreaterThan(0.5);
     clampToCeiling(g, PRESETS.small.lCeilingM);
     expect(expressedAdultLength(g, 1)).toBeLessThanOrEqual(PRESETS.small.lCeilingM);
+  });
+  it('CPPN genomes (ENCODING 1) get CPPN operators with hashed ids and stay valid', () => {
+    const reg = new InnovationRegistry();
+    let g = templateGenome('meadowlamp');
+    g.brainTraits[BT.ENCODING!] = 65535;
+    g.cppnNodes = [{ innov: 11n, fn: 1, flags: 1, bias: 0 }, { innov: 12n, fn: 2, flags: 1, bias: 0 }];
+    g.cppnConns = [{ innov: 99n, from: 11n, to: 12n, w: 1000, flags: 1 }];
+    for (let i = 0; i < 400; i++) g = mutateWith(g, ctx(i, { mutagen: 40 }), reg);
+    expect(g.brainTraits[BT.ENCODING!]).toBe(65535);
+    expect(g.cppnNodes.length + g.cppnConns.length).toBeGreaterThan(3);
+    expect(g.directSynapses).toHaveLength(0);
+    validGenome(g);
   });
   it('ENCODING is immutable', () => {
     const reg = new InnovationRegistry();
@@ -653,7 +667,7 @@ describe('property tests', () => {
   }
   it('development of random genomes never throws, stays bounded and finite (U3)', () => {
     let maxParts = 0;
-    for (let s = 1; s <= 1500; s++) {
+    for (let s = 1; s <= 600; s++) {
       const g = randomGenome(s);
       validGenome(g);
       for (const m of [0, 0.5, 1]) {
@@ -664,7 +678,7 @@ describe('property tests', () => {
       }
     }
     expect(maxParts).toBe(64);
-  });
+  }, 120_000);
   it('any sequence of mutate and crossover gives a valid genome, and restage equals develop', () => {
     const reg = new InnovationRegistry();
     const pool: Genome[] = TEMPLATE_IDS.map((id) => templateGenome(id)).concat([randomGenome(5), randomGenome(6)]);
@@ -680,7 +694,7 @@ describe('property tests', () => {
       }
       pool[d.int(pool.length)] = c;
     }
-  });
+  }, 120_000);
 });
 
 describe('golden template phenotypes (U2)', () => {

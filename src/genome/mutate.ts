@@ -133,17 +133,60 @@ export function countGenes(g: Genome): number {
 export type OpName = keyof typeof OP_WEIGHTS;
 const OP_NAMES = Object.keys(OP_WEIGHTS) as OpName[];
 
+const isDirectOp = (n: OpName): boolean => n.startsWith('syn') || n.startsWith('neuron');
+const isCppnOp = (n: OpName): boolean => n.startsWith('cppn');
+/** Pick a structural operator by weight; brain operators follow the genome's (immutable) encoding. */
 export function pickOperator(rng: Draw, direct: boolean): OpName {
+  const ok = (n: OpName): boolean => (direct ? !isCppnOp(n) : !isDirectOp(n));
   let total = 0;
-  for (const n of OP_NAMES) if (direct || !n.startsWith('syn') && !n.startsWith('neuron')) total += OP_WEIGHTS[n];
+  for (const n of OP_NAMES) if (ok(n)) total += OP_WEIGHTS[n];
   let x = rng.u01x53() * total;
   for (const n of OP_NAMES) {
-    if (!direct && (n.startsWith('syn') || n.startsWith('neuron'))) continue;
+    if (!ok(n)) continue;
     x -= OP_WEIGHTS[n];
     if (x < 0) return n;
   }
   return 'repeat';
 }
+
+// CPPN operators (ENCODING 1, CONTRACT 6.7: 64-bit hashed ids, no registry)
+const hash64 = (a: bigint, b: bigint): bigint => {
+  const w = (x: bigint, k: number): number => Number((x >> BigInt(k)) & 0xffffffffn);
+  const hi = hash32(w(a, 0) ^ 0x2545f491, w(a, 32), w(b, 0));
+  const lo = hash32(w(b, 32), hi, w(a, 0) ^ w(b, 0));
+  return (BigInt(hi) << 32n) | BigInt(lo);
+};
+function cppnEndpoints(g: Genome): bigint[] {
+  const s = new Set<bigint>();
+  for (const n of g.cppnNodes) s.add(n.innov);
+  for (const c of g.cppnConns) { s.add(c.from); s.add(c.to); }
+  return [...s].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+function opCppnConn(g: Genome, rng: Draw): void {
+  const e = cppnEndpoints(g);
+  if (e.length < 2 || g.cppnConns.length >= 192) return;
+  const from = pick(rng, e), to = pick(rng, e);
+  const innov = hash64(from, to);
+  if (g.cppnConns.some((c) => c.innov === innov)) return;
+  g.cppnConns.push({ innov, from, to, w: clampI16(2048 * rng.normal()), flags: 1 });
+}
+function opCppnNode(g: Genome, rng: Draw): void {
+  const en = g.cppnConns.filter((c) => (c.flags & 1) !== 0);
+  if (en.length === 0 || g.cppnNodes.length >= 64 || g.cppnConns.length + 2 > 192) return;
+  const c = pick(rng, en);
+  // k = earlier splits of c in this genome: nodes already split from it
+  let k = 0;
+  while (g.cppnNodes.some((n) => n.innov === hash64(c.innov, BigInt(k)))) k++;
+  const node = hash64(c.innov, BigInt(k));
+  g.cppnNodes.push({ innov: node, fn: rng.int(6), flags: 1, bias: 0 });
+  c.flags &= ~1;
+  for (const [from, to, w] of [[c.from, node, 2048], [node, c.to, c.w]] as [bigint, bigint, number][]) {
+    const innov = hash64(from, to);
+    if (!g.cppnConns.some((x) => x.innov === innov)) g.cppnConns.push({ innov, from, to, w, flags: 1 });
+  }
+}
+function opCppnToggle(g: Genome, rng: Draw): void { if (g.cppnConns.length) pick(rng, g.cppnConns).flags ^= 1; }
+function opCppnFn(g: Genome, rng: Draw): void { if (g.cppnNodes.length) pick(rng, g.cppnNodes).fn = rng.int(6); }
 
 function nonRootModules(g: Genome): ModuleGene[] { return g.modules.filter((m) => m.innov !== g.rootModuleInnov); }
 const moduleKey = (innov: number, slot: number): number => hash32(innov, 0, slot);
@@ -371,6 +414,10 @@ export function applyOperator(op: OpName, g: Genome, rng: Draw, reg: InnovationR
     case 'neuronAdd': opNeuronAdd(g, rng, reg); break;
     case 'synDelete': opSynDelete(g, rng); break;
     case 'neuronDelete': opNeuronDelete(g, rng); break;
+    case 'cppnConn': opCppnConn(g, rng); break;
+    case 'cppnNode': opCppnNode(g, rng); break;
+    case 'cppnToggle': opCppnToggle(g, rng); break;
+    case 'cppnFn': opCppnFn(g, rng); break;
   }
 }
 

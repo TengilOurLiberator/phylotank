@@ -9,6 +9,8 @@ export const META_RATE = 0.02;
 export const OP_WEIGHTS = {
   repeat: 15, duplicate: 12, deleteModule: 8, addModule: 4, rewire: 8, symmetry: 4, kind: 4, toggle: 4, reg: 8,
   synAdd: 14, neuronAdd: 6, synDelete: 8, neuronDelete: 5,
+  // CPPN encoding (ENCODING 1) only, in 03 §3.6.4's proportions
+  cppnConn: 8, cppnNode: 3, cppnToggle: 2, cppnFn: 2,
 } as const;
 /** Probability that a duplication deep-copies the subtree (01 §1.6.2). */
 export const DEEP_COPY_P = 0.3;
