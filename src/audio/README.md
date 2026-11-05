@@ -17,3 +17,7 @@ None directly; respect autoplay rules in WebView2 (needs a user gesture or a wra
 ## Acceptance tests
 
 06 §6.8.3 offline-render tests (OfflineAudioContext): loudness bounds, no clipping, darkness raises the Phrygian weight, silence when muted.
+
+## Status (phase 1)
+
+Implemented: the composer (all of 06 §6.3.2's mappings), the Web Audio graph, and a deterministic offline renderer for Node tests (`tests/audio.test.ts`). `audio` is now an `Ambience`; it makes no sound until `start()`. Notes: [docs/modules/audio.md](../../docs/modules/audio.md); contract requests: [docs/contract-requests/audio.md](../../docs/contract-requests/audio.md).

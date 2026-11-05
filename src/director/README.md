@@ -20,3 +20,7 @@ Owner: director and audio engineer (shared with `src/audio`). Design: [sections/
 ## Acceptance tests
 
 06 §6.2 director property tests 1 to 10 on three recorded logs; every god event on screen by its fire tick in at least 99% of cases (v0.3).
+
+## Status (phase 1)
+
+Implemented: StoryBook, exposure memory, scoring and seeded selection, the five shot types plus drift, springs, van Wijk and Nuij paths, dips, captions, heat-map idle drift (also the wallpaper camera), and a replay harness with seeded synthetic logs. Properties 1 to 10 run in `tests/director-properties.test.ts` and `tests/director-cost.test.ts`. Design notes and decisions: [docs/modules/director.md](../../docs/modules/director.md); contract requests: [docs/contract-requests/director.md](../../docs/contract-requests/director.md).
