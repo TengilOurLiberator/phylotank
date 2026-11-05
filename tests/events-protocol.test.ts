@@ -131,3 +131,52 @@ describe('protocol 1.1 bandwidth on a live world', () => {
     expect(after).toBeLessThan(0.6 * before);
   });
 });
+
+describe('protocol 1.1 in the streams', () => {
+  it('the host interest stream sends deltas only to a 1.1 view, and they decode to the 1.0 view\'s records', async () => {
+    const { InterestStream } = await import('../src/host/interest.js');
+    const w = sim.create({ preset: 'small', seedLo: 5, seedHi: 2, backend: 'cpu', skeletonMotes: 600 });
+    for (let i = 0; i < 60; i++) sim.step(w);
+    const v10 = new InterestStream({ maxBodies: 2000 });
+    const v11 = new InterestStream({ maxBodies: 2000, proto: 0x0101 });
+    const vp = { rect: [0, 0, 32, 18] as Rect, pxPerM: 4000, paused: false, resync: false, leadS: 0 };
+    v10.setViewport(vp, 0); v11.setViewport(vp, 0);
+    const dec = new BodyDeltaDecoder();
+    let b10 = 0; let b11 = 0; let deltas = 0;
+    for (let i = 0; i < 240; i++) {
+      sim.step(w);
+      if (w.g.tick % 2) continue;
+      v10.update(w); v11.update(w);
+      const k = v10.bodyFrame(w); const d = v11.bodyFrame(w);
+      b10 += k.length; b11 += d.length;
+      expect(readHeader(k).flags & FRAME_FLAG.KEYFRAME).toBe(FRAME_FLAG.KEYFRAME);
+      if ((readHeader(d).flags & FRAME_FLAG.KEYFRAME) === 0) deltas++;
+      expect(dec.decode(d).records).toEqual(decodeBodyFrame(k).records);
+    }
+    expect(deltas).toBeGreaterThan(100);
+    // eslint-disable-next-line no-console
+    console.log(`host interest stream, ${v10.last.body.length} bodies, 8 s at 15 Hz: 1.0 ${(b10 / 8 / 1024).toFixed(1)} KB/s, 1.1 ${(b11 / 8 / 1024).toFixed(1)} KB/s (${(100 * b11 / b10).toFixed(1)}%)`);
+    expect(b11).toBeLessThan(0.6 * b10);
+    // a resync forces a keyframe
+    v11.reset(); v11.update(w);
+    expect(readHeader(v11.bodyFrame(w)).flags & FRAME_FLAG.KEYFRAME).toBe(FRAME_FLAG.KEYFRAME);
+  });
+
+  it('the dream-tank session does the same for a view that says caps.proto 0x0101', async () => {
+    const { SimSession } = await import('../src/sim/session.js');
+    const s = new SimSession({ preset: 'small', seedLo: 8, seedHi: 8, backend: 'cpu', skeletonMotes: 300 });
+    const got10: Uint8Array[] = []; const got11: Uint8Array[] = [];
+    s.add({ send: (f) => got10.push(f) }, ['view']);
+    s.add({ send: (f) => got11.push(f) }, ['view'], { proto: 0x0101 });
+    // everyone is a body at this zoom
+    for (const st of (s as unknown as { clients: Map<unknown, { stream: { setViewport: (r: Rect, p: number, a: boolean, b: boolean) => void } }> }).clients.values()) st.stream.setViewport([0, 0, 32, 18], 20_000, false, false);
+    s.tick(120);
+    const bodies = (fs: Uint8Array[]): Uint8Array[] => fs.filter((f) => readHeader(f).type === 0x12);
+    const k = bodies(got10); const d = bodies(got11);
+    expect(k.length).toBe(d.length);
+    expect(k.length).toBeGreaterThan(30);
+    const dec = new BodyDeltaDecoder();
+    for (let i = 0; i < k.length; i++) expect(dec.decode(d[i]!).records).toEqual(decodeBodyFrame(k[i]!).records);
+    expect(d.filter((f) => (readHeader(f).flags & FRAME_FLAG.KEYFRAME) === 0).length).toBeGreaterThan(k.length / 2);
+  });
+});

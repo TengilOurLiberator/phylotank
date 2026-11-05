@@ -27,7 +27,7 @@ scope.onmessage = (e) => {
   const h = readHeader(bytes);
   if (h.type === FRAME.HELLO) {
     const { payload } = decodeCborFrame(bytes);
-    const p = payload as { worldConfig?: Partial<WorldConfig> };
+    const p = payload as { worldConfig?: Partial<WorldConfig>; caps?: { proto?: unknown } };
     if (!session) {
       session = new SimSession({ ...DEFAULT_DREAM_CONFIG, ...(p.worldConfig ?? {}), backend: 'cpu' });
       const s = session;
@@ -36,7 +36,8 @@ scope.onmessage = (e) => {
       pacer.start();
     }
     // the dream tank is private to its page, so its one client may also command it
-    session.add(client, ['view', 'god']);
+    const proto = typeof p.caps?.proto === 'number' ? p.caps.proto : 0x0100;
+    session.add(client, ['view', 'god'], { proto });
     return;
   }
   if (h.type === FRAME.BYE) { session?.remove(client); pacer?.stop(); return; }

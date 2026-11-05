@@ -5,13 +5,14 @@
  * Stable slots (review R18): the stream slot of a creature is its creature slot, in both
  * DUST_FRAME and BODY_FRAME. A `ViewStream` per client keeps the set of slots in its body
  * stream and sends the deltas of that set as BODY_LEAVE (first) and BODY_ENTER, so a slot
- * changes entity only after a BODY_LEAVE. Records are keyframes (protocol 1.0); predictive
- * deltas are protocol 1.1 (CONTRACT 12 rules). A creature in a client's body stream is marked
+ * changes entity only after a BODY_LEAVE. Records are keyframes (protocol 1.0), plus predictive
+ * deltas (protocol 1.1, src/core/protocol.ts) for a view that asks for them (CONTRACT 12 rules). A creature in a client's body stream is marked
  * empty in that client's DUST_FRAME, so nothing is drawn twice.
  */
 import {
-  ByteWriter, CF, CENSUS_EVERY, clamp, DUST_EMPTY, encodeBodyEnter, encodeBodyFrame, encodeBodyLeave, encodeCborFrame,
-  encodeDust, encodeEnv, FRAME, HEADER_BYTES, LIFE, log2, quantRel, speedToByte, TAU, writeHeader, wrapAngle,
+  BodyDeltaEncoder, ByteWriter, CF, CENSUS_EVERY, clamp, DUST_EMPTY, encodeBodyEnter, encodeBodyLeave, encodeCborFrame,
+  encodeDust, encodeEnv, FRAME, HEADER_BYTES, LIFE, log2, PROTOCOL_VERSION_1_1, quantRel, speedToByte, TAU, TICK_HZ,
+  writeHeader, wrapAngle,
   type BodyEnter, type BodyRecord, type CborValue, type DustFrame, type EnvFrame, type Rect, type World,
 } from '../core/index.js';
 import { dayPhase, yearPhase } from './clocks.js';
@@ -146,6 +147,8 @@ export interface ViewStreamOptions {
   /** Bodies are streamed for creatures at least this many pixels long on the client's screen. */
   bodyMinPx?: number;
   maxBodies?: number;
+  /** Newest protocol the view decodes (HELLO `caps.proto`); 0x0101 turns on BODY_FRAME deltas. */
+  proto?: number;
 }
 
 /**
@@ -160,8 +163,10 @@ export class ViewStream {
   private readonly bodyMinPx: number;
   private readonly maxBodies: number;
   private needKey = true;
+  private readonly bodyEncoder: BodyDeltaEncoder;
 
   constructor(world: World, opts: ViewStreamOptions = {}) {
+    this.bodyEncoder = new BodyDeltaEncoder(2 * TICK_HZ, (opts.proto ?? 0) >= PROTOCOL_VERSION_1_1);
     this.rect = [0, 0, world.preset.widthM, world.preset.heightM];
     this.pxPerM = 1920 / world.preset.widthM;
     this.bodyMinPx = opts.bodyMinPx ?? 6;
@@ -174,7 +179,7 @@ export class ViewStream {
   }
 
   /** Force a keyframe: every body leaves and re-enters on the next frame. */
-  resync(): void { this.needKey = true; }
+  resync(): void { this.needKey = true; this.bodyEncoder.reset(); }
 
   get bodySlots(): ReadonlySet<number> { return new Set(this.bodies.keys()); }
 
@@ -218,8 +223,10 @@ export class ViewStream {
       const nSlots = Math.max(...this.bodies.keys()) + 1;
       const present = new Uint8Array(Math.ceil(nSlots / 8));
       const records: BodyRecord[] = [];
+      const ids: number[] = [];
       for (let s = 0; s < nSlots; s++) {
         if (!this.bodies.has(s)) continue;
+        ids.push(this.bodies.get(s)!);
         present[s >> 3] = present[s >> 3]! | (1 << (s & 7));
         const v = Math.sqrt(sq(c.velX[s]!) + sq(c.velY[s]!));
         records.push({
@@ -229,7 +236,7 @@ export class ViewStream {
           bend: clamp(Math.round(c.angVel[s]! * 16), -127, 127), glow: glowByte(world, s), flags: bodyFlags(world, s),
         });
       }
-      out.push(encodeBodyFrame({ tick, rect: r, nSlots, present, records }));
+      out.push(this.bodyEncoder.encode({ tick, rect: r, nSlots, present, records }, ids));
     }
     out.push(encodeViewFrames(world, r, this.bodies.size > 0 ? new Set(this.bodies.keys()) : undefined));
     return out;

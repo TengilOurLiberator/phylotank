@@ -15,7 +15,7 @@ import {
   TICK_HZ, type CborValue, type GodCommand, type SimCore, type SimEvent, type TemplateId, type World, type WorldConfig,
 } from '../core/index.js';
 import { Detectors } from './detectors.js';
-import { censusPayload, encodeGenomeFrame, envFrameFor, eventFrame, paletteBytes, ViewStream } from './frames.js';
+import { censusPayload, encodeGenomeFrame, envFrameFor, eventFrame, paletteBytes, ViewStream, type ViewStreamOptions } from './frames.js';
 import { drainChannels, drainEvents, schedule, sim as defaultSim, type SimConfig } from './index.js';
 import type { Pacer, SpeedRequest } from './pacer.js';
 import { stateOf } from './state.js';
@@ -70,8 +70,9 @@ export class SimSession {
   /** Attach the pacer that drives this session, for `speed` commands and the speed display. */
   attachPacer(p: Pacer): void { this.pacer = p; }
 
-  add(c: SessionClient, scopes: string[]): void {
-    const st: ClientState = { scopes, stream: new ViewStream(this.world), tokens: DERIVED_PER_S };
+  /** `streamOpts.proto` (HELLO `caps.proto`) of 0x0101 or more turns on protocol 1.1 body deltas. */
+  add(c: SessionClient, scopes: string[], streamOpts: ViewStreamOptions = {}): void {
+    const st: ClientState = { scopes, stream: new ViewStream(this.world, streamOpts), tokens: DERIVED_PER_S };
     this.clients.set(c, st);
     if (scopes.includes('god')) this.pacer?.setAttended(true);
     c.send(encodeCborFrame(FRAME.WELCOME, this.world.g.tick, welcomeFor(this.world, scopes)));
