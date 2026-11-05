@@ -179,6 +179,16 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   };
   let lastVp = 0, lastAck = 0, lastVpKey = '', lastFrameAt = performance.now();
   if (tv) (window as unknown as { __phylotankTv?: TvOverlay }).__phylotankTv = tv;
+  // screensaver and TV: the view, its captions and the overlay form the main landmark (axe "region");
+  // the wallpaper gets no extra DOM at all
+  if (mode === 'tv' || mode === 'screensaver') {
+    const main = document.createElement('main');
+    main.setAttribute('aria-label', 'Phylotank');
+    canvas.replaceWith(main);
+    main.append(canvas);
+    if (captionLayer) main.append(captionLayer.el);
+    if (tv) main.append(tv.el, tv.modeEl);
+  }
   requestAnimationFrame(frame);
 
   return {

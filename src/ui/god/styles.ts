@@ -122,8 +122,10 @@ html.hc .pt-toast,html.hc .pt-dialog,html.hc .pt-onb .onb-card{box-shadow:none}
 html.reduced *{transition:none!important;animation:none!important}
 .pt-rail button{overflow-wrap:normal;word-break:normal;hyphens:auto;-webkit-hyphens:auto;font-size:10.5px}
 .dz .slider{grid-template-columns:minmax(150px,190px) 1fr 92px}
+.onb-on .pt-toast{bottom:auto;top:96px}
 .pt-describe{position:fixed;right:12px;bottom:76px;z-index:16}
 .pt-insp.collapsed~.pt-rail button{overflow-wrap:normal;word-break:normal;hyphens:auto;-webkit-hyphens:auto;font-size:10.5px}
 .dz .slider{grid-template-columns:minmax(150px,190px) 1fr 92px}
+.onb-on .pt-toast{bottom:auto;top:96px}
 .pt-describe{right:12px}
 `;

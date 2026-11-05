@@ -50,7 +50,7 @@ export class TvOverlay {
   readonly el: HTMLDivElement;
   private card: HTMLDivElement;
   private now: HTMLDivElement;
-  private modeEl: HTMLDivElement;
+  readonly modeEl: HTMLDivElement;
   private buttons: HTMLButtonElement[][] = [];
   private hideAt = 0;
   private cam: Camera | null = null;

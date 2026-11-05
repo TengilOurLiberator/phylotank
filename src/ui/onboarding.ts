@@ -153,6 +153,7 @@ export class OnboardingUi {
     this.highlight(null);
     const st = this.state;
     this.helpButton.style.display = st.s === 'done' ? '' : 'none';
+    document.body.classList.toggle('onb-on', st.s !== 'done' && st.s !== 'firstRun');
     this.el.className = 'pt-onb';
     switch (st.s) {
       case 'firstRun': mount(this.el); break;
@@ -212,9 +213,11 @@ export class OnboardingUi {
     const card = this.el.firstElementChild as HTMLElement | null;
     if (!card) return;
     if (!target || st.step === 1) { card.style.left = ''; card.style.top = ''; card.classList.remove('pinned'); return; }
-    const r = target.getBoundingClientRect();
+    // beside the target's panel (or rail), so the card never covers the controls next to the target
+    const host = target.closest('.pt-panel, .pt-rail') ?? target;
+    const r = target.getBoundingClientRect(), hr = host.getBoundingClientRect();
     card.classList.add('pinned');
-    card.style.left = `${Math.round(r.right + 14)}px`;
+    card.style.left = `${Math.round(hr.right + 14)}px`;
     card.style.top = `${Math.round(Math.max(52, r.top - 6))}px`;
   }
 }
