@@ -5,7 +5,7 @@
  * estimate everywhere it is shown. Validation warns, never forbids: release stays enabled.
  */
 import {
-  B0_KLEIBER, BRAIN_COST_NEURON_W, BRAIN_COST_SYNAPSE_W, BT, C_G, C_REP, DAY_S, E_A_EV, E_B, GENOME_FLAG_LEVIATHAN,
+  B0_KLEIBER, J_MAX_BASAL, BRAIN_COST_NEURON_W, BRAIN_COST_SYNAPSE_W, BT, C_G, C_REP, DAY_S, E_A_EV, E_B, GENOME_FLAG_LEVIATHAN,
   K_BOLTZMANN_EV, KIND, KLEIBER_EXP, M_REF_1CM, MOUTH_SUBTYPE, T, T_REF_K, decodeQ, BRAIN_TRAITS, TRAITS,
   type Genome,
 } from '../../core/index.js';
@@ -94,10 +94,10 @@ export function computeBudget(g: Genome, body: GrownBody, tempC = 14): Budget {
   }
   const search = (0.6 + 0.35 * Math.min(4, eyes) + 0.3 * Math.min(2, chemo)) * (0.4 + 0.25 * cruiseBLs) * (mouths.some((s) => s === MOUTH_SUBTYPE.FILTER) ? 1.2 : 1);
   const photoW = (g.modules.reduce((s, x) => s + x.photoFraction / 255, 0) / Math.max(1, g.modules.length)) * 3 * B;
-  const intake = (rho: number) => 8 * B * assim * (search * rho) / (1 + search * rho) + photoW;
+  const intake = (rho: number) => J_MAX_BASAL * B * assim * (search * rho) / (1 + search * rho) + photoW;
   const income = { poor: intake(DENSITIES.poor), typical: intake(DENSITIES.typical), rich: intake(DENSITIES.rich) };
   const need = costW - photoW;
-  const x = need / Math.max(1e-30, 8 * B * assim);
+  const x = need / Math.max(1e-30, J_MAX_BASAL * B * assim);
   const breakEven = need <= 0 ? 0 : x >= 1 ? Infinity : x / (search * (1 - x));
   const starveS = (tr(g, 'FAT_CAPACITY') * m * E_B) / costW;
   const lifespanS = tr(g, 'LIFESPAN_MULT') * matureS;

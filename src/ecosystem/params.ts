@@ -7,7 +7,7 @@
  * keeps every ratio of 04 (half-saturations, bloom shading, mat ceiling) where it was.
  * Rates: per sim second; 04's "per day" values are divided by DAY_S (1200 s).
  */
-import { DAY_S } from '../core/index.js';
+import { DAY_S, J_MAX_BASAL } from '../core/index.js';
 
 export const DENS = 3.1e-5 * 5.6; // kg/m^2 per old mu/m^2
 const PER_DAY = 1 / DAY_S;
@@ -65,7 +65,7 @@ const P_BASE = {
   // Feeding and digestion (DESIGN R11, 02 §2.6.5)
   scrapeRate: 0.5, // body lengths per second swept by a rasping mouth
   photoEff: 2e-6, // kg/s of reserve per m^2 of photosynthetic area at full light
-  hollingK: 12, // J_max = 12 B / (f E_B) (CONTRACT 9.5; raised from 8 in integration, docs/spikes/integration-1.md)
+  hollingK: J_MAX_BASAL, // J_max = 12 B / (f E_B) (CONTRACT 9.5; raised from 8 in integration, docs/spikes/integration-1.md)
   // Feeding current of a filter feeder, body lengths per second of water drawn through the
   // mouth on top of the creature's own speed through the water (cilia and pumping, 04 §4.5).
   pumpFloorBL: 1,

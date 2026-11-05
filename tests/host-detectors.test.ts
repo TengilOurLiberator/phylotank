@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { hashWorld, LIFE, type SimEvent, type WorldConfig } from '../src/core/index.js';
-import { sim } from '../src/sim/index.js';
+import { fallbackSim as sim } from '../src/sim/index.js';
 import { Detectors } from '../src/host/detectors.js';
 import { entityId } from '../src/host/interest.js';
 

@@ -8,10 +8,15 @@ import {
   decodeBodyEnter, decodeBodyFrame, decodeCborFrame, decodeDust, DUST_EMPTY, encodeAck, encodeCborFrame, encodeViewport,
   FRAME, LIFE, readHeader, type WorldConfig,
 } from '../src/core/index.js';
-import { sim } from '../src/sim/index.js';
+import { fallbackSim as sim } from '../src/sim/index.js';
+import { useHostCore } from '../src/host/core.js';
 import { classify, decodeGlowField, encodeGlowField, entityId, InterestStream, interestRect, SlotMap } from '../src/host/interest.js';
 import { startHost, type RunningHost } from '../src/host/index.js';
 import { summarise } from '../src/host/summary.js';
+
+// Host mechanics run on the fast fallback modules (src/host/core.ts); the real pipeline's
+// snapshots and determinism are tested in tests/integration-real.test.ts.
+useHostCore(sim);
 
 // the build machine is shared with other jobs; allow slow runs
 vi.setConfig({ testTimeout: 120_000 });

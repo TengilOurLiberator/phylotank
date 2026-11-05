@@ -8,7 +8,12 @@ import {
 } from '../src/host/security.js';
 import { IDLE_SAMPLE, ShellProbe, StubProbe, Throttle } from '../src/host/throttle.js';
 import { TickScheduler } from '../src/host/scheduler.js';
-import { sim } from '../src/sim/index.js';
+import { fallbackSim as sim } from '../src/sim/index.js';
+import { useHostCore } from '../src/host/core.js';
+
+// Host mechanics run on the fast fallback modules (src/host/core.ts); the real pipeline's
+// snapshots and determinism are tested in tests/integration-real.test.ts.
+useHostCore(sim);
 
 // the build machine is shared with other jobs; allow slow runs
 vi.setConfig({ testTimeout: 120_000 });

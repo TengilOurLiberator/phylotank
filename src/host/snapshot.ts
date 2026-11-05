@@ -10,7 +10,8 @@ import {
   PTK_FLAG, PTK_SCHEMA_VERSION, readPtk, TYPE_BYTES, TYPE_CODE, utf8Encode, writePtk, type AnyTypedArray, type CborValue,
   type Codec, type CodecTable, type PtkHeader, type SectionIn, type World, type WorldConfig,
 } from '../core/index.js';
-import { exportSimState, sim as defaultSim, type JournalEntry, type SavedSim, type SimCoreWithModules } from '../sim/index.js';
+import { exportSimState, type JournalEntry, type SavedSim, type SimCoreWithModules } from '../sim/index.js';
+import { hostCore } from './core.js';
 import { hashChunks, worldChunks } from './hasher.js';
 import { migrateSections } from './migrations.js';
 
@@ -156,7 +157,7 @@ function validConfig(v: unknown): WorldConfig {
 }
 
 /** Decode and verify a `.ptk`. Throws FormatError on any corruption; never returns a half world. */
-export function decodeWorld(bytes: Uint8Array, core: SimCoreWithModules = defaultSim): DecodedWorld {
+export function decodeWorld(bytes: Uint8Array, core: SimCoreWithModules = hostCore()): DecodedWorld {
   try {
     return decodeWorldUnchecked(bytes, core);
   } catch (e) {

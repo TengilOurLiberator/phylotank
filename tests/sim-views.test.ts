@@ -9,7 +9,7 @@ import {
 } from '../src/core/index.js';
 import { Detectors } from '../src/sim/detectors.js';
 import { ViewStream } from '../src/sim/frames.js';
-import { drainEvents, sim, type SimConfig } from '../src/sim/index.js';
+import { drainEvents, fallbackSim as sim, type SimConfig } from '../src/sim/index.js';
 import { Pacer, type PacerClock, type PacerStatus } from '../src/sim/pacer.js';
 import { SimSession } from '../src/sim/session.js';
 import { stateOf } from '../src/sim/state.js';
@@ -160,7 +160,7 @@ describe('session', { timeout: 180_000 }, () => {
   const client = { send: (f: Uint8Array): void => { frames.push(f); } };
 
   it('greets with WELCOME, ENV, CENSUS and a keyframe, then streams at the protocol cadences', () => {
-    const s = new SimSession(cfg());
+    const s = new SimSession(cfg(), sim);
     s.add(client, ['view']);
     const t0 = frames.map((f) => readHeader(f).type);
     expect(t0.slice(0, 3)).toEqual([FRAME.WELCOME, FRAME.ENV, FRAME.CENSUS]);
@@ -180,7 +180,7 @@ describe('session', { timeout: 180_000 }, () => {
   });
 
   it('refuses commands from the view scope and stale epochs; schedules casts after the lead time', () => {
-    const s = new SimSession(cfg());
+    const s = new SimSession(cfg(), sim);
     const got: Uint8Array[] = [];
     const v = { send: (f: Uint8Array): void => { got.push(f); } };
     const g = { send: (f: Uint8Array): void => { got.push(f); } };
@@ -203,7 +203,7 @@ describe('session', { timeout: 180_000 }, () => {
   });
 
   it('answers GENOME_REQ from the store and applies VIEWPORT', () => {
-    const s = new SimSession(cfg());
+    const s = new SimSession(cfg(), sim);
     const got: Uint8Array[] = [];
     const c = { send: (f: Uint8Array): void => { got.push(f); } };
     s.add(c, ['view']);

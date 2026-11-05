@@ -11,7 +11,7 @@ import {
 import { ecosystem } from '../src/ecosystem/index.js';
 import {
   appliedJournal, compactSegments, createSim, drainChannels, drainEvents, entityId, killNow, requestBirth, requestDeath, requestRestage,
-  requestsOf, schedule, sim, stateDigest, stateOf, type SimConfig,
+  fallbackSim as sim, requestsOf, schedule, stateDigest, stateOf, type SimConfig,
 } from '../src/sim/index.js';
 import { fallbackGenome } from '../src/sim/fallback/genome.js';
 import { runHeadless } from '../src/sim/runner.js';
@@ -32,17 +32,17 @@ const cfg = (seedLo: number, extra: Partial<SimConfig> = {}): SimConfig => ({
 
 describe('sim pipeline', { timeout: 180_000 }, () => {
   it('is deterministic with births and deaths: same seed, same hash and digest', () => {
-    const a = runHeadless(cfg(11), { ticks: 3000, auditEvery: 0 });
-    const b = runHeadless(cfg(11), { ticks: 3000, auditEvery: 0 });
+    const a = runHeadless(cfg(11), { core: sim, ticks: 3000, auditEvery: 0 });
+    const b = runHeadless(cfg(11), { core: sim, ticks: 3000, auditEvery: 0 });
     expect(a.summary.births).toBeGreaterThan(0);
     expect(a.summary.hash).toBe(b.summary.hash);
     expect(a.summary.digest).toBe(b.summary.digest);
-    const c = runHeadless(cfg(12), { ticks: 3000, auditEvery: 0 });
+    const c = runHeadless(cfg(12), { core: sim, ticks: 3000, auditEvery: 0 });
     expect(c.summary.hash).not.toBe(a.summary.hash);
   });
 
   it('keeps the ledger exact on every ecology tick through births, deaths and decay', () => {
-    const { summary, world } = runHeadless(cfg(21), { ticks: 6000, auditEvery: 1 });
+    const { summary, world } = runHeadless(cfg(21), { core: sim, ticks: 6000, auditEvery: 1 });
     expect(summary.births).toBeGreaterThan(20);
     expect(Object.values(summary.deaths).reduce((x, y) => x + y, 0)).toBeGreaterThan(0);
     expect(summary.audits).toBe(2001);
@@ -52,7 +52,7 @@ describe('sim pipeline', { timeout: 180_000 }, () => {
   });
 
   it('counts agents consistently with the slots', () => {
-    const { world } = runHeadless(cfg(5), { ticks: 3000, auditEvery: 0 });
+    const { world } = runHeadless(cfg(5), { core: sim, ticks: 3000, auditEvery: 0 });
     const c = world.cr.c;
     let live = 0, carc = 0;
     for (let s = 0; s < world.cr.highWater; s++) {

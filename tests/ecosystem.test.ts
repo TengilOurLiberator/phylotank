@@ -1,7 +1,7 @@
 /** Ecosystem unit and integration tests (04 §4.14, CONTRACT 9, 13). */
 import { describe, expect, it } from 'vitest';
 import {
-  allocWorld, DAY_S, DT, isMajorPower, LIFE, MATERIAL, NATURE_POWERS, Q_MASS, RngStreams, M_REF_1CM, mRef, CORE_POWERS,
+  allocWorld, DAY_S, J_MAX_BASAL, DT, isMajorPower, LIFE, MATERIAL, NATURE_POWERS, Q_MASS, RngStreams, M_REF_1CM, mRef, CORE_POWERS,
   POWER_IDS, type GodEventScheduled, type StepContext, type World,
 } from '../src/core/index.js';
 import {
@@ -181,7 +181,7 @@ describe('metabolism hooks (CONTRACT 9.4, 9.5)', () => {
   it('repair cost buys lifespan and Holling type II saturates filter intake', () => {
     expect(repairPowerW(1, 4)).toBeCloseTo(0.15, 12);
     const B = 1e-3;
-    const jMax = (8 * B) / (0.6 * 4000);
+    const jMax = (J_MAX_BASAL * B) / (0.6 * 4000); // CONTRACT 9.5 (12 since the integration balance pass)
     expect(hollingFilter(1e3, B)).toBeLessThan(jMax);
     expect(hollingFilter(1e3, B)).toBeGreaterThan(0.99 * jMax);
     expect(hollingFilter(1e-9, B)).toBeCloseTo(1e-9, 12);

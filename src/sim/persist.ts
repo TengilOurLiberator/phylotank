@@ -11,7 +11,7 @@
  * side state travels as `eco` (request E4). Tested: a restored world steps bit for bit.
  */
 import { decodeGenome, LIFE, type CborValue, type World } from '../core/index.js';
-import { ecosystem as realEcosystem, restoreEcoState, saveEcoState } from '../ecosystem/index.js';
+import { ecosystem as realEcosystem, hasEcoState, restoreEcoState, saveEcoState } from '../ecosystem/index.js';
 import { contactState, linkState, type BiteRecord, type Link } from '../physics/index.js';
 import { birthEnvFor, developOpts } from './commit.js';
 import { requestsOf, type SimRequests } from './requests.js';
@@ -60,7 +60,8 @@ export function exportSimState(world: World): SavedSim {
     seq: s.seq, deferredBirths: s.deferredBirths, popSoftLimit: s.popSoftLimit,
     nAgentsAtTickStart: s.nAgentsAtTickStart, hashEvery: s.hashEvery,
     ...(reg ? { registry: reg.save() } : {}),
-    ...(s.modules.ecosystem === realEcosystem ? { eco: saveEcoState(world) } : {}),
+    // the fallback life cycle also runs over the real ecosystem's fields and flow, so save it whenever it exists
+    ...(hasEcoState(world) ? { eco: saveEcoState(world) } : {}),
     bites: contactState(world).bites.map((b) => ({ ...b })),
     links: linkState(world).links.map((l) => ({ ...l })),
     pending: s.journal.map(({ seq, ...e }) => { void seq; return e as JournalEntry; }),
@@ -77,7 +78,7 @@ export function adoptWorld(world: World, modules: SimModules, saved?: SavedSim |
   const mods: SimModules = { ...modules };
   if (modules.genomeFor) mods.genome = modules.genomeFor(saved?.registry);
   const st = initState(world, mods, saved?.hashEvery ?? 0);
-  if (mods.ecosystem === realEcosystem) restoreEcoState(world, saved?.eco);
+  if (saved?.eco !== undefined || mods.ecosystem === realEcosystem) restoreEcoState(world, saved?.eco);
   if (!saved) return;
   if (saved.v !== SIM_STATE_VERSION) throw new Error(`unknown sim state version ${saved.v}`);
   st.store = loadStore(saved.store, decodeGenome);

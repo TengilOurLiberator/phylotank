@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeDust, LIFE, readHeader, FRAME, type WorldConfig } from '../src/core/index.js';
 import { ecosystem } from '../src/ecosystem/index.js';
-import { encodeViewFrames, sim } from '../src/sim/index.js';
+import { encodeViewFrames, fallbackSim as sim } from '../src/sim/index.js';
 
 const cfg = (seedLo: number): WorldConfig => ({ preset: 'small', seedLo, seedHi: 7, backend: 'cpu', skeletonMotes: 800 });
 

@@ -180,7 +180,9 @@ describe('energy budget and validation (UX-T06, T07)', () => {
     expect(issues(sex, 1)).toContain('V05');
     expect(issues(decodeGenome(setTrait(encodeGenome(g), 'T', 16, -1)))).toContain('V11');
     expect(issues(decodeGenome(setTrait(encodeGenome(g), 'T', 0, 0.5)))).toContain('V13');
-    const noMouth = decodeGenome(deleteRule(encodeGenome(g), 3));
+    // the mouth rule by kind (its innovation id differs between the phase-1 and the real genome templates)
+    const mouthInnov = g.modules.find((m) => m.kind === KIND.MOUTH)!.innov;
+    const noMouth = decodeGenome(deleteRule(encodeGenome(g), mouthInnov));
     expect(issues(noMouth)).toContain('V14');
     const cold = decodeGenome(setTrait(setTrait(encodeGenome(g), 'T', 22, 30), 'T', 23, 1));
     expect(issues(cold)).toContain('V09');

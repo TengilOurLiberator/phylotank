@@ -14,6 +14,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SimCoreEngine } from './adapters/simcore.js';
+import { DEFAULT_DREAM_CONFIG } from '../../src/sim/session.js';
 import type { EvoEngine, Observation } from './engine.js';
 import { DEFAULT_DETECTOR_OPTIONS, runDetectors } from './detectors.js';
 import { GENES } from './toy/genome.js';
@@ -78,9 +79,11 @@ export function makeEngine(a: CliArgs): EvoEngine {
     if (f['agent-cap'] !== undefined) config.agentCap = num(f, 'agent-cap', 0);
     if (f.motes !== undefined) config.skeletonMotes = num(f, 'motes', 0);
     if (typeof f.habitat === 'string') config.habitat = f.habitat;
-    // --founders motefly:200,meadowlamp:60 (templates and counts)
-    if (typeof f.founders === 'string') {
-      config.founders = f.founders.split(',').map((p) => { const [t, n] = p.split(':'); return { template: t, count: Number(n ?? 1) }; });
+    // --founders motefly:200:surface,meadowlamp:60:shelf (template, count, optional release zone);
+    // --founders dream uses the v0.1 dream-tank founders
+    if (f.founders === 'dream') config.founders = DEFAULT_DREAM_CONFIG.founders;
+    else if (typeof f.founders === 'string') {
+      config.founders = f.founders.split(',').map((p) => { const [t, n, z] = p.split(':'); return { template: t, count: Number(n ?? 1), ...(z ? { zone: z } : {}) }; });
     }
     return new SimCoreEngine({ seed, preset: ((f.preset as string) ?? 'small') as 'small', config });
   }
@@ -108,7 +111,7 @@ export function main(argv: string[]): number {
       onSample: (r) => {
         // checkpoint the series so a long run that is stopped early still leaves its data
         partial.push(r);
-        if (partial.length % 30 === 0) writeFileSync(join(out, 'series.partial.csv'), toCsv(partial));
+        if (partial.length % 5 === 0) writeFileSync(join(out, 'series.partial.csv'), toCsv(partial));
         if (quiet) return;
         const h = Math.floor(r.tH!);
         if (h !== lastPrint) {

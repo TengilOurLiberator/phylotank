@@ -735,7 +735,7 @@ From traits `x1 = DIET_PLANT`, `x2 = DIET_DETRITUS`: `e_plant = x1 (1 - x2)`, `e
 
 ### 9.5 Feeding limits (fixes review R10: jet-parked filter blobs)
 
-- Filter intake is Holling type II: `J = J_raw / (1 + J_raw / J_max)` with `J_raw = filter * A_mouth * |v_rel| * C` (04 §4.5) and `J_max = 8 * B / (f_food * E_B)` kg/s.
+- Filter intake is Holling type II: `J = J_raw / (1 + J_raw / J_max)` with `J_raw = filter * A_mouth * |v_rel| * C` (04 §4.5) and `J_max = J_MAX_BASAL * B / (f_food * E_B)` kg/s with `J_MAX_BASAL = 12` (8 before the integration balance pass: microbes could not cover basal, repair and pumping at 8; docs/spikes/integration-1.md).
 - Filtering costs pumping power `P_pump = 0.5 * B * filter * mouthOpen`, added to `powerW` by physics.
 - Sessile attachment (`SESSILE > 0.5`) is a physics state; an attached creature still pays drag work against the current through its holdfast as basal-scaled isometric cost (`kappa_iso` term, 02 §2.6.3).
 

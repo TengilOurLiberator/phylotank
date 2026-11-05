@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { hashWorld, type WorldConfig } from '../src/core/index.js';
 import { startHost } from '../src/host/index.js';
+import { useHostCore } from '../src/host/core.js';
+import { fallbackSim } from '../src/sim/index.js';
 import { HostWorld } from '../src/host/world-host.js';
+
+// Host mechanics run on the fast fallback modules (src/host/core.ts); the real pipeline's
+// snapshots and determinism are tested in tests/integration-real.test.ts.
+useHostCore(fallbackSim);
 
 // the build machine is shared with other jobs; allow slow runs
 vi.setConfig({ testTimeout: 120_000 });

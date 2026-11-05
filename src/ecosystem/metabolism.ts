@@ -110,7 +110,8 @@ export function loadCreature(world: World, s: EcoState, slot: number, init: Crea
   // A suction mouth inhales particles and loose detritus: it feeds through the filter path at
   // 0.8 of a filter's rate (integration decision: suction had no intake at all, so every
   // suction feeder starved; docs/spikes/integration-1.md). Selectivity follows its enzymes.
-  e[o + ER.FILTER] = Math.max(mouth.filter, 0.8 * mouth.suction); e[o + ER.SCRAPE] = mouth.scrape; e[o + ER.BITE] = mouth.bite; e[o + ER.GAPE] = mouth.gape;
+  // Near the substrate it also works as a (half-rate) scraper, which is the deposit-feeding path.
+  e[o + ER.FILTER] = Math.max(mouth.filter, 0.8 * mouth.suction); e[o + ER.SCRAPE] = Math.max(mouth.scrape, 0.5 * mouth.suction); e[o + ER.BITE] = mouth.bite; e[o + ER.GAPE] = mouth.gape;
   const adultL = c.adultLength[slot]! > 0 ? c.adultLength[slot]! : (ph?.adultLengthM ?? Math.min(trait(tr, 'ADULT_LENGTH'), world.lCeilingM));
   c.adultLength[slot] = adultL;
   const adultM = init.adultMassKg ?? M_REF_1M * adultL * adultL * adultL;

@@ -121,6 +121,8 @@ export const K_CAP = 1;
 export const FAT_CAPACITY_0 = 0.3;
 export const OVERHEAD_FRACTION = 0.15;
 export const OVERHEAD_ABS_KG = 1e-3 * M_REF_1CM;
+/** Holling ceiling of filter intake as a multiple of basal: J_max = J_MAX_BASAL B / (f E_B) (CONTRACT 9.5; 8 until integration). */
+export const J_MAX_BASAL = 12;
 /** Genome replication cost per byte per offspring, kg (CONTRACT 9.6, request G9; 01 §1.6.4). */
 export const KAPPA_DNA_KG = 2.6e-14;
 export const ENZYME_THETA = 1.3;

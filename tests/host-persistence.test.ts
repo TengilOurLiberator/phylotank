@@ -3,11 +3,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { FormatError, hashWorld, PTK_SCHEMA_VERSION, type WorldConfig } from '../src/core/index.js';
-import { schedule, sim } from '../src/sim/index.js';
+import { fallbackSim as sim, schedule } from '../src/sim/index.js';
+import { useHostCore } from '../src/host/core.js';
 import { migrateSections, type Migration } from '../src/host/migrations.js';
 import { decodeWorld, encodeWorld } from '../src/host/snapshot.js';
 import { readJournalBytes, WorldStore } from '../src/host/store.js';
 import { HostWorld } from '../src/host/world-host.js';
+
+// Host mechanics run on the fast fallback modules (src/host/core.ts); the real pipeline's
+// snapshots and determinism are tested in tests/integration-real.test.ts.
+useHostCore(sim);
 
 // the build machine is shared with other jobs; allow slow runs
 vi.setConfig({ testTimeout: 120_000 });

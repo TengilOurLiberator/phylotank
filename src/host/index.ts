@@ -14,6 +14,7 @@ import {
   type CborValue, type CommandResult, type GodCommand, type SimEvent, type ViewMode, type WorldConfig,
 } from '../core/index.js';
 import { envFrameFor } from '../sim/index.js';
+export { hostCore, useHostCore } from './core.js';
 import { DEFAULT_DREAM_CONFIG, welcomeFor } from '../sim/session.js';
 import { CommandError, HOST_EVENT_ID_BASE, planCast, RateLimit, validateCommand } from './commands.js';
 import { Detectors, type DerivedEvent } from './detectors.js';

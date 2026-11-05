@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { decodeCborFrame, decodeDust, encodeCborFrame, FRAME, readHeader } from '../src/core/index.js';
-import { originAllowed, startHost, type RunningHost } from '../src/host/index.js';
+import { originAllowed, startHost, useHostCore, type RunningHost } from '../src/host/index.js';
+import { fallbackSim } from '../src/sim/index.js';
+
+// Host mechanics run on the fast fallback modules (src/host/core.ts); the real pipeline is
+// covered by tests/integration-real.test.ts and the e2e smoke against dist/host.mjs.
+useHostCore(fallbackSim);
 
 let host: RunningHost;
 beforeAll(async () => {

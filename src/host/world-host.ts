@@ -7,7 +7,8 @@
 import {
   HASH_EVERY, hashWorld, toHex64, type CborValue, type GodEventScheduled, type SimEvent, type World, type WorldConfig,
 } from '../core/index.js';
-import { drainEvents, schedule as simSchedule, sim, type JournalEntry } from '../sim/index.js';
+import { drainEvents, schedule as simSchedule, type JournalEntry } from '../sim/index.js';
+import { hostCore } from './core.js';
 import { decodeWorld, encodeWorld, prepareSnapshot, SIM_BUILD_HASH, type DecodedWorld } from './snapshot.js';
 import { HostWorker } from './worker.js';
 import { WorldStore, type JournalRecord, type Retention, type SnapshotInfo, type SnapshotKind } from './store.js';
@@ -73,7 +74,7 @@ export class HostWorld {
   static open(o: HostWorldOptions): HostWorld {
     const wallIso = o.wallIso ?? (() => new Date().toISOString());
     if (!o.dir) {
-      return new HostWorld(sim.create(o.config), null, { created: true, failed: [], replayedTicks: 0, replayedInputs: 0, hashChecks: 0, unreplayable: [], tornJournals: 0 }, wallIso);
+      return new HostWorld(hostCore().create(o.config), null, { created: true, failed: [], replayedTicks: 0, replayedInputs: 0, hashChecks: 0, unreplayable: [], tornJournals: 0 }, wallIso);
     }
     const store = new WorldStore(o.dir, o.retention);
     const report: RecoveryReport = { created: false, failed: [], replayedTicks: 0, replayedInputs: 0, hashChecks: 0, unreplayable: [], tornJournals: 0 };
@@ -89,7 +90,7 @@ export class HostWorld {
     if (!base) {
       if (o.readOnly) throw new Error(`no readable snapshot in ${o.dir}`);
       report.created = true;
-      const hw = new HostWorld(sim.create(o.config), store, report, wallIso);
+      const hw = new HostWorld(hostCore().create(o.config), store, report, wallIso);
       hw.save('auto');
       return hw;
     }
@@ -184,7 +185,7 @@ export class HostWorld {
     const w = this.world;
     const t = w.g.tick;
     try {
-      sim.step(w);
+      hostCore().step(w);
     } catch (e) {
       // A module stub that throws must not take the host down; the tick is retried without the
       // input that was already consumed, which replay reproduces identically.
