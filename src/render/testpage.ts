@@ -117,7 +117,7 @@ function actorState(a: Actor, t: number, i: number, tank: [number, number]): { x
 interface Ctx { canvas: HTMLCanvasElement; r: WebGL2Renderer; mode: ViewMode }
 let ctx: Ctx | null = null;
 
-function setup(mode: ViewMode, w: number, h: number): Ctx {
+function setup(mode: ViewMode, w: number, h: number, software = false): Ctx {
   if (ctx) ctx.canvas.remove();
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
@@ -125,6 +125,8 @@ function setup(mode: ViewMode, w: number, h: number): Ctx {
   document.body.appendChild(canvas);
   const r = createRenderer(canvas, mode);
   r.options.syncReadback = true;
+  r.options.software = software; // review the full-quality look even on SwiftShader
+  r.applyOptions();
   r.resize(w, h, 1);
   r.setTemplateSource((key) => {
     const k = Number(key);
@@ -155,10 +157,10 @@ function streamFrame(r: WebGL2Renderer, sc: Scene, t: number, tick: number, rect
 }
 
 /** Render scene `name` at time `t` (seconds), stepping from 0 with a fixed step. */
-function renderScene(name: string, opts: { mode?: ViewMode; t?: number; w?: number; h?: number; profile?: boolean; step?: number; warm?: number } = {}): unknown {
+function renderScene(name: string, opts: { mode?: ViewMode; t?: number; w?: number; h?: number; profile?: boolean; step?: number; warm?: number; software?: boolean } = {}): unknown {
   const sc = SCENES[name]!();
   sc.cam = { ...sc.cam, zeta: sc.cam.zeta + Math.log2((opts.w ?? 1280) / 1280) };
-  const { r } = setup(opts.mode ?? 'screensaver', opts.w ?? 1280, opts.h ?? 720);
+  const { r } = setup(opts.mode ?? 'screensaver', opts.w ?? 1280, opts.h ?? 720, !!opts.software);
   r.tank = { w: sc.tank[0], h: sc.tank[1] };
   r.options.profilePasses = !!opts.profile;
   r.ingest(encodeEnv({ tick: 0, dayPhase: 0.5, yearPhase: 0, surfaceLight: sc.sun, surfaceTempC: 15, turbidity: 0.1, ySurface: 0, modes: [] }));

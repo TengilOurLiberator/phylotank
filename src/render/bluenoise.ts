@@ -44,7 +44,7 @@ export function blueNoise64(): Uint8Array {
     if (!on[i]) { on[i] = 1; splat(i, 1); count++; }
   }
   // relax: move the tightest cluster into the largest void until stable
-  for (let iter = 0; iter < 4 * N; iter++) {
+  for (let iter = 0; iter < 200; iter++) {
     const c = argExt(1, true);
     on[c] = 0; splat(c, -1);
     const v = argExt(0, false);

@@ -43,7 +43,13 @@ export interface RenderSettings {
   caps: TierCaps; ditherAmp: number; staticDither: boolean; blackLift: number; minSpeckPx: number; hazeMax: number;
   emissionGain: number;
 }
-export function settingsFor(mode: ViewMode, outW: number, outH: number, opts: { cast?: boolean; tvLocal?: boolean } = {}): RenderSettings {
+export function settingsFor(mode: ViewMode, outW: number, outH: number, opts: { cast?: boolean; tvLocal?: boolean; software?: boolean } = {}): RenderSettings {
+  const s = settingsForMode(mode, outW, outH, opts);
+  // a software rasteriser (SwiftShader, llvmpipe) is the weakest machine there is: lowest tier
+  if (opts.software) { s.renderScale = Math.min(s.renderScale, 0.3); s.bloomLevels = Math.min(s.bloomLevels, 2); s.snow *= 0.25; }
+  return s;
+}
+function settingsForMode(mode: ViewMode, outW: number, outH: number, opts: { cast?: boolean; tvLocal?: boolean }): RenderSettings {
   const big = Math.max(outW, outH);
   const base: RenderSettings = {
     renderScale: 1, bloomLevels: 6, bloomStrength: 0.9, trailTau: 0.9, trailGain: 0.55, snow: 1, caps: TIER_CAPS.screensaver,
@@ -109,7 +115,9 @@ export class WebGL2Renderer implements RendererModule {
     tiers: [0, 0, 0, 0, 0], instances: 0, capsules: 0, sprites: 0, exposure: 1, meanLum: 0, safetyTriggers: 0, error: '',
   };
   /** Options for deterministic tests: synchronous luminance readback and a fixed dither phase. */
-  options = { syncReadback: false, cast: false, tvLocal: false, profilePasses: false };
+  options = { syncReadback: false, cast: false, tvLocal: false, profilePasses: false, software: false };
+  /** True when the context is a software rasteriser; `options.software` follows it unless a test overrides it. */
+  software = false;
   /** Per-pass wall times in ms when `options.profilePasses` is set (each pass is followed by gl.finish). */
   passMs: Record<string, number> = {};
   private mark(name: string, t0: number): number {
@@ -156,6 +164,7 @@ export class WebGL2Renderer implements RendererModule {
   private fbDown: Fbo[] = [];
   private fbUp: Fbo[] = [];
   private fbLum: Fbo | null = null;
+  private fbOut: Fbo | null = null;
   private hdrFormat = 0;
 
   // stream state
@@ -199,7 +208,7 @@ export class WebGL2Renderer implements RendererModule {
 
   constructor(private readonly canvas: HTMLCanvasElement, mode: ViewMode) {
     this.profile = VIEW_PROFILES[mode];
-    this.settings = settingsFor(mode, canvas.width, canvas.height);
+    this.settings = settingsFor(mode, canvas.width, canvas.height, this.options);
     this.limiter = new LumaLimiter(this.profile.maxLumaChangePerS);
     this.setPalette(DEFAULT_PALETTE);
     let ok = false;
@@ -211,6 +220,7 @@ export class WebGL2Renderer implements RendererModule {
       console.error('WebGL2 renderer failed to start', e);
     }
     this.ok = ok;
+    this.settings = settingsFor(mode, canvas.width, canvas.height, this.options);
   }
 
   /** Replace the template source (the genome-backed source arrives with `genome.develop`). */
@@ -218,6 +228,10 @@ export class WebGL2Renderer implements RendererModule {
 
   private init(gl: WebGL2RenderingContext): void {
     const floatOk = !!gl.getExtension('EXT_color_buffer_float');
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const rname = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    this.software = /swiftshader|llvmpipe|software/i.test(rname);
+    this.options.software = this.software;
     gl.getExtension('EXT_float_blend');
     this.hdrFormat = floatOk ? gl.RGBA16F : gl.RGBA8;
     const P = (name: string, vs: string, fs: string): void => { this.progs[name] = new Program(gl, vs, fs, name); };
@@ -488,6 +502,8 @@ export class WebGL2Renderer implements RendererModule {
     const F = this.hdrFormat;
     const T = (w: number, h: number): Target => ({ tex: makeTexture(gl, w, h, F, gl.RGBA, F === gl.RGBA8 ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT, true), w, h });
     this.fbScene = new Fbo(gl, [T(rw, rh), T(rw, rh), T(rw, rh)]);
+    this.fbOut?.dispose();
+    this.fbOut = new Fbo(gl, [{ tex: makeTexture(gl, rw, rh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, true), w: rw, h: rh }]);
     const hw = Math.max(1, rw >> 1), hh = Math.max(1, rh >> 1);
     this.fbBg = new Fbo(gl, [T(hw, hh)]);
     this.fbTrail = [new Fbo(gl, [T(hw, hh)]), new Fbo(gl, [T(hw, hh)])];
@@ -917,9 +933,10 @@ export class WebGL2Renderer implements RendererModule {
     this.readLuminance(t);
     pt = this.mark('lum', pt);
 
-    // pass 11: composite to the canvas
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, this.size.outW, this.size.outH);
+    // pass 11: composite to the canvas (at the internal size and blitted up when render scale < 1)
+    const scaled = this.size.rw < this.size.outW;
+    if (scaled) this.fbOut!.bind();
+    else { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, this.size.outW, this.size.outH); }
     const cp = this.progs.composite!.use();
     cp.tex('u_bg', 0, this.fbBg!.targets[0]!.tex).tex('u_body', 1, this.fbScene!.targets[0]!.tex).tex('u_emit', 2, this.fbScene!.targets[1]!.tex)
       .tex('u_trail', 3, trailTex).tex('u_bloom', 4, bloomTex).tex('u_safety', 5, this.safetyTex).tex('u_blue', 6, this.blueTex)
@@ -928,6 +945,12 @@ export class WebGL2Renderer implements RendererModule {
     const k = s.staticDither || this.options.syncReadback ? 0 : this.frameNo;
     cp.f2('u_ditherOffset', (k * 37) % 64, (k * 23) % 64);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (scaled) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbOut!.fb);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      gl.blitFramebuffer(0, 0, this.size.rw, this.size.rh, 0, 0, this.size.outW, this.size.outH, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
     gl.bindVertexArray(null);
     this.mark('composite', pt);
     this.frameNo++;
