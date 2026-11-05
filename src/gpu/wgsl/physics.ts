@@ -31,6 +31,8 @@ export const CRO = { AX: 0, AY: 1, VX: 2, VY: 3, HEAD: 4, W: 5, POW: 6, NSUB: 7,
 /** Scratch fields per segment. */
 const SCR_N = 70;
 export const SCRATCH_FIELDS = SCR_N;
+/** Creatures up to this many segments keep their scratch in private memory. */
+export const PRIV_MAXS = 16;
 
 export interface PhysConsts {
   gravity: number; rhoWater: number; nuWater: number; muWater: number; cAdded: number; gaussXi: number;
@@ -61,7 +63,7 @@ struct Params {
 @group(0) @binding(7) var<storage, read_write> scr: array<f32>;
 
 const FL_FLUID: u32 = 1u; const FL_GRAV: u32 = 2u; const FL_ADDED: u32 = 4u; const FL_WALLS: u32 = 8u;
-const FL_LINEAR: u32 = 16u; const FL_PRESCRIBED: u32 = 32u; const FL_REANCHOR: u32 = 64u;
+const FL_LINEAR: u32 = 16u; const FL_PRESCRIBED: u32 = 32u; const FL_REANCHOR: u32 = 64u; const FL_GLOBAL_SCRATCH: u32 = 128u;
 const PI: f32 = ${f(k.pi)}; const TAU: f32 = ${f(2 * k.pi)};
 const GRAVITY: f32 = ${f(k.gravity)}; const RHO_W: f32 = ${f(k.rhoWater)}; const NU_W: f32 = ${f(k.nuWater)};
 const MU_W: f32 = ${f(k.muWater)}; const C_ADDED: f32 = ${f(k.cAdded)}; const GAUSS_XI: f32 = ${f(k.gaussXi)};
@@ -78,9 +80,15 @@ const IE: u32 = 22u; const RHS: u32 = 23u; const TAUF: u32 = 26u; const CM: u32 
 const DB: u32 = 29u; const DJ: u32 = 38u; const JPA: u32 = 47u; const JPB: u32 = 48u; const JCC: u32 = 49u; const JCD: u32 = 50u;
 const YB: u32 = 51u; const YJ: u32 = 54u; const XB: u32 = 57u; const XJ: u32 = 60u; const CJ: u32 = 63u; const DCB: u32 = 66u;
 
-fn S(fi: u32, i: u32) -> f32 { return scr[fi * P.segCap + i]; }
-fn setS(fi: u32, i: u32, v: f32) { scr[fi * P.segCap + i] = v; }
-fn addS(fi: u32, i: u32, v: f32) { scr[fi * P.segCap + i] = scr[fi * P.segCap + i] + v; }
+// Scratch: creatures of at most MAXS segments keep it in private memory (registers or
+// thread-local memory, interleaved across a warp); larger ones use the global scratch buffer.
+const MAXS: u32 = ${PRIV_MAXS}u;
+var<private> LS: array<f32, ${SCR_N * PRIV_MAXS}>;
+var<private> LB: u32;
+var<private> PRIV: bool;
+fn S(fi: u32, i: u32) -> f32 { if (PRIV) { return LS[fi * MAXS + i - LB]; } return scr[fi * P.segCap + i]; }
+fn setS(fi: u32, i: u32, v: f32) { if (PRIV) { LS[fi * MAXS + i - LB] = v; return; } scr[fi * P.segCap + i] = v; }
+fn addS(fi: u32, i: u32, v: f32) { if (PRIV) { LS[fi * MAXS + i - LB] = LS[fi * MAXS + i - LB] + v; return; } scr[fi * P.segCap + i] = scr[fi * P.segCap + i] + v; }
 fn T(fi: u32, i: u32) -> f32 { return sst[fi * P.segCap + i]; }
 fn D(fi: u32, i: u32) -> f32 { return sdyn[fi * P.segCap + i]; }
 fn setD(fi: u32, i: u32, v: f32) { sdyn[fi * P.segCap + i] = v; }
@@ -286,6 +294,7 @@ fn integrate(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups)
   if (c >= P.nCr) { return; }
   let ci = c * ${CRI.STRIDE}u; let co = c * ${CRO.STRIDE}u;
   let b = cri[ci + ${CRI.BASE}u]; let n = cri[ci + ${CRI.N}u];
+  LB = b; PRIV = n <= MAXS && (P.flags & FL_GLOBAL_SCRATCH) == 0u;
   var mir = 1.0; if (bitcast<i32>(cri[ci + ${CRI.MIR}u]) < 0) { mir = -1.0; }
   let crLen = bitcast<f32>(cri[ci + ${CRI.LEN}u]); let tempC = bitcast<f32>(cri[ci + ${CRI.TEMP}u]);
   let crMass = bitcast<f32>(cri[ci + ${CRI.MASS}u]);

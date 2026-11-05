@@ -26,8 +26,8 @@ import { sampleFlow, stepDrifters, ISLAND_SUBSTEPS } from '../physics/index.js';
 import {
   C_ADDED, CILIA_SLIP, ETA_CILIA, ETA_MUSCLE, GAUSS_XI, KAPPA_CILIA, KAPPA_ISO, MU_WATER, Q10_MUSCLE,
 } from '../physics/constants.js';
-import { BU, bindAll, computePipeline, dispatch, readBuffer, type GpuContext } from './device.js';
-import { CRI, CRO, PHYS_WG, SCRATCH_FIELDS, SDYN, SINT, SST, physicsWgsl } from './wgsl/physics.js';
+import { BU, bindAll, computePipeline, dispatch, explicitLayout, readBuffer, type GpuContext } from './device.js';
+import { CRI, CRO, PHYS_WG, PRIV_MAXS, SCRATCH_FIELDS, SDYN, SINT, SST, physicsWgsl } from './wgsl/physics.js';
 
 const Q16 = 65536;
 
@@ -49,6 +49,8 @@ export interface Buffers {
   crCap: number; segCap: number;
   params: GPUBuffer; cri: GPUBuffer; cro: GPUBuffer; sst: GPUBuffer; sint: GPUBuffer; sdyn: GPUBuffer; flow: GPUBuffer; scr: GPUBuffer;
   flowCells: number;
+  /** The global scratch is allocated (some creature exceeds PRIV_MAXS segments, or forced). */
+  scrFull: boolean;
   bind: GPUBindGroup;
 }
 
@@ -65,13 +67,17 @@ export class GpuPhysicsEngine {
   constructor(readonly gpu: GpuContext, readonly opts: PhysicsOptions = { ...DEFAULT_OPTIONS }) {}
 
   async init(): Promise<this> {
-    this.pipe = await computePipeline(this.gpu.device, physicsWgsl(physConsts()), 'integrate', 'physics.integrate');
+    const layout = explicitLayout(this.gpu.device, ['uniform', 'read', 'rw', 'read', 'read', 'rw', 'read', 'rw']);
+    this.pipe = await computePipeline(this.gpu.device, physicsWgsl(physConsts()), 'integrate', 'physics.integrate', layout);
     return this;
   }
 
-  private ensure(crCap: number, segCap: number, flowCells: number): Buffers {
+  /** Force the global-memory scratch for every creature (benchmarks compare the two layouts). */
+  globalScratch = false;
+
+  private ensure(crCap: number, segCap: number, flowCells: number, needScratch: boolean): Buffers {
     const b = this.bufs;
-    if (b && b.crCap >= crCap && b.segCap >= segCap && b.flowCells >= flowCells) return b;
+    if (b && b.crCap >= crCap && b.segCap >= segCap && b.flowCells >= flowCells && (!needScratch || b.scrFull)) return b;
     if (b) for (const k of ['params', 'cri', 'cro', 'sst', 'sint', 'sdyn', 'flow', 'scr'] as const) b[k].destroy();
     const d = this.gpu.device;
     const cc = Math.max(64, Math.ceil(crCap * 1.25));
@@ -82,7 +88,7 @@ export class GpuPhysicsEngine {
     const nb = {
       crCap: cc, segCap: sc, flowCells: fc, params,
       cri: mk(cc * CRI.STRIDE * 4), cro: mk(cc * CRO.STRIDE * 4), sst: mk(sc * SST.N * 4), sint: mk(sc * SINT.N * 4),
-      sdyn: mk(sc * SDYN.N * 4), flow: mk(fc * 2 * 4), scr: mk(sc * SCRATCH_FIELDS * 4),
+      sdyn: mk(sc * SDYN.N * 4), flow: mk(fc * 2 * 4), scr: mk(needScratch ? sc * SCRATCH_FIELDS * 4 : 16), scrFull: needScratch,
     } as Omit<Buffers, 'bind'> as Buffers;
     nb.bind = bindAll(d, this.pipe!, [nb.params, nb.cri, nb.cro, nb.sst, nb.sint, nb.sdyn, nb.flow, nb.scr]);
     this.bufs = nb;
@@ -96,9 +102,10 @@ export class GpuPhysicsEngine {
     const c = world.cr.c; const sg = world.seg.c;
     const nCr = slots.length;
     let nSeg = 0;
-    for (let q = 0; q < nCr; q++) nSeg += c.segCount[slots[q]!]!;
+    let big = this.globalScratch;
+    for (let q = 0; q < nCr; q++) { const n = c.segCount[slots[q]!]!; nSeg += n; if (n > PRIV_MAXS) big = true; }
     const [gw, gh] = world.fields.coarse;
-    const b = this.ensure(nCr, nSeg, gw * gh);
+    const b = this.ensure(nCr, nSeg, gw * gh, big);
     const S = b.segCap;
     const pk: Packing = { slots: Int32Array.from(slots), base: new Int32Array(nCr), nCr, nSeg };
     const cri = this.hCri; const cro = this.hCro; const sst = this.hSst; const sint = this.hSint; const sdyn = this.hSdyn;
@@ -166,7 +173,7 @@ export class GpuPhysicsEngine {
     const buf = new ArrayBuffer(64); const f = new Float32Array(buf); const u = new Uint32Array(buf);
     f[0] = o.dt; f[1] = world.preset.widthM; f[2] = world.preset.heightM; f[3] = world.g.ySurface;
     u[4] = nCr; u[5] = b.segCap; u[6] = o.nSub > 0 ? o.nSub : 0; u[7] = o.minSub;
-    u[8] = (o.fluid ? 1 : 0) | (o.gravity ? 2 : 0) | (o.addedMass ? 4 : 0) | (o.walls ? 8 : 0) | (o.linearDrag ? 16 : 0) | (o.prescribed ? 32 : 0) | 64;
+    u[8] = (o.fluid ? 1 : 0) | (o.gravity ? 2 : 0) | (o.addedMass ? 4 : 0) | (o.walls ? 8 : 0) | (o.linearDrag ? 16 : 0) | (o.prescribed ? 32 : 0) | 64 | (this.globalScratch ? 128 : 0);
     u[9] = gw; u[10] = gh; f[11] = world.preset.widthM / gw;
     this.gpu.device.queue.writeBuffer(b.params, 0, buf);
   }

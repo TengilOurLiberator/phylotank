@@ -59,6 +59,54 @@ export class GpuBrain {
     return g;
   }
 
+  /**
+   * Benchmark the kernels alone on synthetic brains of class c (all due, full rows, every
+   * neuron exploring): returns ms per brain tick over `ticks` ticks (GPU-resident state). The
+   * clock is passed in so that this file stays free of wall-clock reads.
+   */
+  async benchSynthetic(c: number, nBrains: number, ticks: number, now: () => number): Promise<{ msPerTick: number; synapsesPerTick: number }> {
+    const { n: N, i: I, k: K } = BRAIN_CLASSES[c]!;
+    const g = this.ensure(c, nBrains);
+    const B = g.cap; const d = this.gpu.device; const q = d.queue;
+    let x = 0x9e3779b9;
+    const rnd = (): number => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
+    const hdr = new Uint32Array(nBrains * BH.STRIDE); const hf = new Float32Array(hdr.buffer);
+    for (let s = 0; s < nBrains; s++) {
+      const o = s * BH.STRIDE;
+      hdr[o + BH.DUE] = 1; hdr[o + BH.NIN] = I; hdr[o + BH.NNEU] = N; hdr[o + BH.ELO] = s + 1; hf[o + BH.EXPL] = 0.1; hf[o + BH.FLO] = 0.5; hf[o + BH.FHI] = 2;
+    }
+    q.writeBuffer(g.hdr, 0, hdr);
+    const f32 = (len: number, sc: number): Float32Array => { const a = new Float32Array(len); for (let k = 0; k < len; k++) a[k] = (rnd() - 0.5) * sc; return a; };
+    q.writeBuffer(g.inputs, 0, f32(nBrains * I, 2));
+    const stat = f32(3 * B * N + B * N * 12, 1);
+    for (let k = 3 * B * N; k < stat.length; k += 3) stat[k] = -1; // no oscillator couplings
+    for (let k = B * N; k < 2 * B * N; k++) stat[k] = 0.3; // alpha
+    q.writeBuffer(g.stat, 0, stat);
+    const nkr = new Uint32Array(nBrains * N);
+    for (let a = 0; a < nkr.length; a++) nkr[a] = (a % N < 2 ? NEURON_KIND.MOTOR : a % 7 === 0 ? NEURON_KIND.OSCILLATOR : NEURON_KIND.HIDDEN_HEAD) | (K << 8);
+    q.writeBuffer(g.nkr, 0, nkr);
+    const syn = new Uint32Array(2 * B * K * N);
+    for (let a = 0; a < nBrains * K * N; a++) { syn[a] = Math.floor(rnd() * (I + N)); }
+    const wv = f32(nBrains * K * N, 1);
+    syn.set(new Uint32Array(wv.buffer), B * K * N);
+    q.writeBuffer(g.syn, 0, syn);
+    const pb = new ArrayBuffer(32); const pu = new Uint32Array(pb); const pf = new Float32Array(pb);
+    pu[0] = nBrains; pu[1] = 1; pf[2] = DT; pu[3] = 1; pu[4] = 2; pu[5] = B;
+    q.writeBuffer(g.params, 0, pb);
+    const run = (t: number): void => {
+      const enc = d.createCommandEncoder();
+      for (let k = 0; k < t; k++) {
+        dispatch(d, g.think, g.bgThink, Math.ceil((nBrains * N) / BRAIN_WG), enc);
+        dispatch(d, g.commit, g.bgCommit, Math.ceil(nBrains / BRAIN_WG), enc);
+      }
+      q.submit([enc.finish()]);
+    };
+    run(2); await q.onSubmittedWorkDone();
+    const t0 = now();
+    run(ticks); await q.onSubmittedWorkDone();
+    return { msPerTick: (now() - t0) / ticks, synapsesPerTick: nBrains * N * K };
+  }
+
   /** Same contract as BrainModule.think, asynchronously. */
   async think(world: World, ctx: StepContext): Promise<void> {
     const bs = brainState(world);

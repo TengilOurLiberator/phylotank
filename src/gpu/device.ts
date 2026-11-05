@@ -31,7 +31,7 @@ export interface GpuContext {
 }
 
 export interface AcquireOptions {
-  /** A GPU object to use directly (tests, browsers that hand one in). */
+  /** A GPU object to use directly, and only it (tests, browsers that hand one in). */
   gpu?: GPU;
   /** Path or module specifier of the Dawn Node binding (`.../node_modules/webgpu/index.js`). */
   module?: string;
@@ -62,7 +62,8 @@ async function loadDawn(spec: string): Promise<DawnModule | null> {
 
 async function gpuSources(opts: AcquireOptions): Promise<{ gpu: GPU; source: GpuContext['source'] }[]> {
   const out: { gpu: GPU; source: GpuContext['source'] }[] = [];
-  if (opts.gpu) out.push({ gpu: opts.gpu, source: 'given' });
+  // an explicit GPU object is the only source tried (tests use a fake one to force the fallback)
+  if (opts.gpu) return [{ gpu: opts.gpu, source: 'given' }];
   const nav = (globalThis as { navigator?: { gpu?: GPU } }).navigator;
   if (nav?.gpu) out.push({ gpu: nav.gpu, source: 'navigator' });
   const specs = [opts.module, envPath(), 'webgpu'].filter((s): s is string => !!s);
