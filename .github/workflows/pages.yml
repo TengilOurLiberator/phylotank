@@ -1,0 +1,73 @@
+# GitHub Pages: the public site at https://tengilourliberator.github.io/phylotank/
+# (site/README.md). Builds the app (its dist/ becomes the embedded demo tank in tank/),
+# assembles the site, checks it in headless Chromium, then deploys with actions/deploy-pages.
+# Pages must be enabled once in the repo settings with source "GitHub Actions"; until then
+# the deploy job fails and the build job still checks the site.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# one deployment at a time; never cancel a deployment that is under way
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PLAYWRIGHT_VERSION: 1.63.0
+
+jobs:
+  build:
+    name: Build and check the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Site unit tests
+        run: npx vitest run tests/site
+      - name: Typecheck the site
+        run: npx tsc --noEmit -p site/tsconfig.json
+      - name: Build the app (the demo tank)
+        run: npm run build
+      - name: Assemble the site
+        run: node site/build.mjs --out _site
+      - name: Install Playwright and headless Chromium
+        run: |
+          npm install --global "playwright@${PLAYWRIGHT_VERSION}"
+          playwright install --with-deps chromium
+      - name: Check the site in a browser (demo tank, share page offline, no foreign requests)
+        run: NODE_PATH="$(npm root -g)" node site/e2e.cjs _site
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-screenshots
+          path: tests/artifacts/site-*.png
+          if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'none'; font-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#031421">
+<meta name="description" content="A Phylotank creature, shared as a link. The creature is in the link itself and never reaches a server.">
+<title>Share a creature - Phylotank</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="share-page">
+<a class="skip" href="#main">Skip to content</a>
+<div class="sea" aria-hidden="true"><div class="shafts"></div><div class="motes"></div><div class="motes motes-far"></div></div>
+
+<header class="topbar">
+  <a class="brand" href="./" aria-label="Phylotank home">
+    <img src="assets/favicon.svg" alt="" width="32" height="32">
+    <span>Phylotank</span>
+  </a>
+  <nav aria-label="Main">
+    <ul>
+      <li><a href="./#demo">Demo</a></li>
+      <li><a href="./#download">Download</a></li>
+      <li><a href="share.html" aria-current="page">Share a creature</a></li>
+      <li><a href="https://github.com/TengilOurLiberator/phylotank">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main id="main">
+  <section id="loading" class="panel narrow">
+    <p class="loading" role="status">Reading the creature from the link&hellip;</p>
+    <noscript><p>This page needs JavaScript to read the creature from the link. Nothing is sent anywhere: the page works offline once loaded.</p></noscript>
+  </section>
+
+  <section id="empty" class="panel narrow" hidden aria-labelledby="empty-title">
+    <h1 id="empty-title">Share a creature</h1>
+    <p>Phylotank creatures travel as <code>PTK1.</code> strings and <code>.ptkg</code> files. A share link carries the string after the <code>#</code>, and this page shows the creature and lets you save it, all without sending it anywhere.</p>
+    <form class="paste-form" aria-labelledby="paste-empty-label">
+      <label id="paste-empty-label" for="paste-empty">Paste a PTK1 string or a share link</label>
+      <textarea id="paste-empty" rows="4" spellcheck="false" autocomplete="off" placeholder="PTK1."></textarea>
+      <p class="paste-msg small" aria-live="polite"></p>
+      <p class="cta"><button type="submit" class="button primary">Show the creature</button> <a class="button" href="#example">Try an example creature</a></p>
+    </form>
+  </section>
+
+  <section id="error" class="panel narrow" hidden aria-labelledby="error-title">
+    <h1 id="error-title" tabindex="-1">This creature link did not open</h1>
+    <p id="error-reason" class="error-reason" role="alert"></p>
+    <p>Nothing was saved and nothing was sent anywhere. If someone sent you this link, ask them for the string or the <code>.ptkg</code> file instead.</p>
+    <form class="paste-form" aria-labelledby="paste-error-label">
+      <label id="paste-error-label" for="paste-error">Paste a PTK1 string or a share link</label>
+      <textarea id="paste-error" rows="4" spellcheck="false" autocomplete="off" placeholder="PTK1."></textarea>
+      <p class="paste-msg small" aria-live="polite"></p>
+      <p class="cta"><button type="submit" class="button primary">Show the creature</button> <a class="button" href="#example">Try an example creature</a></p>
+    </form>
+  </section>
+
+  <article id="design" class="design" hidden aria-labelledby="d-name">
+    <div class="tank-glass">
+      <canvas id="preview" role="img" aria-label="Creature preview"></canvas>
+      <p class="preview-note small" id="preview-note"></p>
+    </div>
+    <div class="design-info">
+      <p class="eyebrow">Shared creature</p>
+      <h1 id="d-name" tabindex="-1">Creature</h1>
+      <p id="d-common" class="common"></p>
+      <p id="d-notes" class="notes"></p>
+      <ul id="d-tags" class="tags" aria-label="Tags"></ul>
+      <dl class="facts">
+        <div id="f-fingerprint"><dt>Fingerprint</dt><dd class="mono"></dd></div>
+        <div id="f-body"><dt>Body</dt><dd></dd></div>
+        <div id="f-origin"><dt>Origin</dt><dd></dd></div>
+        <div id="f-world"><dt>From the world</dt><dd></dd></div>
+        <div id="f-author"><dt>Author</dt><dd></dd></div>
+        <div id="f-created"><dt>Created</dt><dd></dd></div>
+        <div id="f-size"><dt>Size</dt><dd></dd></div>
+        <div id="f-licence"><dt>Licence</dt><dd></dd></div>
+      </dl>
+      <nav id="pack" class="pack" hidden aria-label="Designs in this pack">
+        <h2 class="h-small">Designs in this pack</h2>
+        <ul id="pack-list" class="chips"></ul>
+      </nav>
+      <div class="actions">
+        <button type="button" class="button primary" id="download">Download .ptkg</button>
+        <button type="button" class="button" id="copy-string">Copy string</button>
+        <button type="button" class="button" id="copy-link">Copy link</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <details class="string">
+        <summary>Show the PTK1 string</summary>
+        <label for="d-string" class="visually-hidden">The creature's PTK1 string</label>
+        <textarea id="d-string" readonly rows="5" spellcheck="false"></textarea>
+      </details>
+    </div>
+  </article>
+
+  <section class="panel narrow howto" aria-labelledby="howto-title">
+    <h2 id="howto-title">Put it in your own tank</h2>
+    <ol class="steps">
+      <li><strong>Save it:</strong> download the <code>.ptkg</code> file, or copy the string.</li>
+      <li><strong>Import it:</strong> in Phylotank's god window, drop the file anywhere in the library, or paste the string. It opens in the designer first, never straight into your world.</li>
+      <li><strong>Release it</strong> when you are ready, and watch what evolution does with it.</li>
+    </ol>
+    <p>No Phylotank yet? <a href="./#download">Download it</a>, or <a href="./#demo">try the demo tank</a>.</p>
+    <p class="small">Privacy: the creature is in the part of this page's address after the <code>#</code>. Browsers never send that part to a server, and this page makes no network requests at all once it has loaded. Names and notes in a shared design are shown as plain text only.</p>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>Phylotank &middot; shared designs are CC0 &middot; <a href="https://github.com/TengilOurLiberator/phylotank">Source on GitHub</a></p>
+</footer>
+<script src="share.js"></script>
+</body>
+</html>
