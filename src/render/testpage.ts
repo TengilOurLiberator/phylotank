@@ -254,7 +254,7 @@ function recordCalm(name: string, opts: { mode?: ViewMode; seconds?: number; ste
   const gl = canvas.getContext('webgl2')!;
   const px = new Uint8Array(w * h * 4);
   const lut = new Float32Array(256).map((_, i) => { const c = i / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
-  const mean: number[] = [], grids: number[][] = [];
+  const mean: number[] = [], grids: number[][] = [], coarse: number[][] = [];
   const every = Math.max(1, Math.round((STREAM_EVERY * STEP) / step));
   const steps = Math.round((opts.seconds ?? 30) / step);
   const perSec = Math.round(1 / step);
@@ -269,23 +269,35 @@ function recordCalm(name: string, opts: { mode?: ViewMode; seconds?: number; ste
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
     let sum = 0;
     const grid = k % perSec === 0 ? new Float64Array(32 * 18) : null;
+    const cg = new Float64Array(8 * 4);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       const L = 0.2126 * lut[px[i]!]! + 0.7152 * lut[px[i + 1]!]! + 0.0722 * lut[px[i + 2]!]!;
       sum += L;
+      cg[Math.min(3, Math.floor((y * 4) / h)) * 8 + Math.min(7, Math.floor((x * 8) / w))]! += L / ((w / 8) * (h / 4));
       if (grid) grid[Math.min(17, Math.floor((y * 18) / h)) * 32 + Math.min(31, Math.floor((x * 32) / w))]! += L / ((w / 32) * (h / 18));
     }
     mean.push(sum / (w * h));
+    coarse.push(Array.from(cg));
     if (grid) grids.push(Array.from(grid));
   }
-  return { step, mean, grids, safetyTriggers: r.stats.safetyTriggers };
+  return { step, mean, grids, coarse, safetyTriggers: r.stats.safetyTriggers };
+}
+
+/** Frame cap check: call render() at `hz` for `seconds` and report how many frames were drawn. */
+function capTest(mode: ViewMode, hz = 60, seconds = 2): { rendered: number; skipped: number } {
+  const { r } = setup(mode, 64, 36);
+  const n = Math.round(hz * seconds);
+  for (let i = 0; i <= n; i++) r.render(1000 + (i * 1000) / hz, { cx: 32, cy: 18, zeta: 0 });
+  return { rendered: r.stats.rendered, skipped: r.stats.skipped };
 }
 
 declare global {
-  interface Window { renderScene: typeof renderScene; recordLuma: typeof recordLuma; recordCalm: typeof recordCalm; SCENES: string[]; __renderTestReady: boolean }
+  interface Window { renderScene: typeof renderScene; recordLuma: typeof recordLuma; recordCalm: typeof recordCalm; capTest: typeof capTest; SCENES: string[]; __renderTestReady: boolean }
 }
 window.renderScene = renderScene;
 window.recordLuma = recordLuma;
 window.recordCalm = recordCalm;
+window.capTest = capTest;
 window.SCENES = Object.keys(SCENES);
 window.__renderTestReady = true;

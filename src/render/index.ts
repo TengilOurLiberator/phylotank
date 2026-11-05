@@ -19,7 +19,7 @@ import { isSaturatedRed, oklchToLinear, type RGB } from './colour.js';
 import { Fbo, makeTexture, Program, type Target } from './gl.js';
 import { classify, FADE_S, TIER, TIER_CAPS, type LodCandidate, type Tier, type TierCaps } from './lod.js';
 import { CAP_FLOATS, CAPS_PER_ROW, capsuleBounds, PoseScratch, poseNodes, writeCapsules } from './pose.js';
-import { BASELINE_GLOW, FlashGuard, LumaLimiter, organIntensity, slew } from './safety.js';
+import { BASELINE_GLOW, FlashGuard, LumaLimiter, organIntensity, stepEmission, type EmissionState } from './safety.js';
 import {
   BG_FS, BLOOM_DOWN_FS, CAUSTIC_FS, BLOOM_PRE_FS, BLOOM_UP_FS, BODY_FS, BODY_VS, COMPOSITE_FS, FULLSCREEN_VS, LUM_FS, SNOW_FS, SNOW_VS,
   SPRITE_FS, SPRITE_VS, TRAIL_FS,
@@ -81,7 +81,7 @@ interface BodyState {
   px: number; py: number; ph: number; pPhase: number; pBend: number;
   cx: number; cy: number; ch: number; cPhase: number; cBend: number; glowT: number;
   prevAt: number; curAt: number; have: number;
-  level: number; zl: number; seed: number;
+  level: number; em: EmissionState; zl: number; seed: number;
   tier: Tier | -1; oldTier: Tier | -1; fadeAt: number; deadAt: number;
   joints: Float32Array | null;
 }
@@ -367,7 +367,7 @@ export class WebGL2Renderer implements RendererModule {
       this.bodies.set(e.slot, {
         slot: e.slot, id, key: e.genomeKey, species: e.species, lenM: 2 ** e.log2Length, energy: e.energy / 255, flags: e.flags,
         tpl: null, px: 0, py: 0, ph: 0, pPhase: 0, pBend: 0, cx: 0, cy: 0, ch: 0, cPhase: 0, cBend: 0, glowT: 0.5,
-        prevAt: 0, curAt: 0, have: 0, level: BASELINE_GLOW, zl: hashId(id), seed: hashId(id ^ 0x5bd1e995),
+        prevAt: 0, curAt: 0, have: 0, level: BASELINE_GLOW, em: { level: BASELINE_GLOW, dir: 0, since: -1e9 }, zl: hashId(id), seed: hashId(id ^ 0x5bd1e995),
         tier: -1, oldTier: -1, fadeAt: -1, deadAt: -1, joints: null,
       });
     }
@@ -682,7 +682,7 @@ export class WebGL2Renderer implements RendererModule {
       if ((b.flags & BODY_FLAG.DYING) && b.deadAt < 0) b.deadAt = this.clock;
       // emission slews to its target with the profile's time constant (review R18)
       const target = BASELINE_GLOW + b.tpl.look.rimGain * b.glowT * (0.3 + 0.7 * b.energy);
-      b.level = slew(b.level, target, dt, this.profile.emissionSlewS);
+      b.level = stepEmission(b.em, target, this.clock, dt, this.profile, b.tpl.look.red, BASELINE_GLOW + b.tpl.look.rimGain);
       const r = b.tpl.extent * b.lenM * 1.6 + 6 / ppm;
       if (x + r < view[0]! || x - r > view[2]! || y + r < view[1]! || y - r > view[3]!) continue;
       cands.push({ id: b.id, sizePx: b.lenM * ppm, priority: (b.flags & BODY_FLAG.SELECTED) ? 1 : 0 });

@@ -89,6 +89,15 @@ describe.skipIf(!harness)('render pixel snapshots (headless Chromium, SwiftShade
     expect(r.levels).toBeGreaterThan(4);
   }, 240_000);
 
+  it('the wallpaper is capped at 30 fps and the screensaver at 60 on a 144 Hz display', async () => {
+    const w = await ctx.page.evaluate(() => window.capTest('wallpaper', 144, 2));
+    expect(w.rendered).toBeGreaterThanOrEqual(56);
+    expect(w.rendered).toBeLessThanOrEqual(62);
+    const s = await ctx.page.evaluate(() => window.capTest('screensaver', 144, 2));
+    expect(s.rendered).toBeGreaterThanOrEqual(110);
+    expect(s.rendered).toBeLessThanOrEqual(122);
+  }, 240_000);
+
   it('wallpaper: a rendered sequence with a red lure has no flashes above the profile rate', async () => {
     const rec = await ctx.page.evaluate(() => window.recordLuma('lineup-deep', { mode: 'wallpaper', seconds: 6, w: 128, h: 72 } as never));
     let worst = 0;

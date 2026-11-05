@@ -62,6 +62,30 @@ export function slew(current: number, target: number, dtS: number, tauS: number)
   return current + (target - current) * a;
 }
 
+/** Per-creature emission state for `stepEmission`. */
+export interface EmissionState { level: number; dir: number; since: number }
+
+/**
+ * Brain-driven emission, limited by construction (layer 1): a first-order slew with the profile
+ * time constant, a rate limit so a full swing over `range` takes at least half the shortest
+ * pulse period, and a direction lock so brightness may reverse direction at most once per half
+ * period. Whatever the streamed glow does, one creature then makes at most `maxPulseHz` (red:
+ * `maxRedPulseHz`) full brightness cycles per second.
+ */
+export function stepEmission(s: EmissionState, target: number, tS: number, dtS: number, profile: ViewProfile, red: boolean, range: number): number {
+  const half = 0.5 / (red ? profile.maxRedPulseHz : profile.maxPulseHz);
+  let d = slew(s.level, target, dtS, profile.emissionSlewS) - s.level;
+  if (Math.abs(d) < 1e-7 * Math.max(1e-3, range)) return s.level;
+  const nd = d > 0 ? 1 : -1;
+  if (nd !== s.dir) {
+    if (tS - s.since < half) d = 0;
+    else { s.dir = nd; s.since = tS; }
+  }
+  const maxStep = (Math.max(range, 1e-6) * Math.max(0, dtS)) / half;
+  s.level += Math.min(maxStep, Math.max(-maxStep, d));
+  return s.level;
+}
+
 /** The free, dim, non-heritable baseline glow (William's Q5), in HDR units. */
 export const BASELINE_GLOW = 0.16;
 

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { VIEW_PROFILES, type ViewMode } from '../src/core/index.js';
 import {
-  BASELINE_GLOW, clampPeriodS, FlashGuard, LumaLimiter, maxPulseDepth, minPeriodS, organIntensity, pulseShape, slew, worstFlashesPerSecond,
+  BASELINE_GLOW, clampPeriodS, stepEmission, FlashGuard, LumaLimiter, maxPulseDepth, minPeriodS, organIntensity, pulseShape, slew, worstFlashesPerSecond,
 } from '../src/render/safety.js';
 
 const MODES: ViewMode[] = ['wallpaper', 'screensaver', 'tv', 'god'];
@@ -65,6 +65,24 @@ describe('render flash safety', () => {
     for (let i = 0; i < 30; i++) v = slew(v, 1, 0.01, 0.3);
     expect(v).toBeCloseTo(1 - Math.exp(-1), 2);
     expect(BASELINE_GLOW).toBeGreaterThan(0);
+  });
+
+  it('random brain-driven glow is limited to the profile pulse rate per creature', () => {
+    const rnd = lcg(11);
+    const fps = 30;
+    for (const m of MODES) {
+      for (const red of [false, true]) {
+        const P = VIEW_PROFILES[m];
+        const st = { level: 0, dir: 0, since: -1e9 };
+        const lum: number[] = [];
+        let target = 0;
+        for (let i = 0; i < 120 * fps; i++) {
+          if (i % 2 === 0) target = rnd() < 0.5 ? 0 : 1; // a 15 Hz random on/off brain output
+          lum.push(stepEmission(st, target, i / fps, 1 / fps, P, red, 1));
+        }
+        expect(worstFlashesPerSecond(lum, fps)).toBeLessThanOrEqual(Math.ceil(red ? P.maxRedPulseHz : P.maxPulseHz));
+      }
+    }
   });
 
   it('the luminance limiter caps whole-screen change per second', () => {
