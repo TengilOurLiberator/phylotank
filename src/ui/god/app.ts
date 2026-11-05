@@ -330,7 +330,11 @@ export class GodApp {
           } });
           return h('label', { class: 'row', style: 'font-size:12px' }, cb, h('span', { style: `color:${rgb(s.colour)}` }, GLYPHS[s.glyph % GLYPHS.length]!), binomial(s.name), h('span', { class: 'faint' }, String(s.count)));
         })));
-    } else if (sp.targeting !== 'global') rows.push(h('div', { class: 'dim', style: 'font-size:12px' }, st.s === 'armed' ? t('powers.clickTarget') : ''));
+    } else if (sp.targeting !== 'global') {
+      // keyboard and screen-reader path: target without a pointer (07 §6.1)
+      rows.push(h('div', { class: 'row' }, h('span', { class: 'dim', style: 'font-size:12px' }, st.s === 'armed' ? t('powers.clickTarget') : ''), h('span', { class: 'grow' }),
+        h('button', { onclick: () => this.targetCentre() }, t('powers.targetCentre'))));
+    }
     else rows.push(h('div', { class: 'dim', style: 'font-size:12px' }, t('powers.globalReady')));
     this.previewText = h('div', { style: 'font-size:12px' });
     rows.push(this.previewText);
@@ -646,6 +650,32 @@ export class GodApp {
   }
   private speciesOfEntity(id: number): number | undefined { for (const v of this.client.slots.values()) if (v.id === id) return v.species; return undefined; }
 
+  private viewCentre(): [number, number] { const vb = this.viewBox(); return this.screenToWorld(vb.x + vb.w / 2, vb.y + vb.h / 2); }
+  targetCentre(): void {
+    const st = this.cast.state;
+    if (st.s !== 'armed' && st.s !== 'previewing') return;
+    const [wx, wy] = this.viewCentre();
+    const sp = POWER_SPECS[st.power];
+    this.cast.target(sp?.targeting === 'circle' ? { kind: 'circle', pos: [wx, wy], radius: this.cast.radius() } : sp?.targeting === 'depthBand' ? { kind: 'depthBand', y0: Math.max(0, wy - 2), y1: wy + 2 } : { kind: 'point', pos: [wx, wy] });
+  }
+  /** Select the creature nearest the view centre (keyboard inspect). */
+  selectCentre(): void {
+    const [wx, wy] = this.viewCentre();
+    const hit = this.client.pick(wx, wy, 1e9);
+    if (hit) { this.client.select(hit.id); if (!this.inspOpen) this.toggleInspector(); this.inspector.render(); }
+  }
+  /** Jump to the next (or previous) located event on the timeline. */
+  jumpEvent(dir: 1 | -1): void {
+    const evs = this.client.events.filter((e) => 'pos' in e || 'centroid' in e);
+    if (!evs.length) return;
+    this.evCursor = Math.max(0, Math.min(evs.length - 1, (this.evCursor < 0 ? evs.length : this.evCursor) + dir));
+    const e = evs[this.evCursor]!;
+    const pos = 'pos' in e ? e.pos : (e as { centroid: [number, number] }).centroid;
+    this.jumpTo(pos[0], pos[1]); this.follow = -1;
+    this.toast(this.eventText(e));
+  }
+  private evCursor = -1;
+
   private viewportClick(sx: number, sy: number): void {
     const [wx, wy] = this.screenToWorld(sx, sy);
     const st = this.cast.state;
@@ -695,6 +725,9 @@ export class GodApp {
       case 'ArrowDown': this.cam.cy += pan; break;
       case '+': case '=': this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2); break;
       case '-': this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.2); break;
+      case 'c': case 'C': this.selectCentre(); break;
+      case 'n': this.jumpEvent(1); break;
+      case 'N': this.jumpEvent(-1); break;
       case 'f': case 'F': this.follow = this.follow >= 0 ? -1 : this.client.selectedId; this.inspector.render(); break;
       case 'i': case 'I': this.toggleInspector(); break;
       case 'g': case 'G': if (this.panel === 'designer') this.designer.toggleMode(); break;

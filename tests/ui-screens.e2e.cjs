@@ -157,6 +157,51 @@ function serve() {
     if (errors.length) failures.push(`god errors: ${errors.join(' | ')}`);
     await page.close();
 
+    // UX-T35 keyboard only: design from a template, save, release, cast a bloom, inspect, bookmark, rewind
+    if (want('keyboard') || !only) {
+      const p = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+      const errs = [];
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.goto(`${base}/god.html?lang=en`);
+      await p.waitForTimeout(2000);
+      const kb = p.keyboard;
+      const press = async (name, scope = p) => { const l = scope.getByRole('button', { name, exact: true }).first(); await l.focus(); await kb.press('Enter'); await p.waitForTimeout(300); };
+      const g = (fn) => p.evaluate(fn);
+      const sp0 = await g(() => window.__phylotankGod.client.species.length);
+      const ep0 = await g(() => window.__phylotankGod.client.epoch);
+      await kb.press('d'); await p.waitForTimeout(400);
+      await p.getByRole('combobox', { name: 'Template' }).focus();
+      await p.getByRole('combobox', { name: 'Template' }).selectOption('hushmaw');
+      await kb.press('Escape'); await kb.press('d'); await p.waitForTimeout(300); // close and reopen the designer by key
+      await kb.press('Control+s'); await p.waitForTimeout(200);
+      await press('Release');
+      await press('Release', p.locator('.pt-dialog'));
+      await kb.press('p'); await p.waitForTimeout(300);
+      await press('Algae bloom');
+      await press('Target the view centre');
+      await press('Cast');
+      await kb.press('c'); await p.waitForTimeout(300);
+      await kb.press('Control+b'); await p.waitForTimeout(300);
+      await kb.press('b'); await p.waitForTimeout(300);
+      let ok = { sp: 0, bloom: false, sel: false, snaps: 0 };
+      for (let i = 0; i < 20; i++) {
+        await p.waitForTimeout(400);
+        ok = await g(() => { const c = window.__phylotankGod.client; return { sp: c.species.length, bloom: c.events.some((e) => e.k === 'god' && e.power === 'bloom'), sel: c.selectedId >= 0, snaps: c.snapshots.filter((s) => s.kind === 'manual').length }; });
+        if (ok.sp > sp0 && ok.bloom && ok.sel && ok.snaps > 0) break;
+      }
+      await p.locator('.snap button').first().focus(); await kb.press('Enter'); await p.waitForTimeout(300);
+      await p.locator('.pt-dialog button.danger').focus(); await kb.press('Enter');
+      let ep = ep0;
+      for (let i = 0; i < 15 && ep === ep0; i++) { await p.waitForTimeout(400); ep = await g(() => window.__phylotankGod.client.epoch); }
+      if (!(ok.sp > sp0)) failures.push(`keyboard: release did not add a species (${sp0} -> ${ok.sp})`);
+      if (!ok.bloom) failures.push('keyboard: bloom was not cast');
+      if (!ok.sel) failures.push('keyboard: no creature selected with C');
+      if (!(ok.snaps > 0)) failures.push('keyboard: no bookmark from Ctrl+B');
+      if (ep !== ep0 + 1) failures.push(`keyboard: rewind did not bump the epoch (${ep0} -> ${ep})`);
+      if (errs.length) failures.push(`keyboard errors: ${errs.join(' | ')}`);
+      await shot(p, 'keyboard-after-rewind');
+      await p.close();
+    }
     // Swedish and the pseudo-locale, small window (UX-T37: look for clipping)
     for (const lang of ['sv', 'xx']) {
       if (!want(lang) && only) continue;

@@ -121,6 +121,7 @@ export class GodClient {
     this.slots.clear();
     this.inspect = null;
     this.selected = null;
+    this.selectedId = -1; // the creature may not exist in the restored world
   }
 
   /** Send a god command; resolves with the host's COMMAND_RESULT (or a timeout result). */
