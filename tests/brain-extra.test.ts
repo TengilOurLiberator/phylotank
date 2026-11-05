@@ -57,3 +57,10 @@ describe('templates, inspector and snapshots', () => {
     expect(b.w).toEqual(a.w);
   });
 });
+
+describe('cross-engine probe', () => {
+  it('the probe used by tests/e2e/brain-crossengine.cjs is deterministic in Node', async () => {
+    const { brainProbe } = await import('../src/brain/xengine.js');
+    expect(brainProbe(60)).toBe(brainProbe(60));
+  });
+});
