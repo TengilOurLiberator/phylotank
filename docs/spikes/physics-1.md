@@ -98,7 +98,7 @@ T2 (tick rate): 30 Hz x 4 against 60 Hz x 4: speed -2.0%, power +5.1%. At equal 
 | 8-segment undulator | 4 substeps (100 generations) | 0.204 m/s | 0.204 | 0.197 | **0.97** |
 | 4-segment, 2 mm muscle flagellate (Re < 0.1) | 1 substep | 3.7e-4 m/s | 3.4e-4 | 3.3e-4 | 0.88 |
 
-The jaw-locked predator and prey part of the review's test is not run: links are not implemented yet.
+Jaw-locked and grabbed prey (links solved inside a shared 8-substep loop for the linked pair, `tests/physics-links.test.ts`): a 6-segment prey thrashing for 3 s in a claw keeps the pair's kinetic energy below its start value plus the prey's muscle work, and the watchdog stays silent. The end-of-tick link stretch is under 10% of a segment, set by tick-rate contacts of the neighbouring segments pushing against the link.
 
 ### 3.6 CPU throughput (one core, CPU time, contended box)
 
@@ -106,14 +106,15 @@ Population with a size spectrum (log-uniform 1 mm to 12 cm, 4 to 8 segments), mu
 
 | Scene | Cost |
 |---|---|
-| Integrator, fixed `n_sub` 1 / 4 / 16 (17,940 segments) | 3.6 / 1.7 / 1.55 µs per segment-substep; 280k / 145k / 40k segment-ticks per second |
-| Full step incl. contacts, auto `n_sub` (mean 6.7), 11,904 segments | 157 ms per tick: 76k segment-ticks per second |
-| Profile of the integrator | tree solve 42% (of which the generic 3x3 block products 11%), per-substep drag and forces 29%, `sincos` 4% |
+| Integrator, fixed `n_sub` 1 / 4 / 16 (17,940 segments), first version | 3.6 / 1.7 / 1.55 µs per segment-substep |
+| Integrator at `n_sub` 4 after specialising the sparse 3x3 blocks of the tree solve and removing a per-substep allocation | **1.17 µs per segment-substep** (84 ms per tick for 17,940 segments) |
+| The same with contacts and bites | 96 ms per tick: contacts add about 0.65 µs per segment per tick |
+| Profile after the optimisation | tree solve 28%, drag-augmented mass and forces 27%, limits 5%, `sincos` 5%, garbage collection 5% |
 | Hash build (counting sort, 47,762 items) | 0.16 µs per item |
 | Contact pair query | 0.82 µs per item; 24.6 cells visited and 2.9 candidates per item; pairs equal brute force with no duplicates (test I1) |
 | Perception radius query, minimum angle 0.02 rad, cap 4,096 cells, at 2 / 10 / 40 body lengths | 9.7 / 4.7 / 4.1 µs per query; 238 / 249 / 176 cells; 6.6 / 3.9 / 2.8 items |
 
-At 4 substeps one core does about 145k segment-ticks per second, so **about 4,800 segments at 30 Hz per core** (about 1,000 agents of 5 segments). v0.1's 2,000 to 4,000 agents on at most two cores need a further 2 to 4x: unrolled sparse 3x3 blocks in the tree solve (the Jacobians are mostly identity), fewer substeps for passive bodies, and sleeping still drifters are the obvious first steps. The design's laptop estimate (1 µs per segment-tick at 1.3 substeps) is about 7x optimistic at the R6 floor.
+At 4 substeps one core does about 4 x 1.17 + 0.65 = 5.3 µs per segment-tick, about 190k segment-ticks per second, so **about 6,300 segments at 30 Hz per core** (about 1,300 agents of 5 segments). v0.1's 2,000 to 4,000 agents on at most two cores fit only if bodies average about 3 to 6 segments, so a further 1.5 to 2x is still wanted: fewer substeps for passive bodies and drifters, sleeping still bodies, and a typed-array layout for the per-segment scratch. The design's laptop estimate (1 µs per segment-tick at 1.3 substeps) is about 5x optimistic at the R6 floor. These timings were taken at load average 30 on 4 vCPUs and are upper bounds.
 
 ## 4. Decision
 
@@ -122,4 +123,5 @@ At 4 substeps one core does about 145k segment-ticks per second, so **about 4,80
 3. **Muscles are implicit** with a linear force-velocity law (deviation from 02 §2.2.5's curved Hill law; documented in `docs/modules/physics.md`).
 4. **Contacts**: on the CPU the hash is a counting sort ordered by (cell hash, slot); queries are bounded by cells visited (at most 72), never by objects found; position corrections are fixed point (2^-20 m) and add no velocity. The GPU per-workgroup append question (R5) is not measurable on the CPU and moves to spike 2.
 5. **Perception**: skip hash levels whose items subtend under about 0.02 rad and cap the cell visits; budget perception in cell visits (about 200 per query). This is for the brain module to adopt.
-6. **Open**: B2 (-14%), B4 Strouhal, C1 angular momentum (5e-2 against 1e-6), and CPU throughput (2 to 4x short of v0.1).
+6. **Links** (grabs, jaw locks, latches) are solved inside the substep loop of the linked island at 8 substeps (R6); contacts use a speculative margin `|v| dt` so a 2 m/s ram cannot tunnel.
+7. **Open**: B2 (-14%), B4 Strouhal, C1 angular momentum (5e-2 against 1e-6), and CPU throughput (about 1.5 to 2x short of v0.1 for 5-segment bodies).

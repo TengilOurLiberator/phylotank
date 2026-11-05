@@ -11,7 +11,9 @@ Design: [02-physics](../sections/02-physics.md) as reconciled by DESIGN R1, R2, 
 | `body.ts` | mass properties, drag coefficients, added mass, joints and muscle caps; `loadBody`, `restage` |
 | `solver.ts` | per-creature tick: flow, activation, buoyancy, substeps (drag-augmented mass, cilia, implicit drag), joints, walls, work, `powerW` |
 | `tree.ts` | exact linear-time joint solve for a segment tree (Baraff 1996) |
-| `contacts.ts` | hierarchical spatial hash (counting sort), capsule narrow phase, contacts, bites, terrain SDF, perception radius query |
+| `contacts.ts` | hierarchical spatial hash (counting sort), capsule narrow phase, speculative contacts, rams, bites, terrain SDF, perception radius query |
+| `links.ts` | grabs, jaw locks and parasite latches; islands of linked creatures |
+| `card.ts` | far-LOD swimmer cards measured from full physics, keyed at 5% |
 | `watchdog.ts` | R9 exploit watchdog in the local water frame |
 | `sincos.ts` | allocation-free deterministic sine and cosine |
 | `work.ts` | per-world f64 working arrays |
@@ -44,6 +46,11 @@ Design: [02-physics](../sections/02-physics.md) as reconciled by DESIGN R1, R2, 
 - Added mass is in the mass matrix only (no momentum-form rotation, no Munk moment, no trailing-edge thrust), as the review's v0.1 cut proposes.
 - No reduced tier (R7): `tier` stays 0.
 
+- **Links**: grabs (CLAW organ, grip drive in `cmd2` at 0.5 on, 0.2 off; break force `5e4 Pa pi r^2`), jaw locks (after a successful bite, released when the bite drive drops; break force 3 x the bite force) and latches (PROBOSCIS mouths, subtype kept from the Phenotype as an adapter; 4 x the grip break force). Linked creatures form islands (union by link, lowest slot first) that step together at 8 substeps; links are hard point constraints solved after each member's tree solve and before the velocity update, through the drag-augmented inverse masses. Contacts between the two held segments are skipped. The latch's energy drain is the ecosystem's (`latches(world)` lists them).
+- **Rams**: half the inelastic impact energy above `50 J/m^3 x V` damages a segment at toughness `2e3 J/m^3`, times 6 against a SPIKE part. Armour is not in the segment pool, so it does not raise the threshold yet.
+- **Speculative contacts**: the hash bound and the narrow phase include `|v| dt`, and an approaching pair that is not yet touching gets the impulse that lets it close exactly the gap in one tick.
+- **Swimmer cards**: `measureCard` runs the full physics on a (amplitude x frequency) grid at a given inter-joint lag (R7 asks for phase in the descriptor) and `cardLookup` interpolates. Not used to move creatures (no reduced tier); for far-view posing and the designer's test tank.
+
 ## Not done yet
 
-Grabs, jaw locks and parasite latches (links solved inside the substep loop for linked pairs: the island stepping is designed for it, since every creature steps through `stepCreature` and the tree solve is per creature), ram damage and severing, corpses as fragments, jets and gas bladders (need state columns), roll triggering, the far-LOD swimmer card (see below), GPU kernels. Physics reads `massKg`, `tempC` and `length` from the ecosystem when present and falls back to geometry (and treats a missing temperature as 0 C, which slows muscles by Q10).
+Severing and corpses as fragments (damage reaches 1 but nothing detaches), parasite removal by scraping, jets and gas bladders (need state columns), roll triggering from the `ROLL` output, the itch input, fin tunnelling floor, GPU kernels. Physics reads `massKg`, `tempC` and `length` from the ecosystem when present and falls back to geometry (and treats a missing temperature as 0 C, which slows muscles by Q10).

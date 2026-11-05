@@ -31,7 +31,9 @@ Adapter: the WeakMap state; `muscleFrac` defaults to 0.3 and `restPrev` to `rest
 
 **Change.** Append `{ name: 'cmd3', type: 'f32' }` to `SEGMENT_COLUMNS` and fix the mapping in CONTRACT 5.2 and 8.1: on MOUTH parts `cmd2 = MOUTH_OPEN`, `cmd3 = BITE` (JAWS, RASP) or `LATCH` (PROBOSCIS); on CLAW parts `cmd3 = GRIP`.
 
-Adapter: physics reads the **bite drive from `cmd2` on MOUTH segments** (`src/physics/contacts.ts`, `tryBite`). Brain should write BITE there until `cmd3` exists.
+Adapter: physics reads the **bite drive from `cmd2` on MOUTH segments** (`src/physics/contacts.ts`, `tryBite`), the latch drive from `cmd2` on PROBOSCIS mouths and the grip from `cmd2` on CLAW segments. Brain should write them there until `cmd3` exists.
+
+Also append `{ name: 'subtype', type: 'u8' }` to `SEGMENT_COLUMNS` (the Phenotype's subtype): physics needs it to tell a proboscis from jaws. Adapter: kept per world from `loadBody` (`work.ts`).
 
 ## P3. A channel for bite mass transfers (physics to ecosystem)
 
