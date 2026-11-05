@@ -26,8 +26,11 @@ export const SINT = { PARENT: 0, KIND: 1, N: 2 } as const;
 export const SDYN = { OX: 0, OY: 1, ANG: 2, VX: 3, VY: 4, W: 5, ACT: 6, WORK: 7, RESTPREV: 8, NETWORK: 9, N: 10 } as const;
 /** Creature input record (u32 x 8): segBase, n, mirror (i32), length, tempC, massKg (f32 bits). */
 export const CRI = { BASE: 0, N: 1, MIR: 2, LEN: 3, TEMP: 4, MASS: 5, STRIDE: 8 } as const;
-/** Creature output record (u32 x 8): anchorX, anchorY (i32 Q16.16), velX, velY, heading, angVel, powerW (f32), nSub. */
-export const CRO = { AX: 0, AY: 1, VX: 2, VY: 3, HEAD: 4, W: 5, POW: 6, NSUB: 7, STRIDE: 8 } as const;
+/**
+ * Creature output record (u32 x 12): anchorX, anchorY (i32 Q16.16), velX, velY, heading, angVel, powerW (f32), nSub,
+ * workJ (f32, positive muscle work accumulated since the last download).
+ */
+export const CRO = { AX: 0, AY: 1, VX: 2, VY: 3, HEAD: 4, W: 5, POW: 6, NSUB: 7, WORKJ: 8, STRIDE: 12 } as const;
 /** Scratch fields per segment. */
 const SCR_N = 70;
 export const SCRATCH_FIELDS = SCR_N;
@@ -471,6 +474,7 @@ fn integrate(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups)
   cro[co + ${CRO.VX}u] = bitcast<u32>(px / mTot); cro[co + ${CRO.VY}u] = bitcast<u32>(py / mTot);
   cro[co + ${CRO.HEAD}u] = bitcast<u32>(D(${SDYN.ANG}u, b)); cro[co + ${CRO.W}u] = bitcast<u32>(D(${SDYN.W}u, b));
   cro[co + ${CRO.NSUB}u] = nSub;
+  cro[co + ${CRO.WORKJ}u] = bitcast<u32>(bitcast<f32>(cro[co + ${CRO.WORKJ}u]) + wPos);
   var mBody = mTot; if (crMass > 0.0) { mBody = crMass; }
   var pIso = 0.0; if (iso > 0.0) { pIso = KAPPA_ISO * basalW(mBody, tempC) * iso / mTot; }
   cro[co + ${CRO.POW}u] = bitcast<u32>(wPos / ETA_MUSCLE / dt + pIso + ciliaP);

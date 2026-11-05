@@ -55,7 +55,7 @@ export interface Buffers {
 }
 
 /** Compact packing of the creatures handed to the GPU: creature c owns segments [base, base + n). */
-export interface Packing { slots: Int32Array; base: Int32Array; nCr: number; nSeg: number }
+export interface Packing { slots: Int32Array; base: Int32Array; nCr: number; nSeg: number; workRead: Float32Array }
 
 export class GpuPhysicsEngine {
   private pipe: GPUComputePipeline | null = null;
@@ -107,7 +107,7 @@ export class GpuPhysicsEngine {
     const [gw, gh] = world.fields.coarse;
     const b = this.ensure(nCr, nSeg, gw * gh, big);
     const S = b.segCap;
-    const pk: Packing = { slots: Int32Array.from(slots), base: new Int32Array(nCr), nCr, nSeg };
+    const pk: Packing = { slots: Int32Array.from(slots), base: new Int32Array(nCr), nCr, nSeg, workRead: new Float32Array(nCr) };
     const cri = this.hCri; const cro = this.hCro; const sst = this.hSst; const sint = this.hSint; const sdyn = this.hSdyn;
     const crf = new Float32Array(cri.buffer); const crof = new Float32Array(cro.buffer); const cri32 = new Int32Array(cri.buffer); const cro32 = new Int32Array(cro.buffer);
     let g = 0;
@@ -120,7 +120,7 @@ export class GpuPhysicsEngine {
       crf[o + CRI.LEN] = c.length[s]!; crf[o + CRI.TEMP] = c.tempC[s]!; crf[o + CRI.MASS] = c.massKg[s]!;
       const ax = Math.round(sg.posX[s0]! * Q16); const ay = Math.round(sg.posY[s0]! * Q16);
       const oo = q * CRO.STRIDE;
-      cro32[oo + CRO.AX] = ax; cro32[oo + CRO.AY] = ay;
+      cro32[oo + CRO.AX] = ax; cro32[oo + CRO.AY] = ay; cro[oo + CRO.WORKJ] = 0;
       const axm = ax / Q16; const aym = ay / Q16;
       for (let k = 0; k < n; k++, g++) {
         const i = s0 + k;
@@ -204,16 +204,18 @@ export class GpuPhysicsEngine {
       const s = pk.slots[q]!; const s0 = c.segStart[s]!; const n = c.segCount[s]!; const g0 = pk.base[q]!;
       const oo = q * CRO.STRIDE;
       const axm = cro32[oo + CRO.AX]! / Q16; const aym = cro32[oo + CRO.AY]! / Q16;
-      let wPos = 0;
       for (let k = 0; k < n; k++) {
         const i = s0 + k; const g = g0 + k;
         sg.posX[i] = axm + dyn[SDYN.OX * S + g]!; sg.posY[i] = aym + dyn[SDYN.OY * S + g]!;
         sg.angle[i] = dyn[SDYN.ANG * S + g]!; sg.velX[i] = dyn[SDYN.VX * S + g]!; sg.velY[i] = dyn[SDYN.VY * S + g]!;
         sg.angVel[i] = dyn[SDYN.W * S + g]!; sg.act[i] = dyn[SDYN.ACT * S + g]!; sg.work[i] = dyn[SDYN.WORK * S + g]!;
         wk.restPrev[i] = sg.restAngle[i]!; wk.netWork[i] = dyn[SDYN.NETWORK * S + g]!; wk.dragWork[i] = 0;
-        if (k > 0) wPos += sg.work[i]!;
       }
-      c.workJ[s] = c.workJ[s]! + wPos; // cumulative positive muscle work, as src/physics endCreature
+      // cumulative positive muscle work (src/physics endCreature): the GPU accumulates it from the
+      // upload on, so add what is new since the previous download
+      const wj = crof[oo + CRO.WORKJ]!;
+      c.workJ[s] = c.workJ[s]! + (wj - pk.workRead[q]!);
+      pk.workRead[q] = wj;
       c.posX[s] = sg.posX[s0]!; c.posY[s] = sg.posY[s0]!;
       c.velX[s] = crof[oo + CRO.VX]!; c.velY[s] = crof[oo + CRO.VY]!;
       c.heading[s] = crof[oo + CRO.HEAD]!; c.angVel[s] = crof[oo + CRO.W]!;

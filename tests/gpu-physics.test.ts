@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { ORGAN, type World } from '../src/core/index.js';
 import { createPhysics } from '../src/physics/index.js';
 import { chain, fish, makePhenotype, makeWorld, nextTick, purcell, setCmds, spawn, type TestWorld } from '../src/physics/testkit.js';
-import { createGpuPhysics } from '../src/gpu/physics.js';
+import { GpuPhysicsEngine, createGpuPhysics } from '../src/gpu/physics.js';
 import { gpuContext } from './gpu-helpers.js';
 
 const gpu = await gpuContext();
@@ -37,10 +37,10 @@ function drive(w: World, tick: number): void {
   }
 }
 
-interface Err { pos: number; ang: number; vel: number; act: number; nSubDiff: number; power: number }
+interface Err { pos: number; ang: number; vel: number; act: number; nSubDiff: number; power: number; workJ: number }
 
 function compare(a: World, b: World): Err {
-  const e: Err = { pos: 0, ang: 0, vel: 0, act: 0, nSubDiff: 0, power: 0 };
+  const e: Err = { pos: 0, ang: 0, vel: 0, act: 0, nSubDiff: 0, power: 0, workJ: 0 };
   const ca = a.cr.c; const cb = b.cr.c; const sa = a.seg.c; const sb = b.seg.c;
   for (let s = 0; s < a.cr.highWater; s++) {
     const s0 = ca.segStart[s]!; const n = ca.segCount[s]!;
@@ -57,6 +57,7 @@ function compare(a: World, b: World): Err {
     if (ca.nSub[s] !== cb.nSub[s]) e.nSubDiff++;
     const pw = Math.max(Math.abs(ca.powerW[s]!), 1e-12);
     e.power = Math.max(e.power, Math.abs(ca.powerW[s]! - cb.powerW[s]!) / pw);
+    e.workJ = Math.max(e.workJ, Math.abs(ca.workJ[s]! - cb.workJ[s]!) / Math.max(Math.abs(ca.workJ[s]!), 1e-15));
   }
   return e;
 }
@@ -88,5 +89,23 @@ describe.skipIf(!gpu)('gpu physics vs cpu', () => {
     }
     console.log('60 ticks', worst);
     expect(worst!.pos).toBeLessThan(1e-3);
+    expect(worst!.workJ).toBeLessThan(1e-2);
+  });
+
+  it('GPU-resident ticks (re-anchoring, rest history on the GPU) track the CPU', async () => {
+    const A = scene(); const B = scene();
+    drive(A.world, 3); drive(B.world, 3); // held commands
+    const cpu = createPhysics({ contacts: false, watchdog: false });
+    const eng = await new GpuPhysicsEngine(gpu!, cpu.opts).init();
+    const slots = Array.from({ length: B.world.cr.highWater }, (_, s) => s);
+    eng.upload(B.world, slots);
+    eng.run(30);
+    await eng.download(B.world);
+    for (let t = 0; t < 30; t++) { cpu.step(A.world, A.ctx); nextTick(A); }
+    const e = compare(A.world, B.world);
+    console.log('resident 30 ticks', e);
+    expect(e.pos).toBeLessThan(1e-3);
+    expect(e.nSubDiff).toBe(0);
+    eng.destroy();
   });
 });
