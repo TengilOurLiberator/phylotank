@@ -21,7 +21,7 @@
  */
 import {
   C_G, C_G_ARMOUR, C_G_NEURAL, GENOME_FLAG_LEVIATHAN, KIND, LINK_FLAG, MAX_PARTS, MODULE_FLAG, ORGAN, REG_AXIS, REG_PARAM_GATE,
-  SEGMENT_SUBTYPE, SYMMETRY, cos, exp, hash32, sin,
+  SEGMENT_SUBTYPE, SYMMETRY, cos, exp, hash32, sin, wrapAngle,
   type BirthEnv, type DevelopOptions, type Genome, type ModuleGene, type MouthDescriptor, type OrganKind,
   type OrganSpec, type Phenotype, type RegGene,
 } from '../core/index.js';
@@ -456,7 +456,7 @@ export function finish(u: Unfolded, maturity: number): Phenotype {
     let l = len[i]!;
     let r = 0.5 * wid[i]!;
     if (!absorbed[i]) { if (l < minLen) l = minLen; if (r < minR) r = minR; }
-    const rest = i === 0 ? 0 : u.angle[i]! + u.mirror[i]! * params[o + P_REST]!;
+    const rest = i === 0 ? 0 : wrapAngle(u.angle[i]! + u.mirror[i]! * params[o + P_REST]!);
     // layout
     if (p < 0) { phi[i] = 0; px[i] = 0; py[i] = 0; cphi[i] = 1; sphi[i] = 0; }
     else {

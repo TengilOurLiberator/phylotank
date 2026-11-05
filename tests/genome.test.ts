@@ -729,7 +729,7 @@ const GOLDEN: Record<string, string> = {
   hushmaw: 'c551bcd1d5011412,27b0bc55a80bef64,bc88c1d52834dcb',
   meadowlamp: 'a33e4fde40b9f112,462eb7172378147b,a18d86b235e16437',
   motefly: 'cb601ebe603266b,335081136c078161,324f659916d93e70',
-  sievebell: 'deae30b20b5792e5,91207159fb1b1f95,3752c960497f2bb3',
+  sievebell: '6f77184bc15f6d4b,aba953f2ba88c3e6,80a9438fe1e4341d',
   tetherling: 'dba0b001580609e8,36df41326245a35d,d8e00329f0da4556',
 };
 
