@@ -30,3 +30,9 @@ Spike 1 (XPBD swimmer and microbenchmarks): B2, B4, T1 at `n_sub` 1, 2, 4, 16; t
 ## Acceptance tests
 
 02 §2.13: conservation C1 to C5 (with the ecosystem ledger), known swimmers B1 to B7, timestep convergence T1 to T5 (T2 now compares 30 Hz with substeps against 60 Hz), the R9 plume test, and the skeleton drifter behaviour in `tests/sim.test.ts` until real bodies replace it.
+
+## Status (end of phase 1)
+
+- Spike 1 done: [docs/spikes/physics-1.md](../../docs/spikes/physics-1.md) (named `physics-1` per the phase brief's ownership rule). Design notes: [docs/modules/physics.md](../../docs/modules/physics.md). Contract requests: [docs/contract-requests/physics.md](../../docs/contract-requests/physics.md).
+- Tests: `tests/physics.test.ts` (bodies, water, R9, contacts, rams, bites, hash I1, determinism I2), `tests/physics-links.test.ts`, `tests/physics-card.test.ts`, `tests/physics-spike.test.ts` and `tests/physics-bench.test.ts` (quick variants in `npm test`; `PT_SPIKE=1` runs the measurements).
+- Met: B1, B3, B5, T1 (B3, B4), C1 centre of mass, passive energy monotone, no energy from nothing with muscles, exploit transfer at the 4-substep floor (0.97), R9 plume, I1, I2 (same run). Open: B2 against Gray-Hancock (-17%; the integrator matches the resistive-force reference to 0.7%), B4 Strouhal, C1 angular momentum, B6, B7, C2 to C6, T3 to T6, L1 to L3, snapshot-exact restore (contract request P1).
