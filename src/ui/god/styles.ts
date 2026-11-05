@@ -89,5 +89,6 @@ table.t td.num{text-align:right;font-variant-numeric:tabular-nums}
 .ebar .b>i{display:block;height:100%}
 .lib-row{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
 .lib-row canvas{width:96px;height:64px;background:#02060a;border-radius:4px}
+.host-down .pt-speed button,.host-down .pgrid button,.host-down .dhead button.primary,.host-down .dhead button.danger,.host-down .snap button,.host-down .pt-panel .card button.danger{pointer-events:none;opacity:.4}
 .dhead{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 `;

@@ -186,6 +186,8 @@ export class GodApp {
     const achievedText = sp.requested !== 1 ? t('time.achieved', { req: sp.requested === 'max' ? 'max' : `${sp.requested}x`, got: `${fmtNum(sp.achieved, 1)}x` }) : '';
     const down = !this.client.isMock && performance.now() - this.client.lastFrameAt > 3000;
     const key = `${getLocale()}|${sp.requested}|${unattended ?? ''}|${this.client.isMock}|${down}`;
+    // host down (07 §8): world-changing controls are disabled; the designer and library still work
+    document.body.classList.toggle('host-down', down);
     if (key === this.topKey && this.clockEl && this.achievedEl && this.clockEl.isConnected) {
       this.clockEl.textContent = clockText;
       this.achievedEl.textContent = achievedText;
@@ -212,8 +214,8 @@ export class GodApp {
       this.achievedEl = h('span', { class: 'dim', style: 'font-size:12px' }, achievedText),
       h('span', { class: 'grow' }),
       status, lang);
-    this.bannerEl.style.display = sp.requested !== 1 && !unattended && sp.requested !== 0 ? '' : 'none';
-    this.bannerEl.textContent = t('time.lease');
+    this.bannerEl.style.display = down || (sp.requested !== 1 && !unattended && sp.requested !== 0) ? '' : 'none';
+    this.bannerEl.textContent = down ? t('app.hostDown') : t('time.lease');
   }
 
   private overnightDialog(): void {

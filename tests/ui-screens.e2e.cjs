@@ -111,6 +111,12 @@ function serve() {
     await page.keyboard.press('d');
     await page.waitForTimeout(900);
     if (want('designer')) await shot(page, 'designer-genes');
+    await page.getByRole('button', { name: 'Diet', exact: true }).click();
+    await page.waitForTimeout(400);
+    const tri = await page.locator('canvas[aria-label^="Diet triangle"]').boundingBox();
+    if (tri) { await page.mouse.move(tri.x + tri.width * 0.35, tri.y + tri.height * 0.6); await page.mouse.down(); await page.mouse.move(tri.x + tri.width * 0.3, tri.y + tri.height * 0.7, { steps: 4 }); await page.mouse.up(); await page.waitForTimeout(500); }
+    else failures.push('no diet triangle');
+    if (want('designer')) await shot(page, 'designer-diet');
     await page.getByRole('tab', { name: 'Parts' }).click();
     await page.waitForTimeout(600);
     const sk = await page.locator('canvas[aria-label="Skeleton editor"]').boundingBox();

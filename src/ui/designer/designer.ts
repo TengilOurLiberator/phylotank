@@ -203,14 +203,52 @@ export class DesignerView {
         h('button', { class: 'ro-chip', onclick: () => this.setMode('parts') }, t('designer.finsChip', { n: countKind(this.doc.genome, KIND.FIN) }))));
     }
     for (const l of list) col.append(this.slider(l));
-    if (this.group === 'Diet') {
+    if (this.group === 'Diet') col.append(this.dietTriangle());
+    return col;
+  }
+
+  /** Diet triangle (07 §1.2): a barycentric picker over the enzyme simplex of CONTRACT 9.3. */
+  private dietTriangle(): HTMLElement {
+    const W = 240, H = 200;
+    const A: [number, number] = [W / 2, 18], B: [number, number] = [20, H - 22], C: [number, number] = [W - 20, H - 22]; // plant, meat, detritus
+    const cv = h('canvas', { width: W, height: H, style: `width:${W}px;height:${H}px;cursor:crosshair;touch-action:none`, role: 'img', 'aria-label': 'Diet triangle: plant, meat, detritus' });
+    const label = h('div', { class: 'dim', style: 'font-size:12px' });
+    const draw = () => {
       const g = view(this.doc.genome);
       const x1 = decodeQ(g.traits[20]!, TRAITS[20]!), x2 = decodeQ(g.traits[21]!, TRAITS[21]!);
-      col.append(h('div', { class: 'card', style: 'margin-top:8px;font-size:12px' },
-        `plant ${fmtNum(x1 * (1 - x2), 2)} · meat ${fmtNum((1 - x1) * (1 - x2), 2)} · detritus ${fmtNum(x2, 2)}`,
-        h('div', { class: 'faint' }, 'Enzyme simplex (CONTRACT 9.3); the three always sum to 1.')));
-    }
-    return col;
+      const e = [x1 * (1 - x2), (1 - x1) * (1 - x2), x2];
+      const c = cv.getContext('2d')!;
+      c.clearRect(0, 0, W, H);
+      c.beginPath(); c.moveTo(...A); c.lineTo(...B); c.lineTo(...C); c.closePath();
+      c.fillStyle = 'rgba(98,210,232,.06)'; c.fill(); c.strokeStyle = 'rgba(120,190,210,.5)'; c.stroke();
+      c.fillStyle = 'rgba(200,225,232,.85)'; c.font = '11px system-ui'; c.textAlign = 'center';
+      c.fillText('plant', A[0], A[1] - 6); c.textAlign = 'left'; c.fillText('meat', B[0] - 8, B[1] + 16); c.textAlign = 'right'; c.fillText('detritus', C[0] + 8, C[1] + 16); c.textAlign = 'left';
+      const px = e[0]! * A[0] + e[1]! * B[0] + e[2]! * C[0], py = e[0]! * A[1] + e[1]! * B[1] + e[2]! * C[1];
+      c.fillStyle = '#e8c06a'; c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fill();
+      label.textContent = `plant ${fmtNum(e[0]!, 2)} · meat ${fmtNum(e[1]!, 2)} · detritus ${fmtNum(e[2]!, 2)}`;
+    };
+    const set = (ev: PointerEvent) => {
+      const r = cv.getBoundingClientRect();
+      const x = ((ev.clientX - r.left) / r.width) * W, y = ((ev.clientY - r.top) / r.height) * H;
+      // barycentric coordinates, clamped onto the triangle
+      const det = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
+      let a = ((B[1] - C[1]) * (x - C[0]) + (C[0] - B[0]) * (y - C[1])) / det;
+      let b = ((C[1] - A[1]) * (x - C[0]) + (A[0] - C[0]) * (y - C[1])) / det;
+      a = Math.max(0, a); b = Math.max(0, b);
+      let cc = Math.max(0, 1 - a - b);
+      const sum = a + b + cc; a /= sum; b /= sum; cc /= sum;
+      const x2 = cc, x1 = x2 >= 0.999 ? 0.5 : a / (1 - x2);
+      const next = setTrait(setTrait(this.doc.genome, 'T', 20, x1), 'T', 21, x2);
+      this.commit(next, 'diet', 'diet');
+      draw(); this.liveRefresh();
+    };
+    let dragging = false;
+    cv.addEventListener('pointerdown', (e) => { dragging = true; cv.setPointerCapture(e.pointerId); set(e); });
+    cv.addEventListener('pointermove', (e) => { if (dragging) set(e); });
+    cv.addEventListener('pointerup', () => { dragging = false; this.history.seal(); this.render(); });
+    draw();
+    return h('div', { class: 'card', style: 'margin-top:10px;display:flex;gap:14px;align-items:center' }, cv,
+      h('div', { class: 'col' }, label, h('div', { class: 'faint', style: 'font-size:11px' }, 'Enzyme simplex (CONTRACT 9.3): the three always sum to 1. Drag the dot, or use the two sliders.')));
   }
 
   private slider(l: Locus): HTMLElement {
