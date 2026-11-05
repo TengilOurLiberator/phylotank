@@ -10,13 +10,17 @@
  * the body by force balance (resistive force theory), not by inertia.
  */
 import {
-  DT, GRAVITY, KIND, NU_WATER, PI, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
+  CF, DT, GRAVITY, KIND, LIFE, NU_WATER, TAU, PI, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
   K_BOLTZMANN_EV, T_REF_K, KLEIBER_EXP, pow, type World,
 } from '../core/index.js';
 import { C_ADDED, CILIA_SLIP, ETA_CILIA, ETA_MUSCLE, GAUSS_XI, KAPPA_CILIA, KAPPA_ISO, MU_WATER, Q10_MUSCLE } from './constants.js';
 import { isPlate, segVolume } from './body.js';
-import { SC, sincos } from './sincos.js';
-import { solveTree } from './tree.js';
+import { SC, sincos, sincosRange } from './sincos.js';
+import { solveLimits, solveTree } from './tree.js';
+import { FRAGMENT_SINK_RATIO } from './sever.js';
+import { updateOrgans, updateRoll } from './organs.js';
+
+function slipAt(wk: Work, i: number, v: number): void { const a = v < 0 ? -v : v; if (a > wk.slip[i]!) wk.slip[i] = a; }
 import type { Work } from './work.js';
 
 export interface PhysicsOptions {
@@ -48,14 +52,27 @@ export interface PhysicsOptions {
   solver: 'tree' | 'gs';
   /** Exploit watchdog (R9). */
   watchdog: boolean;
+  /**
+   * Lighthill's reactive force at free trailing tips (02 §2.3.3), as a multiple of the
+   * elongated-body value; 0 turns it off. Spike physics-2 (B4) turned it on.
+   */
+  trailingEdge: number;
+  /** Cancel the joint solve's spurious net angular impulse each substep (C1; spike physics-2). */
+  angularFix: boolean;
 }
 
 export const DEFAULT_OPTIONS: PhysicsOptions = {
   fluid: true, gravity: true, addedMass: true, nSub: 0, minSub: 4, dt: DT, prescribed: false, walls: true,
   contacts: true, iterations: 1, linearDrag: false, diagnostics: false, solver: 'tree', watchdog: true,
+  trailingEdge: 1, angularFix: true,
 };
 
 const LN2_Q10 = log(Q10_MUSCLE);
+/** Layout of the per-tick segment constants in `wk.tc` (see tickConstants). */
+export const TC = 18;
+const TC_KT1 = 0; const TC_KN1 = 1; const TC_KT15 = 2; const TC_KT2 = 3; const TC_KN2 = 4;
+const TC_MAT = 5; const TC_MAN = 6; const TC_IE = 7; const TC_MTE = 8; const TC_M = 9; const TC_XI = 10; const TC_HL = 11;
+const TC_FB = 12; const TC_FT = 13; const TC_UX = 14; const TC_UY = 15;
 const SQRT_ABS = (x: number): number => Math.sqrt(x < 0 ? -x : x);
 
 /** Activation time constant (02 §2.2.5). */
@@ -84,6 +101,12 @@ const fl = new Float64Array(2);
 export interface CreatureTick {
   slot: number; s0: number; n: number; nSub: number; h: number; dt: number; mir: number; ca: number; q10: number;
   mTot: number; tempC: number; ciliaP: number;
+  /** A carcass: muscles and organ drives off. */
+  dead: boolean;
+  /** A corpse fragment: waterlogged, always sinks (DESIGN Q5). */
+  sink: boolean;
+  /** Just rolled: joint limits relaxed while the pose swings over. */
+  noLimits: boolean;
 }
 
 /**
@@ -92,17 +115,21 @@ export interface CreatureTick {
  * Linked creatures (grabs, latches) use the three phases directly so that their links are
  * solved inside the shared substep loop (REVIEW R6).
  */
+const SHARED_TICK: CreatureTick = {
+  slot: 0, s0: 0, n: 0, nSub: 0, h: 0, dt: 0, mir: 1, ca: 0, q10: 1, mTot: 0, tempC: 0, ciliaP: 0, dead: false, sink: false, noLimits: false,
+};
+
 export function stepCreature(
-  world: World, slot: number, wk: Work, opts: PhysicsOptions, flowAt: FlowSampler,
+  world: World, slot: number, wk: Work, opts: PhysicsOptions, flowAt: FlowSampler | null,
 ): number {
-  const ct = beginCreature(world, slot, wk, opts, flowAt, 0);
+  const ct = beginCreature(world, slot, wk, opts, flowAt, 0, SHARED_TICK);
   for (let s = 0; s < ct.nSub; s++) { substepCreature(world, ct, wk, opts, s); substepCreatureEnd(world, ct, wk, opts, s); }
   return endCreature(world, ct, wk, opts);
 }
 
 /** Once per tick: load, flow, Re, activation, substep count. `forceSub` > 0 overrides it. */
 export function beginCreature(
-  world: World, slot: number, wk: Work, opts: PhysicsOptions, flowAt: FlowSampler, forceSub: number,
+  world: World, slot: number, wk: Work, opts: PhysicsOptions, flowAt: FlowSampler | null, forceSub: number, into?: CreatureTick,
 ): CreatureTick {
   const c = world.cr.c;
   const sg = world.seg.c;
@@ -113,14 +140,29 @@ export function beginCreature(
   const { th, vx, vy, w } = wk;
   // ---- once per tick: load, flow, Re, activation, buoyancy
   let mTot = 0; let lenTot = 0; let rMin = Infinity; let vMax = 0; let active = false;
+  // the water velocity grid, sampled inline when no custom sampler is given (CONTRACT 10.3)
+  const fU = world.fields.flowU; const fV = world.fields.flowV;
+  const gw = world.fields.coarse[0]; const gh = world.fields.coarse[1];
+  const gcs = world.preset.widthM / gw;
   for (let k = 0; k < n; k++) {
     const i = s0 + k;
     th[i] = sg.angle[i]!; vx[i] = sg.velX[i]!; vy[i] = sg.velY[i]!; w[i] = sg.angVel[i]!;
     if (wk.restInit[i] === 0) { wk.restPrev[i] = sg.restAngle[i]!; wk.restInit[i] = 1; }
-    if (opts.fluid) {
+    if (!opts.fluid) { wk.ux[i] = 0; wk.uy[i] = 0; } else if (flowAt) {
       flowAt(sg.posX[i]!, sg.posY[i]!, fl);
       wk.ux[i] = fl[0]!; wk.uy[i] = fl[1]!;
-    } else { wk.ux[i] = 0; wk.uy[i] = 0; }
+    } else {
+      // bilinear at cell centres, the same arithmetic as index.ts sampleFlow
+      let gx = sg.posX[i]! / gcs - 0.5;
+      let gy = sg.posY[i]! / gcs - 0.5;
+      gx = gx < 0 ? 0 : gx > gw - 1.001 ? gw - 1.001 : gx;
+      gy = gy < 0 ? 0 : gy > gh - 1.001 ? gh - 1.001 : gy;
+      const ix = Math.floor(gx); const iy = Math.floor(gy);
+      const fx = gx - ix; const fy = gy - iy;
+      const i00 = iy * gw + ix;
+      wk.ux[i] = (fU[i00]! * (1 - fx) + fU[i00 + 1]! * fx) * (1 - fy) + (fU[i00 + gw]! * (1 - fx) + fU[i00 + gw + 1]! * fx) * fy;
+      wk.uy[i] = (fV[i00]! * (1 - fx) + fV[i00 + 1]! * fx) * (1 - fy) + (fV[i00 + gw]! * (1 - fx) + fV[i00 + gw + 1]! * fx) * fy;
+    }
     wk.phi[i] = sg.kind[i] === KIND.FIN ? 1 - 0.8 * Math.min(1, Math.abs(sg.cmd2[i]!)) : 1;
     mTot += sg.mass[i]!;
     if (k === 0 || sg.parent[i]! >= 0) lenTot += sg.len[i]!;
@@ -129,7 +171,10 @@ export function beginCreature(
     if (sp > vMax) vMax = sp;
     if (sg.cmd[i] !== 0 || sg.act[i] !== 0) active = true;
     wk.netWork[i] = 0; wk.dragWork[i] = 0; sg.work[i] = 0;
+    wk.leaf[i] = k > 0 ? 1 : 0;
+    wk.slip[i] = 0;
   }
+  for (let k = 1; k < n; k++) wk.leaf[s0 + sg.parent[s0 + k]!] = 0;
   const L = c.length[slot]! > 0 ? c.length[slot]! : lenTot;
   // c_a(Re) from the rms segment speed relative to the water
   let ca = 0;
@@ -141,9 +186,10 @@ export function beginCreature(
   const kAct = 1 - exp(-dt / tauAct(L));
   const tempC = c.tempC[slot]!;
   const q10 = exp(LN2_Q10 * (tempC - 15) / 10);
+  const dead = c.life[slot] === LIFE.CARCASS;
   for (let k = 1; k < n; k++) {
     const i = s0 + k;
-    let u = sg.cmd[i]!;
+    let u = dead ? 0 : sg.cmd[i]!;
     u = u > 1 ? 1 : u < -1 ? -1 : u;
     sg.act[i] = sg.act[i]! + (u - sg.act[i]!) * kAct;
   }
@@ -157,7 +203,113 @@ export function beginCreature(
     if (nSub < floor) nSub = floor;
     if (nSub > 16) nSub = 16;
   }
-  return { slot, s0, n, nSub, h: dt / nSub, dt, mir, ca, q10, mTot, tempC, ciliaP: 0 };
+  const sink = dead && (c.flags[slot]! & CF.FRAGMENT) !== 0;
+  const noLimits = updateRoll(world, wk, slot, dt);
+  let power = updateOrgans(world, wk, slot, s0, n, dt, dead);
+  power += tickConstants(world, wk, opts, s0, n, ca, sink, dead);
+  const ct = into ?? ({} as CreatureTick);
+  ct.slot = slot; ct.s0 = s0; ct.n = n; ct.nSub = nSub; ct.h = dt / nSub; ct.dt = dt; ct.mir = c.mirror[slot]! < 0 ? -1 : 1;
+  ct.ca = ca; ct.q10 = q10; ct.mTot = mTot; ct.tempC = tempC; ct.ciliaP = power; ct.dead = dead; ct.sink = sink; ct.noLimits = noLimits;
+  jointConstants(world, wk, opts, ct);
+  return ct;
+}
+
+/** Per-joint constants of the tick in `wk.jt` (stride JT): see the JT_* names. */
+export const JT = 8;
+export const JT_CBOFF = 0; export const JT_GAMMA = 1; export const JT_ALPHA = 2; export const JT_OPG = 3;
+export const JT_RESTB = 4; export const JT_DREST = 5; export const JT_LO = 6; export const JT_HI = 7;
+
+/**
+ * Muscles and joint rows, once per tick (activation, damage and the effective inertias change
+ * only per tick, and the substep length is fixed within it).
+ *
+ * Force-velocity: tau = amax (1 - w_rel / w_max), the straight line through Hill's two end
+ * points, applied implicitly: amax enters the bend row as a rest offset amax * compliance and
+ * amax / w_max as extra XPBD damping. Explicit motors (with the 1/h velocity cap of 02 §2.2.5,
+ * or the curved Hill law fed back from the start-of-substep velocity) made gaits depend on the
+ * substep count or chatter on long chains (spike 1).
+ */
+function jointConstants(world: World, wk: Work, opts: PhysicsOptions, ct: CreatureTick): void {
+  const sg = world.seg.c;
+  const { s0, n, h, mir, q10 } = ct;
+  const { tau, cm, jt, tc } = wk;
+  for (let k = 1; k < n; k++) {
+    const i = s0 + k; const p = s0 + sg.parent[i]!;
+    const o = i * JT;
+    tau[i] = 0; cm[i] = 0; wk.tauReal[i] = 0;
+    if (!opts.prescribed) {
+      const a = sg.act[i]!;
+      if (a !== 0 && sg.tauMax[i]! > 0) {
+        const dir = a * mir > 0 ? 1 : -1;
+        const wMax = sg.omegaMax[i]! * q10;
+        const amax = (a < 0 ? -a : a) * sg.tauMax[i]! * (1 - sg.damage[i]!);
+        tau[i] = dir * amax;
+        cm[i] = amax / wMax;
+      }
+      const comp = sg.compliance[i]!;
+      const at = comp / (h * h);
+      const kk = 1 / comp;
+      const iei = tc[i * TC + TC_IE]!; const iep = tc[p * TC + TC_IE]!;
+      const ie = iei * iep / (iei + iep);
+      const beta = sg.damping[i]! * 2 * Math.sqrt(kk * ie);
+      const gamma = comp * (beta + cm[i]!) / h;
+      jt[o + JT_CBOFF] = tau[i]! * comp; jt[o + JT_GAMMA] = gamma; jt[o + JT_OPG] = 1 + gamma; jt[o + JT_ALPHA] = at / (1 + gamma);
+    }
+    const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
+    jt[o + JT_RESTB] = restB; jt[o + JT_DREST] = wrapAngle(restA - restB);
+    let lo = sg.limitLo[i]! - restA; let hi = sg.limitHi[i]! - restA;
+    if (mir < 0) { const t = lo; lo = -hi; hi = -t; }
+    jt[o + JT_LO] = lo; jt[o + JT_HI] = hi;
+  }
+}
+
+/**
+ * Per-segment constants of the tick, interleaved in `wk.tc` (stride TC): the drag coefficients
+ * with the feathering and linear-only switches folded in, added mass blended by c_a, the
+ * trailing-edge coefficient, the explicit forces (buoyancy along y; jet plus cilia along the
+ * axis). One strided f64 row per segment keeps the substep loop's reads in one cache stream.
+ * Returns the cilia power (W).
+ */
+function tickConstants(world: World, wk: Work, opts: PhysicsOptions, s0: number, n: number, ca: number, sink: boolean, dead: boolean): number {
+  const sg = world.seg.c; const tc = wk.tc; const dr = sg.drag;
+  const lin = opts.linearDrag ? 0 : 1;
+  const te = opts.trailingEdge;
+  let P = 0;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k; const o = i * TC; const d = i * 5;
+    const m = sg.mass[i]!; const l = sg.len[i]!; const r = sg.radius[i]!; const span = sg.span[i]!;
+    const phi = wk.phi[i]!;
+    const sp = span > 0 ? span : 2 * r;
+    tc[o + TC_KT1] = dr[d]!; tc[o + TC_KN1] = dr[d + 1]!; tc[o + TC_KT15] = dr[d + 2]! * lin;
+    tc[o + TC_KT2] = dr[d + 3]! * lin; tc[o + TC_KN2] = dr[d + 4]! * phi * lin;
+    let at = 0; let an = 0; let ia = 0; let mte = 0;
+    if (ca > 0) {
+      // added mass (02 §2.2.3)
+      const man = C_ADDED * RHO_WATER * PI * (sp / 2) * (sp / 2) * l;
+      const mat = 0.1 * RHO_WATER * PI * r * r * l;
+      at = ca * mat; an = ca * man * phi; ia = ca * (man * l * l / 12) * phi;
+      if (te > 0 && wk.leaf[i] === 1) mte = te * ca * RHO_WATER * PI * 0.25 * sp * sp * phi;
+    }
+    tc[o + TC_MAT] = at; tc[o + TC_MAN] = an; tc[o + TC_IE] = sg.inertia[i]! + ia; tc[o + TC_MTE] = mte;
+    tc[o + TC_M] = m; tc[o + TC_XI] = GAUSS_XI * l; tc[o + TC_HL] = 0.5 * l;
+    let fB = 0;
+    if (opts.gravity) {
+      let V = segVolume(isPlate(sg.kind[i]!), l, r, span);
+      if (sink) { const vMax = m / (FRAGMENT_SINK_RATIO * RHO_WATER); if (V > vMax) V = vMax; } else V += wk.gasV[i]!;
+      fB = (m - RHO_WATER * V) * GRAVITY;
+    }
+    let fT = wk.jetF[i]!;
+    if (!dead && (sg.organs[i]! & ORGAN.CILIA) !== 0) {
+      let ac = sg.cmd2[i]!;
+      ac = ac < 0 ? 0 : ac > 1 ? 1 : ac;
+      const F = ac * MU_WATER * KAPPA_CILIA * l * CILIA_SLIP;
+      fT += F;
+      P += F * CILIA_SLIP / ETA_CILIA;
+    }
+    tc[o + TC_FB] = fB; tc[o + TC_FT] = fT;
+    tc[o + TC_UX] = wk.ux[i]!; tc[o + TC_UY] = wk.uy[i]!;
+  }
+  return P;
 }
 
 /** One substep of one creature. */
@@ -170,44 +322,37 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
   const H = world.preset.heightM;
   const top = world.g.ySurface;
   const posX = sg.posX; const posY = sg.posY;
-  // ---- 1. drag-augmented mass, explicit forces
+  // ---- 1. drag-augmented mass, explicit forces (per-tick constants from wk.tc)
+  const tc = wk.tc; const am = wk.am; const teF = wk.teF; const csb = wk.cs;
+  const fluid = opts.fluid;
+  sincosRange(th, s0, n, csb);
   for (let k = 0; k < n; k++) {
     const i = s0 + k;
-    sincos(th[i]!);
-    const cs = SC.c; const sn = SC.s;
-    const m = sg.mass[i]!;
-    const l = sg.len[i]!; const r = sg.radius[i]!; const span = sg.span[i]!;
-    const plate = isPlate(sg.kind[i]!);
-    let M00 = m; let M01 = 0; let M11 = m; let Ie = sg.inertia[i]!;
-    if (ca > 0) {
-      // added mass (02 §2.2.3), inline to avoid an allocation per segment per substep
-      const sp = span > 0 ? span : 2 * r;
-      const man = C_ADDED * RHO_WATER * PI * (sp / 2) * (sp / 2) * l;
-      const mat = 0.1 * RHO_WATER * PI * r * r * l;
-      const ia = man * l * l / 12;
-      const at = ca * mat; const an = ca * man * wk.phi[i]!;
-      M00 += at * cs * cs + an * sn * sn;
-      M01 += (at - an) * cs * sn;
-      M11 += at * sn * sn + an * cs * cs;
-      Ie += ca * ia * wk.phi[i]!;
-    }
-    mm[i * 3] = M00; mm[i * 3 + 1] = M01; mm[i * 3 + 2] = M11; ie[i] = Ie;
+    const o = i * TC;
+    const cs = csb[i * 2]!; const sn = csb[i * 2 + 1]!;
+    const m = tc[o + TC_M]!;
+    const at = tc[o + TC_MAT]!; const an = tc[o + TC_MAN]!; const Ie = tc[o + TC_IE]!;
+    const M00 = m + at * cs * cs + an * sn * sn;
+    const M01 = (at - an) * cs * sn;
+    const M11 = m + at * sn * sn + an * cs * cs;
+    const i3 = i * 3;
+    mm[i3] = M00; mm[i3 + 1] = M01; mm[i3 + 2] = M11; ie[i] = Ie;
     const v0 = vx[i]!; const v1 = vy[i]!; const om = w[i]!;
     let a00 = M00; let a01 = M01; let a02 = 0; let a11 = M11; let a12 = 0; let a22 = Ie;
     let r0 = M00 * v0 + M01 * v1; let r1 = M01 * v0 + M11 * v1; let r2 = Ie * om;
-    if (opts.fluid) {
-      const dr = sg.drag;
-      const lin = opts.linearDrag ? 0 : 1;
-      const kt1 = dr[i * 5]!; const kn1 = dr[i * 5 + 1]!; const kt15 = dr[i * 5 + 2]! * lin;
-      const kt2 = dr[i * 5 + 3]! * lin; const kn2 = dr[i * 5 + 4]! * wk.phi[i]! * lin;
-      const ux = wk.ux[i]!; const uy = wk.uy[i]!;
-      const xi = GAUSS_XI * l;
-      for (let g = -1; g <= 1; g += 2) {
+    if (fluid) {
+      const kt1 = tc[o + TC_KT1]!; const kn1 = tc[o + TC_KN1]!; const kt15 = tc[o + TC_KT15]!;
+      const kt2 = tc[o + TC_KT2]!; const kn2 = tc[o + TC_KN2]!;
+      const ux = tc[o + TC_UX]!; const uy = tc[o + TC_UY]!;
+      const xi = tc[o + TC_XI]!;
+      // the two Gauss points, unrolled (loop-carried doubles can be boxed by the engine)
+      {
+        const g = -1;
         const rx = g * xi * cs; const ry = g * xi * sn;
         const relx = v0 - om * ry - ux; const rely = v1 + om * rx - uy;
         const vt = relx * cs + rely * sn; const vn = -relx * sn + rely * cs;
         const avt = vt < 0 ? -vt : vt; const avn = vn < 0 ? -vn : vn;
-        const ct = 0.5 * (kt1 + kt15 * SQRT_ABS(vt) + kt2 * avt);
+        const ct = 0.5 * (kt1 + kt15 * Math.sqrt(avt) + kt2 * avt);
         const cn = 0.5 * (kn1 + kn2 * avn);
         const D00 = ct * cs * cs + cn * sn * sn; const D01 = (ct - cn) * cs * sn; const D11 = ct * sn * sn + cn * cs * cs;
         const d3x = -D00 * ry + D01 * rx; const d3y = -D01 * ry + D11 * rx;
@@ -216,53 +361,66 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
         const fux = D00 * ux + D01 * uy; const fuy = D01 * ux + D11 * uy;
         r0 += h * fux; r1 += h * fuy; r2 += h * (-ry * fux + rx * fuy);
       }
+      {
+        const g = 1;
+        const rx = g * xi * cs; const ry = g * xi * sn;
+        const relx = v0 - om * ry - ux; const rely = v1 + om * rx - uy;
+        const vt = relx * cs + rely * sn; const vn = -relx * sn + rely * cs;
+        const avt = vt < 0 ? -vt : vt; const avn = vn < 0 ? -vn : vn;
+        const ct = 0.5 * (kt1 + kt15 * Math.sqrt(avt) + kt2 * avt);
+        const cn = 0.5 * (kn1 + kn2 * avn);
+        const D00 = ct * cs * cs + cn * sn * sn; const D01 = (ct - cn) * cs * sn; const D11 = ct * sn * sn + cn * cs * cs;
+        const d3x = -D00 * ry + D01 * rx; const d3y = -D01 * ry + D11 * rx;
+        a00 += h * D00; a01 += h * D01; a11 += h * D11; a02 += h * d3x; a12 += h * d3y;
+        a22 += h * (-ry * d3x + rx * d3y);
+        const fux = D00 * ux + D01 * uy; const fuy = D01 * ux + D11 * uy;
+        r0 += h * fux; r1 += h * fuy; r2 += h * (-ry * fux + rx * fuy);
+      }
+      const mte = tc[o + TC_MTE]!;
+      if (mte > 0) {
+        // Lighthill's elongated-body reactive force at a free trailing tip (Lighthill 1971):
+        // F = 1/2 m w^2 tau - m w u n, with m the added mass per length at the tip, tau the
+        // headward tangent (-t), u and w the tip velocity relative to the water along tau and n.
+        // Its power is -1/2 m w^2 u: it only sheds energy into the wake. The lateral part is
+        // linearised into A (a damping m u n n^T at the tip); the thrust part is explicit. When the
+        // tip leads (u < 0) nothing is shed there: the lateral part is dropped and the thrust part
+        // fades out, so the term never adds energy.
+        const hl = tc[o + TC_HL]!;
+        const rx = hl * cs; const ry = hl * sn;
+        const relx = v0 - om * ry - ux; const rely = v1 + om * rx - uy;
+        const u = -(relx * cs + rely * sn); const wn = -relx * sn + rely * cs;
+        let g = 1;
+        if (u < 0) {
+          const vr = Math.sqrt(relx * relx + rely * rely);
+          g = 1 + 4 * u / (vr + 1e-30); if (g < 0) g = 0;
+        } else {
+          // lateral damping m u n n^T at the tip point (n = (-sn, cs))
+          const cn = mte * u;
+          const D00 = cn * sn * sn; const D01 = -cn * cs * sn; const D11 = cn * cs * cs;
+          const d3x = -D00 * ry + D01 * rx; const d3y = -D01 * ry + D11 * rx;
+          a00 += h * D00; a01 += h * D01; a11 += h * D11; a02 += h * d3x; a12 += h * d3y;
+          a22 += h * (-ry * d3x + rx * d3y);
+          const fux = D00 * ux + D01 * uy; const fuy = D01 * ux + D11 * uy;
+          r0 += h * fux; r1 += h * fuy; r2 += h * (-ry * fux + rx * fuy);
+        }
+        // thrust 1/2 m w^2 along -t, through the tip on the axis: no torque about the centre
+        const T = 0.5 * mte * wn * wn * g;
+        r0 -= h * T * cs; r1 -= h * T * sn;
+        teF[i] = T;
+      } else teF[i] = 0;
     }
-    // explicit forces: buoyancy (constant over the tick) and cilia
-    let fx = 0; let fy = 0;
-    if (opts.gravity) {
-      const V = segVolume(plate, l, r, span);
-      fy += (m - rhoW * V) * GRAVITY;
-    }
-    if ((sg.organs[i]! & ORGAN.CILIA) !== 0) {
-      let ac = sg.cmd2[i]!;
-      ac = ac < 0 ? 0 : ac > 1 ? 1 : ac;
-      const F = ac * MU_WATER * KAPPA_CILIA * l * CILIA_SLIP;
-      fx += F * cs; fy += F * sn;
-      if (s === 0) ct.ciliaP += F * CILIA_SLIP / ETA_CILIA;
-    }
-    r0 += h * fx; r1 += h * fy;
+    // explicit forces, constant over the tick: buoyancy along y, jet and cilia along the axis
+    const fT = tc[o + TC_FT]!;
+    r0 += h * (fT * cs); r1 += h * (tc[o + TC_FB]! + fT * sn);
     // invert the symmetric 3x3
     const c00 = a11 * a22 - a12 * a12; const c01 = a02 * a12 - a01 * a22; const c02 = a01 * a12 - a02 * a11;
     const c11 = a00 * a22 - a02 * a02; const c12 = a01 * a02 - a00 * a12; const c22 = a00 * a11 - a01 * a01;
     const id = 1 / (a00 * c00 + a01 * c01 + a02 * c02);
-    const o = i * 6;
-    const am = wk.am;
-    am[o] = a00; am[o + 1] = a01; am[o + 2] = a02; am[o + 3] = a11; am[o + 4] = a12; am[o + 5] = a22;
-    ai[o] = c00 * id; ai[o + 1] = c01 * id; ai[o + 2] = c02 * id;
-    ai[o + 3] = c11 * id; ai[o + 4] = c12 * id; ai[o + 5] = c22 * id;
-    rhs[i * 3] = r0; rhs[i * 3 + 1] = r1; rhs[i * 3 + 2] = r2;
-  }
-  // ---- 2. muscles: velocity-capped motor pairs on each joint
-  if (!opts.prescribed) {
-    for (let k = 1; k < n; k++) {
-      const i = s0 + k;
-      const p = s0 + sg.parent[i]!;
-      const a = sg.act[i]!;
-      tau[i] = 0; wk.cm[i] = 0; wk.tauReal[i] = 0;
-      if (a === 0 || sg.tauMax[i]! <= 0) continue;
-      const dir = a * mir > 0 ? 1 : -1;
-      const wMax = sg.omegaMax[i]! * q10;
-      const wRel = dir * (w[i]! - w[p]!);
-      // Force-velocity: tau = amax (1 - w_rel'/w_max), the straight line through Hill's two end
-      // points, applied implicitly: amax enters the bend row as a rest offset amax * compliance
-      // and amax / w_max as extra XPBD damping. Explicit motors (with the 1/h velocity cap of
-      // 02 §2.2.5, or with the curved Hill law fed back from the start-of-substep velocity)
-      // made gaits depend on the substep count or chatter on long chains (spike 1).
-      void wRel; void hill;
-      const amax = (a < 0 ? -a : a) * sg.tauMax[i]! * (1 - sg.damage[i]!);
-      tau[i] = dir * amax;
-      wk.cm[i] = amax / wMax;
-    }
+    const o6 = i * 6;
+    am[o6] = a00; am[o6 + 1] = a01; am[o6 + 2] = a02; am[o6 + 3] = a11; am[o6 + 4] = a12; am[o6 + 5] = a22;
+    ai[o6] = c00 * id; ai[o6 + 1] = c01 * id; ai[o6 + 2] = c02 * id;
+    ai[o6 + 3] = c11 * id; ai[o6 + 4] = c12 * id; ai[o6 + 5] = c22 * id;
+    rhs[i3] = r0; rhs[i3 + 1] = r1; rhs[i3 + 2] = r2;
   }
   // ---- 3. implicit velocity solve and predict
   for (let k = 0; k < n; k++) {
@@ -281,8 +439,8 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
   // Gauss-Seidel over the joints; with more than one pass, alternate the direction
   // (symmetric GS), which carries corrections from the tips back to the root.
   if (opts.solver === 'tree') {
-    solveTree(wk, sg, s0, n, h, mir, frac, opts.prescribed);
-    for (let k = 1; k < n; k++) solveLimit(wk, sg, s0 + k, s0 + sg.parent[s0 + k]!, mir, frac);
+    solveTree(wk, sg, s0, n, h, mir, frac, opts.prescribed, opts.angularFix);
+    if (!ct.noLimits) solveLimits(wk, sg, s0, n, mir);
   } else for (let it = 0; it < opts.iterations; it++) {
     const fwd = (it & 1) === 0;
     for (let q = 1; q < n; q++) {
@@ -309,8 +467,9 @@ export function substepCreatureEnd(world: World, ct: CreatureTick, wk: Work, opt
     if (opts.walls) {
       const r = sg.radius[i]!;
       const x = posX[i]!; const y = posY[i]!;
-      if (x < r) posX[i] = r; else if (x > W - r) posX[i] = W - r;
-      if (y < top + r) posY[i] = top + r; else if (y > H - r) posY[i] = H - r;
+      // tangential slip along a wall the segment is pressed on (for scraping, 02 §2.4.5)
+      if (x < r) { posX[i] = r; slipAt(wk, i, (posY[i]! - yp[i]!) / h); } else if (x > W - r) { posX[i] = W - r; slipAt(wk, i, (posY[i]! - yp[i]!) / h); }
+      if (y < top + r) posY[i] = top + r; else if (y > H - r) { posY[i] = H - r; slipAt(wk, i, (posX[i]! - xp[i]!) / h); }
     }
     vx[i] = (posX[i]! - xp[i]!) / h; vy[i] = (posY[i]! - yp[i]!) / h; w[i] = (th[i]! - thp[i]!) / h;
   }
@@ -343,6 +502,17 @@ export function substepCreatureEnd(world: World, ct: CreatureTick, wk: Work, opt
         const fx = -(ct * vt * cs - cn * vn * sn); const fy = -(ct * vt * sn + cn * vn * cs);
         P += fx * pvx + fy * pvy;
       }
+      if (wk.leaf[i] === 1 && ct.ca > 0 && opts.trailingEdge > 0) {
+        // trailing-edge term: thrust T along -t (as applied) and the lateral part -m u w n
+        const sp = sg.span[i]! > 0 ? sg.span[i]! : 2 * sg.radius[i]!;
+        const mte = opts.trailingEdge * ct.ca * RHO_WATER * PI * 0.25 * sp * sp * wk.phi[i]!;
+        const rx = 0.5 * l * cs; const ry = 0.5 * l * sn;
+        const pvx = vx[i]! - w[i]! * ry; const pvy = vy[i]! + w[i]! * rx;
+        const relx = pvx - wk.ux[i]!; const rely = pvy - wk.uy[i]!;
+        const u = -(relx * cs + rely * sn); const wn = -relx * sn + rely * cs;
+        P += -wk.teF[i]! * (pvx * cs + pvy * sn);
+        if (u > 0) P += -mte * u * wn * (-pvx * sn + pvy * cs);
+      }
       wk.dragWork[i] = wk.dragWork[i]! + P * h;
     }
   }
@@ -362,18 +532,26 @@ export function endCreature(world: World, ct: CreatureTick, wk: Work, opts: Phys
   // turn the rounding into velocity (an energy source that grows like 1/h).
   let px = 0; let py = 0; let wPos = 0; let iso = 0;
   const { rhs: sh } = wk;
+  const angle = sg.angle;
   for (let k = 0; k < n; k++) {
     const i = s0 + k;
-    const t64 = th[i]!;
-    const t = Math.fround(wrapAngle(t64));
-    sg.angle[i] = t; sg.velX[i] = vx[i]!; sg.velY[i] = vy[i]!; sg.angVel[i] = w[i]!;
+    // wrapAngle inlined (a call with a double argument boxes it)
+    const t0 = th[i]!;
+    let tw = t0 - TAU * Math.floor((t0 + PI) / TAU);
+    if (tw === -PI) tw = PI;
+    angle[i] = tw; sg.velX[i] = vx[i]!; sg.velY[i] = vy[i]!; sg.angVel[i] = w[i]!;
+  }
+  // cosines and sines of the f64 angles (cs2) and of the stored f32 ones (cs)
+  const c32 = wk.cs; const c64 = wk.cs2;
+  sincosRange(th, s0, n, c64); sincosRange(angle, s0, n, c32);
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k;
     let sx = 0; let sy = 0;
     if (k > 0) {
       const p = s0 + sg.parent[i]!;
-      const tp64 = th[p]!; const tp = sg.angle[p]!;
       const lp = sg.attachU[i]! * sg.len[p]!; const lc = -0.5 * sg.len[i]!;
-      sincos(tp); const c1 = SC.c; const s1 = SC.s; sincos(tp64); const c2 = SC.c; const s2 = SC.s;
-      sincos(t); const c3 = SC.c; const s3 = SC.s; sincos(t64); const c4 = SC.c; const s4 = SC.s;
+      const c1 = c32[p * 2]!; const s1 = c32[p * 2 + 1]!; const c2 = c64[p * 2]!; const s2 = c64[p * 2 + 1]!;
+      const c3 = c32[i * 2]!; const s3 = c32[i * 2 + 1]!; const c4 = c64[i * 2]!; const s4 = c64[i * 2 + 1]!;
       sx = sh[p * 3]! + lp * (c1 - c2) - lc * (c3 - c4);
       sy = sh[p * 3 + 1]! + lp * (s1 - s2) - lc * (s3 - s4);
       posX[i] = posX[i]! + sx; posY[i] = posY[i]! + sy;
@@ -470,19 +648,4 @@ function applyTorqueCorrection(wk: Work, sg: World['seg']['c'], p: number, i: nu
   const op = p * 6; const oc = i * 6;
   sg.posX[p] = sg.posX[p]! - ai[op + 2]! * dl; sg.posY[p] = sg.posY[p]! - ai[op + 4]! * dl; th[p] = th[p]! - ai[op + 5]! * dl;
   sg.posX[i] = sg.posX[i]! + ai[oc + 2]! * dl; sg.posY[i] = sg.posY[i]! + ai[oc + 4]! * dl; th[i] = th[i]! + ai[oc + 5]! * dl;
-}
-
-/** Hard joint limits only (after the tree solve). */
-function solveLimit(wk: Work, sg: World['seg']['c'], i: number, p: number, mir: number, frac: number): void {
-  const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
-  const rest = mir * (restB + wrapAngle(restA - restB) * frac);
-  let lo = sg.limitLo[i]! - restA; let hi = sg.limitHi[i]! - restA;
-  if (mir < 0) { const t = lo; lo = -hi; hi = -t; }
-  if (!(lo < hi)) return;
-  const d = wrapAngle(wk.th[i]! - wk.th[p]! - rest);
-  let Cl = 0;
-  if (d < lo) Cl = d - lo; else if (d > hi) Cl = d - hi;
-  if (Cl === 0) return;
-  const wB = wk.ai[p * 6 + 5]! + wk.ai[i * 6 + 5]!;
-  applyTorqueCorrection(wk, sg, p, i, -Cl / wB);
 }

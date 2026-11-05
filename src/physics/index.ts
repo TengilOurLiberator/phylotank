@@ -16,11 +16,12 @@ import {
   DEFAULT_OPTIONS, beginCreature, endCreature, stepCreature, substepCreature, substepCreatureEnd, type FlowSampler,
   type PhysicsOptions,
 } from './solver.js';
-import { islands, linkState, pruneLinks, resetLinkForces, solveLinks } from './links.js';
+import { coolLatches, islands, linkState, pruneLinks, resetLinkForces, scrapeLatches, solveLinks } from './links.js';
 import type { Work } from './work.js';
 import { stepContacts } from './contacts.js';
 import { workFor } from './work.js';
 import { watch } from './watchdog.js';
+import { fadeFragments, findSevers } from './sever.js';
 
 export type { SegmentSpec, PhysicsOptions };
 export { toSegmentSpecs } from './segment-spec.js';
@@ -29,7 +30,14 @@ export { massProps, dragCoeffs, segVolume, tissueDensity } from './body.js';
 export { workFor } from './work.js';
 export { drainFlags, waterFrameEnergy } from './watchdog.js';
 export { contactState, drainBites, type BiteRecord } from './contacts.js';
-export { LINK, latches, linkState, type Link } from './links.js';
+export { LINK, itch, latches, linkState, scrapeLatches, SCRAPE_BL_PER_S, SCRAPE_S, type Link } from './links.js';
+export {
+  gasVolume, molesFor, pressureAt, setBladder, JET_FRAC, BLADDER_RATE, ROLL_ON, ROLL_OFF, ROLL_COOLDOWN_S,
+} from './organs.js';
+export {
+  commitSevers, findSevers, fadeFragments, fragmentGlow, localSeverHooks, pendingSevers, FRAGMENT_GLOW_S,
+  type SeverHooks, type SeverRequest, type SeverResult,
+} from './sever.js';
 
 /** Drag rate for passive drifters (1/s): a mote follows the water with a ~0.5 s lag. */
 export const DRIFTER_DRAG = 2;
@@ -53,10 +61,10 @@ export function sampleFlow(world: World, x: number, y: number, out: Float64Array
   const fx = gx - ix;
   const fy = gy - iy;
   const i00 = iy * w + ix;
-  const lerp2 = (a: Float32Array): number =>
-    (a[i00]! * (1 - fx) + a[i00 + 1]! * fx) * (1 - fy) + (a[i00 + w]! * (1 - fx) + a[i00 + w + 1]! * fx) * fy;
-  out[0] = lerp2(f.flowU);
-  out[1] = lerp2(f.flowV);
+  // inline (a closure here allocated once per segment per tick)
+  const U = f.flowU; const V = f.flowV;
+  out[0] = (U[i00]! * (1 - fx) + U[i00 + 1]! * fx) * (1 - fy) + (U[i00 + w]! * (1 - fx) + U[i00 + w + 1]! * fx) * fy;
+  out[1] = (V[i00]! * (1 - fx) + V[i00 + 1]! * fx) * (1 - fy) + (V[i00 + w]! * (1 - fx) + V[i00 + w + 1]! * fx) * fy;
 }
 
 const flow = new Float64Array(2);
@@ -96,7 +104,7 @@ export function stepDrifters(world: World, ctx: StepContext): void {
 
 /** Linked creatures step together: common substep count, links solved inside every substep (R6). */
 export const ISLAND_SUBSTEPS = 8;
-function stepIsland(world: World, members: readonly number[], wk: Work, opts: PhysicsOptions, flowAt: FlowSampler): void {
+function stepIsland(world: World, members: readonly number[], wk: Work, opts: PhysicsOptions, flowAt: FlowSampler | null): void {
   const cts = members.map((m) => beginCreature(world, m, wk, opts, flowAt, Math.max(ISLAND_SUBSTEPS, opts.nSub)));
   const nSub = cts[0]!.nSub;
   for (let s = 0; s < nSub; s++) {
@@ -121,7 +129,7 @@ export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule
       stepDrifters(world, ctx);
       const c = world.cr.c;
       const wk = workFor(world);
-      const sampler = (x: number, y: number, out: Float64Array): void => sampleFlow(world, x, y, out);
+      const sampler = null; // the solver samples the flow grid inline (same arithmetic as sampleFlow)
       resetLinkForces(world);
       const isl = linkState(world).links.length > 0 ? islands(world) : null;
       const rootOf = new Map<number, number>();
@@ -138,7 +146,11 @@ export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule
         if (opts.watchdog) watch(world, s, wk, opts.dt, opts.gravity);
       }
       if (opts.contacts) stepContacts(world, ctx, wk, opts);
+      coolLatches(world, wk, opts.dt);
+      scrapeLatches(world, wk, opts.dt);
       pruneLinks(world);
+      findSevers(world);
+      fadeFragments(world, opts.dt);
     },
   };
 }
