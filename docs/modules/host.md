@@ -69,3 +69,12 @@ Most of it is the pure-JS xxh64 (H9) and sparse field grids stored raw (H5). In 
 - Releases and sim settings (contract request H2), the detectors that need missing systems (outbreak, epidemicFront, bloomFront, newRole, novelty, speciation), lite snapshots, the GENO, SPEC and LINE sections (no genome store or species registry exists yet), predictive deltas (protocol 1.1), NEAR_POSE, GENOME_REQ and GENOME.
 - The Windows probes themselves, EcoQoS, mDNS, the GPU backend and its duty-cap controller.
 - A 24-hour soak. The 3 MB/s wallpaper budget is measured only for the phase-0 skeleton: a wallpaper watching the whole Default tank with 8,192 motes received 526 KB/s (`tests/host-recovery.test.ts`, this container). Real creatures, bodies and events will change that.
+
+## Notes for the integrator
+
+- `tests/e2e/smoke.cjs` starts `dist/host.mjs --port 0`, which now keeps a persistent world in the user's data directory. Add `--memory` there (or set `XDG_DATA_HOME`) so CI and local runs do not leave worlds behind. The smoke test passes against this host either way.
+- The god page must read `#token=` from its URL (printed by `npm run host`) and send it as `token` in HELLO; without it a god page gets the `view` scope only. A paired TV sends its device token the same way.
+- Phase-0 views send neither VIEWPORT nor ACK. They get the whole tank as dust, and freeze detection stays off until a client's first ACK.
+- While `ecosystem.applyGodEvent` is a throwing stub, every cast costs one retried tick (`stepErrors` in STATS). Replay reproduces it exactly.
+- The host never writes World state outside the journal, except when it loads a snapshot (boot, recovery, rewind). Detectors and the summary only read.
+- On this shared machine the full suite sometimes exceeds the default 30 s test timeout (`tests/sim.test.ts` took 32 to 34 s while other jobs ran); the host tests set 120 s.
