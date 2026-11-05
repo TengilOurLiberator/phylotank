@@ -14,6 +14,24 @@ import { CH, scratch, type EcoState } from './state.js';
 import { consumeO2, produceO2, tBase } from './env.js';
 
 export function q10(T: number): number { return exp((LN2 * (T - P.tRefC)) / 10); }
+
+/** Q10 factor per coarse cell: one exp per row unless a temperature anomaly is present. */
+function cellQ10(world: World, s: EcoState): Float64Array {
+  const f = world.fields;
+  const [w, h] = f.coarse;
+  const cs = world.preset.widthM / w;
+  const out = scratch(s, 'q10c', w * h);
+  for (let iy = 0; iy < h; iy++) {
+    const tb = tBase(s, (iy + 0.5) * cs);
+    const qr = q10(tb);
+    for (let ix = 0; ix < w; ix++) {
+      const i = iy * w + ix;
+      const a = f.tAnom[i]!;
+      out[i] = a === 0 ? qr : q10(tb + a);
+    }
+  }
+  return out;
+}
 export function steele(I: number): number { const x = I / P.iK; return x * exp(1 - x); }
 
 function inRegion(x: number, y: number, z: number[]): boolean {
@@ -62,12 +80,13 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
   const blooms = s.mods.blooms;
   // cell-level environment cache per coarse cell
   const fN = scratch(s, 'fN', w * h), fT = scratch(s, 'fT', w * h), fL = scratch(s, 'fL', w * h), fS = scratch(s, 'fS', w * h);
+  const qc = cellQ10(world, s);
   for (let iy = 0; iy < h; iy++) for (let ix = 0; ix < w; ix++) {
     const i = iy * w + ix;
     if (!s.wetC[i]) continue;
     const n = (f.qN[i]! * Q_MASS) / areaC;
     fN[i] = n / (n + P.kN);
-    fT[i] = q10(tBase(s, (iy + 0.5) * cs) + f.tAnom[i]!);
+    fT[i] = qc[i]!;
     fL[i] = steele(f.light[i]!);
     fS[i] = f.sulphur[i]! / (f.sulphur[i]! + P.kS);
   }
@@ -132,24 +151,44 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
   // 3. resolve N per coarse cell and collect (pro rata, never overdrawn)
   const rho = scratch(s, 'rho', w * h);
   for (let i = 0; i < w * h; i++) { const D = dsum[i]!; rho[i] = D <= 0 ? 0 : Math.min(1, f.qN[i]! / D); }
-  const collect = (dem: Float64Array, to: Float64Array, ch: number, o2: boolean): void => {
-    for (let j = 0; j < nF; j++) {
-      const d = dem[j]!;
-      if (d <= 0) continue;
-      const jx = j % fw, jy = (j - jx) / fw;
-      const i = ((jy / r) | 0) * w + ((jx / r) | 0);
-      let q = Math.floor(d * rho[i]!);
-      if (q > f.qN[i]!) q = f.qN[i]!;
-      if (q <= 0) continue;
-      f.qN[i] = f.qN[i]! - q;
-      to[j] = to[j]! + q;
-      if (o2) produceO2(world, i, q);
-      book(world, ch, q);
-    }
+  const take = (j: number, i: number, d: number, to: Float64Array, ch: number, o2: boolean): void => {
+    let q = Math.floor(d * rho[i]!);
+    if (q > f.qN[i]!) q = f.qN[i]!;
+    if (q <= 0) return;
+    f.qN[i] = f.qN[i]! - q;
+    to[j] = to[j]! + q;
+    if (o2) produceO2(world, i, q);
+    book(world, ch, q);
   };
-  collect(demandP, f.qP, CH.photosynthesis, true);
-  collect(demandBp, f.qBphoto, CH.photosynthesis, true);
-  collect(demandBc, f.qBchemo, CH.chemosynthesis, false);
+  for (let jy = 0; jy < fh; jy++) {
+    const row = ((jy / r) | 0) * w;
+    for (let jx = 0; jx < fw; jx++) {
+      const j = jy * fw + jx;
+      const d = demandP[j]!;
+      if (d > 0) take(j, row + ((jx / r) | 0), d, f.qP, CH.photosynthesis, true);
+    }
+  }
+  for (let k = 0; k < sub.length; k++) {
+    const j = sub[k]!;
+    const dp = demandBp[j]!, dc = demandBc[j]!;
+    if (dp <= 0 && dc <= 0) continue;
+    const jx = j % fw, jy = (j - jx) / fw;
+    const i = ((jy / r) | 0) * w + ((jx / r) | 0);
+    if (dp > 0) take(j, i, dp, f.qBphoto, CH.photosynthesis, true);
+    if (dc > 0) take(j, i, dc, f.qBchemo, CH.chemosynthesis, false);
+  }
+  // coarse producer sums for the light scan (self-shading), cached until the next phase B
+  let prodC = s.scratch.get('prodC');
+  if (!prodC || prodC.length < w * h) { prodC = new Float64Array(w * h); s.scratch.set('prodC', prodC); }
+  prodC.fill(0);
+  for (let jy = 0; jy < fh; jy++) {
+    const row = ((jy / r) | 0) * w;
+    for (let jx = 0; jx < fw; jx++) {
+      const j = jy * fw + jx;
+      const q = f.qP[j]! + f.qBphoto[j]!;
+      if (q > 0) { const k = row + ((jx / r) | 0); prodC[k] = prodC[k]! + q; }
+    }
+  }
   // 4. cysts: germinate under light and nutrient, or resuspend in fast water over the floor
   for (let ix = 0; ix < w; ix++) {
     const c = f.qCyst[ix]!;
@@ -175,12 +214,12 @@ export function stepCycling(world: World, s: EcoState, ctx: StepContext, dt: num
   const [w, h] = f.coarse;
   const cs = world.preset.widthM / w;
   const dith = new Dither(ctx.rng, ctx.tick, 3);
+  const qc = cellQ10(world, s);
   for (let iy = 0; iy < h; iy++) for (let ix = 0; ix < w; ix++) {
     const i = iy * w + ix;
     const d = f.qD[i]!;
     if (d <= 0) continue;
-    const T = tBase(s, (iy + 0.5) * cs) + f.tAnom[i]!;
-    let m = qRound(P.rD * q10(T) * d * dt, dith.at(i));
+    let m = qRound(P.rD * qc[i]! * d * dt, dith.at(i));
     if (m > d) m = d;
     if (m <= 0) continue;
     f.qD[i] = d - m; f.qN[i] = f.qN[i]! + m;
@@ -194,8 +233,7 @@ export function stepCycling(world: World, s: EcoState, ctx: StepContext, dt: num
     const i = iy * w + ix;
     const sed = f.qSed[ix]!;
     if (sed > 0) {
-      const T = tBase(s, (iy + 0.5) * cs) + f.tAnom[i]!;
-      let reg = qRound(P.rSed * q10(T) * sed * dt, dith.at(nC + ix * 3));
+      let reg = qRound(P.rSed * qc[i]! * sed * dt, dith.at(nC + ix * 3));
       if (reg > sed) reg = sed;
       f.qSed[ix] = sed - reg; f.qN[i] = f.qN[i]! + reg;
       consumeO2(world, i, reg);

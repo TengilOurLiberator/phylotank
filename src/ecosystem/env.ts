@@ -85,13 +85,15 @@ export function scanLight(world: World, s: EcoState): void {
   const r = fw / w, rs = sw / w;
   const cellArea = cs * cs;
   const raw = new Float64Array(w * h);
+  const prodC = s.scratch.get('prodC');
   for (let ix = 0; ix < w; ix++) {
     let I = s.env.surfLight;
     for (let iy = 0; iy < h; iy++) {
       const i = iy * w + ix;
       // producers in this coarse cell (kg/m^2)
       let q = 0;
-      for (let jy = iy * r; jy < (iy + 1) * r; jy++) for (let jx = ix * r; jx < (ix + 1) * r; jx++) {
+      if (prodC) q = prodC[i]!;
+      else for (let jy = iy * r; jy < (iy + 1) * r; jy++) for (let jx = ix * r; jx < (ix + 1) * r; jx++) {
         const j = jy * fw + jx; q += f.qP[j]! + f.qBphoto[j]!;
       }
       const dens = (q * Q_MASS) / cellArea;

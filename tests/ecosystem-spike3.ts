@@ -45,7 +45,7 @@ function evolve(): void {
   for (let i = 0; i < 400; i++) {
     const L = 0.001 * Math.exp(d.u01() * Math.log(50));
     H.spawn({ x: 1.5 + d.u01() * 29, y: 0.4 + d.u01() * 3.5, lengthM: L, species: 1 + Math.floor(Math.log2(L / 0.001)),
-      traits: { ADULT_LENGTH: L, DIET_PLANT: 0.95, DIET_DETRITUS: 0.05 }, maturity: 0.7, reserveFrac: 0.25 });
+      traits: { ADULT_LENGTH: L, DIET_PLANT: 0.95, DIET_DETRITUS: 0.05, REPRO_RESERVE: 0.3 }, maturity: 0.85, reserveFrac: 0.28 });
   }
   // track generations: wrap the commit through the births counter by scanning new slots
   const c = H.world.cr.c;
@@ -165,4 +165,27 @@ function ledger(): void {
   console.log('audit ok', ecosystem.audit(H.world).ok, 'ln2', LN2.toFixed(3));
 }
 
-if (mode === 'ledger') ledger(); else evolve();
+/** R8: one sim day of feeding and burning at 10 Hz, integer quanta with carries vs f64 and an f32 stock. */
+function ledgerArith(): void {
+  console.log('| body | mass kg | basal W | net per tick (quanta) | integer ledger after 1 day (quanta) | f64 reference | abs error (quanta) | relative error | f32 stock relative error |');
+  console.log('|---|---|---|---|---|---|---|---|---|');
+  for (const [name, m] of [['microbe 0.5 mm', 31 * 0.0005 ** 3], ['microbe 1 mm', 31 * 0.001 ** 3], ['fish 20 cm', 31 * 0.2 ** 3], ['leviathan 1 m', 31]] as const) {
+    const B = basalPowerW(m, 15, 0.2, 6);
+    const burn = (B + repairPowerW(B, 4)) * 0.1 / (Q_MASS * E_B);       // quanta per eco tick
+    const gain = 1.3 * burn;                                            // intake that more than covers it
+    const carry = new Float64Array(4);
+    let q = Math.floor(0.3 * m / Q_MASS), ref = q;
+    let f32 = Math.fround(q * Q_MASS);
+    const q0 = f32;
+    for (let k = 0; k < DAY_S / 0.1; k++) {
+      let t = gain + carry[1]!; const a = Math.floor(t); carry[1] = t - a;
+      t = burn + carry[0]!; const b = Math.floor(t); carry[0] = t - b;
+      q += a - b; ref += gain - burn;
+      f32 = Math.fround(f32 + Math.fround((gain - burn) * Q_MASS));
+    }
+    const f32q = f32 / Q_MASS;
+    console.log(`| ${name} | ${m.toExponential(2)} | ${B.toExponential(2)} | ${(gain - burn).toExponential(3)} | ${q} | ${ref.toFixed(2)} | ${(q - ref).toFixed(2)} | ${((q - ref) / (ref - Math.floor(0.3 * m / Q_MASS))).toExponential(2)} | ${((f32q - ref) / (ref - q0 / Q_MASS)).toExponential(2)} |`);
+  }
+}
+
+if (mode === 'ledger') ledger(); else if (mode === 'arith') ledgerArith(); else evolve();

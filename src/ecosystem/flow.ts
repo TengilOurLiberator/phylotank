@@ -151,10 +151,37 @@ export function rebuildFlow(world: World, s: EcoState): void {
   const cs = world.preset.widthM / w;
   const W1 = w + 1, H1 = h + 1;
   const psi = s.psiC;
-  for (let iy = 0; iy < H1; iy++) {
-    for (let ix = 0; ix < W1; ix++) {
-      const onEdge = ix === 0 || iy === 0 || ix === w || iy === h;
-      psi[iy * W1 + ix] = onEdge ? 0 : psiAt(world, s, ix * cs, iy * cs);
+  // Same psi as psiAt, evaluated column by column: sin(kx x), h(x) once per column, one sine
+  // per mode per corner, and corners on solid cells skipped (they are zeroed below anyway).
+  const W = world.preset.widthM, H = world.preset.heightM;
+  const nm = FLOW_MODES.length;
+  const sxA = new Float64Array(nm);
+  const vents = s.terrain.vents;
+  const s2 = P.ventPlumeR * P.ventPlumeR;
+  psi.fill(0);
+  for (let ix = 1; ix < w; ix++) {
+    const x = ix * cs;
+    hAt(world, s, x, hh);
+    const hf = hh[0]!, g = hf / H;
+    for (let m = 0; m < nm; m++) {
+      const [i, j] = FLOW_MODES[m]!;
+      sxA[m] = ((world.g.flowModes[m]! * H) / (j * PI)) * g * sin((i * PI * x) / W);
+    }
+    for (let iy = 1; iy < h; iy++) {
+      if (!s.wetC[iy * w + ix] || !s.wetC[iy * w + ix - 1] || !s.wetC[(iy - 1) * w + ix] || !s.wetC[(iy - 1) * w + ix - 1]) continue;
+      const y = iy * cs;
+      sampleSdf(world, x, y, sd);
+      const R = ramp(sd[0]! / P.d0);
+      if (R === 0) continue;
+      let p = 0;
+      for (let m = 0; m < nm; m++) p += sxA[m]! * sin((FLOW_MODES[m]![1] * PI * y) / hf);
+      for (const v of vents) {
+        const dx = x - v.x, dy = y - v.y;
+        const r2 = (dx * dx + dy * dy) / s2;
+        if (r2 > 25) continue;
+        p += P.ventPlume * v.output * dx * exp(-r2);
+      }
+      psi[iy * W1 + ix] = p * R;
     }
   }
   // no flux into solid cells: psi is constant (zero) on every corner a solid cell touches
