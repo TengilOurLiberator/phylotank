@@ -95,7 +95,11 @@ export function buildHash(world: World, hs?: SpatialHash, dt = 1 / 30): SpatialH
     const s0 = c.segStart[s]!;
     for (let k = 0; k < c.segCount[s]!; k++) {
       const i = s0 + k;
-      const l = levelFor(bound(sg, i, dt));
+      // bound() and levelFor() inlined (calls with a double argument box it)
+      const vb = Math.sqrt(sg.velX[i]! * sg.velX[i]! + sg.velY[i]! * sg.velY[i]!) + Math.abs(sg.angVel[i]!) * 0.5 * sg.len[i]!;
+      const R = 0.5 * sg.len[i]! + sg.radius[i]! + 0.5 * vb * dt;
+      let l = 0;
+      while (l < HASH_LEVELS - 1 && LEVEL_SIZE[l]! < 2 * R) l++;
       const cs = LEVEL_SIZE[l]!;
       const ix = Math.floor(sg.posX[i]! / cs); const iy = Math.floor(sg.posY[i]! / cs);
       hs.level[i] = l; hs.cx[i] = ix; hs.cy[i] = iy;
@@ -135,22 +139,24 @@ export function queryPairs(
   world: World, hs: SpatialHash, i: number, visit: (i: number, j: number) => void, maxCandidates = MAX_CANDIDATES,
 ): number {
   const sg = world.seg.c;
-  const li = hs.level[i]!;
+  const level = hs.level; const hcx = hs.cx; const hcy = hs.cy; const start = hs.start; const items = hs.items;
+  const mask = hs.mask; const levelMask = hs.levelMask;
+  const li = level[i]!;
   const x = sg.posX[i]!; const y = sg.posY[i]!;
   let cells = 0; let found = 0;
   for (let l = li; l < HASH_LEVELS; l++) {
-    if ((hs.levelMask & (1 << l)) === 0) continue;
+    if ((levelMask & (1 << l)) === 0) continue;
     const cs = LEVEL_SIZE[l]!;
     const ix = Math.floor(x / cs); const iy = Math.floor(y / cs);
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         cells++;
         const qx = ix + dx; const qy = iy + dy;
-        const b = bucket(l, qx, qy, hs.mask);
-        const en = hs.start[b + 1]!;
-        for (let q = hs.start[b]!; q < en; q++) {
-          const j = hs.items[q]!;
-          if (hs.level[j] !== l || hs.cx[j] !== qx || hs.cy[j] !== qy) continue;
+        const b = (Math.imul(qx, 73856093) ^ Math.imul(qy, 19349663) ^ Math.imul(l, 83492791)) & mask;
+        const en = start[b + 1]!;
+        for (let q = start[b]!; q < en; q++) {
+          const j = items[q]!;
+          if (level[j] !== l || hcx[j] !== qx || hcy[j] !== qy) continue;
           if (l === li && j <= i) continue;
           visit(i, j);
           if (++found >= maxCandidates) return cells;
@@ -293,6 +299,15 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     pairs++;
     const ra = sg.radius[i]!; const rb = sg.radius[j]!;
     const ha = 0.5 * sg.len[i]!; const hb = 0.5 * sg.len[j]!;
+    {
+      // early out: centres too far apart for the capsules to touch, even speculatively (the
+      // same test as below, on the bounding circles, so no pair the full test keeps is lost)
+      const ex = sg.posX[i]! - sg.posX[j]!; const ey = sg.posY[i]! - sg.posY[j]!;
+      const vrel = Math.sqrt((sg.velX[i]! - sg.velX[j]!) ** 2 + (sg.velY[i]! - sg.velY[j]!) ** 2)
+        + Math.abs(sg.angVel[i]!) * ha + Math.abs(sg.angVel[j]!) * hb;
+      const reach = ra + rb + ha + hb + vrel * dt;
+      if (ex * ex + ey * ey > reach * reach * 1.0000001 + 1e-30) return;
+    }
     const ca = csx[i * 2]!; const sa = csx[i * 2 + 1]!; const cb = csx[j * 2]!; const sb = csx[j * 2 + 1]!;
     const axc = sg.posX[i]!; const ayc = sg.posY[i]!; const bxc = sg.posX[j]!; const byc = sg.posY[j]!;
     cp[0] = axc - ca * ha; cp[1] = ayc - sa * ha; cp[2] = axc + ca * ha; cp[3] = ayc + sa * ha;

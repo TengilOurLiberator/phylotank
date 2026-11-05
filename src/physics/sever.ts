@@ -103,11 +103,11 @@ export function commitSevers(world: World, hooks: SeverHooks): SeverResult[] {
   const reqs = st.queue.slice().sort((a, b) => a.slot - b.slot || b.seg - a.seg);
   st.queue = [];
   const out: SeverResult[] = [];
-  // deepest cut first within a creature: a later, shallower cut sees compacted indices, so
-  // later requests of the same creature are re-found by findSevers on the next tick instead
+  // one cut per creature per commit: the cut compacts the survivor, so its other requests hold
+  // stale indices; they are dropped and findSevers queues them again at the next step
   const done = new Set<number>();
   for (const r of reqs) {
-    if (done.has(r.slot)) { st.queue.push(r); continue; }
+    if (done.has(r.slot)) continue;
     const res = severOne(world, r, hooks);
     if (res) { out.push(res); done.add(r.slot); }
   }

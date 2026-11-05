@@ -36,3 +36,11 @@ Spike 1 (XPBD swimmer and microbenchmarks): B2, B4, T1 at `n_sub` 1, 2, 4, 16; t
 - Spike 1 done: [docs/spikes/physics-1.md](../../docs/spikes/physics-1.md) (named `physics-1` per the phase brief's ownership rule). Design notes: [docs/modules/physics.md](../../docs/modules/physics.md). Contract requests: [docs/contract-requests/physics.md](../../docs/contract-requests/physics.md).
 - Tests: `tests/physics.test.ts` (bodies, water, R9, contacts, rams, bites, hash I1, determinism I2), `tests/physics-links.test.ts`, `tests/physics-card.test.ts`, `tests/physics-spike.test.ts` and `tests/physics-bench.test.ts` (quick variants in `npm test`; `PT_SPIKE=1` runs the measurements).
 - Met: B1, B3, B5, T1 (B3, B4), C1 centre of mass, passive energy monotone, no energy from nothing with muscles, exploit transfer at the 4-substep floor (0.97), R9 plume, I1, I2 (same run). Open: B2 against Gray-Hancock (-17%; the integrator matches the resistive-force reference to 0.7%), B4 Strouhal, C1 angular momentum, B6, B7, C2 to C6, T3 to T6, L1 to L3, snapshot-exact restore (contract request P1).
+
+## Status (end of phase 1, second pass)
+
+- Spike 2: [docs/spikes/physics-2.md](../../docs/spikes/physics-2.md). Contract requests PH2-1 to PH2-7: [docs/contract-requests/physics2.md](../../docs/contract-requests/physics2.md).
+- B4 met with the drag review: laminar friction along the boundary-layer run, Lighthill's trailing-edge term on by default, and a laterally compressed reference fish (depth twice the width); low-Re results unchanged (B1, B2, B3, T1).
+- C1 angular momentum met (about 1e-7 m L^2/s, against 5e-2 in spike 1) by cancelling the joint solve's net angular impulse each substep.
+- New: severing and corpse fragments (`sever.ts`, exact quanta through hooks), jets, gas bladders, roll triggering (`organs.ts`), parasite scraping and the itch value (`links.ts`). Tests: `tests/physics-spike2.test.ts`, `tests/physics-sever.test.ts`, `tests/physics-organs.test.ts`.
+- Throughput pass, bit-identical results: see spike 2, section 5.
