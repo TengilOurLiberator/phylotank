@@ -58,8 +58,8 @@ Owner: brain engineer. Design: [03-brains.md](../sections/03-brains.md) as recon
 
 The worker was shared with about 11 other engineers (load average 8 to 12 on 4 cores), so these are pessimistic.
 
-- Brain tick, CPU reference: see spike 8 for C4 and the 1,000-fish crowd figures.
-- Development per birth: microbe about 0.1 to 0.4 ms, 8-part fish about 0.2 ms direct and about 2 ms CPPN; a 37-part body about 2 ms direct and about 7 ms CPPN.
+- A full C4 brain tick (4,096 synapses): 71 us of CPU time (58 M synapse updates per second). 1,000 C2 fish with eyes and lateral lines: sense 8.0 ms, think 4.0 ms CPU time per tick.
+- Development per birth (minimum of repeats): 1-part microbe 77 us direct and 477 us CPPN; 7-part fish 156 us and 946 us; 38-part body 729 us and 2,144 us.
 
 ## Stubbed or left
 
