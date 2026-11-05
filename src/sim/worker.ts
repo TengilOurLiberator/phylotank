@@ -30,12 +30,15 @@ scope.onmessage = (e) => {
     const p = payload as { worldConfig?: Partial<WorldConfig> };
     if (!session) {
       session = new SimSession({ ...DEFAULT_DREAM_CONFIG, ...(p.worldConfig ?? {}), backend: 'cpu' });
-      pacer = new Pacer({ hz: 30, onTicks: (n) => session!.tick(n) });
+      const s = session;
+      pacer = new Pacer({ hz: 30, onTicks: (n) => s.tick(n), currentTick: () => s.world.g.tick });
+      s.attachPacer(pacer);
       pacer.start();
     }
-    session.add(client, ['view']);
+    // the dream tank is private to its page, so its one client may also command it
+    session.add(client, ['view', 'god']);
     return;
   }
-  if (h.type === FRAME.BYE) { pacer?.stop(); return; }
+  if (h.type === FRAME.BYE) { session?.remove(client); pacer?.stop(); return; }
   session?.receive(client, bytes);
 };
