@@ -54,6 +54,20 @@
 
 Most of it is the pure-JS xxh64 (H9) and sparse field grids stored raw (H5). In the built host these run on the worker thread (decision 13); only boot, recovery, rewind and shutdown saves block the main thread.
 
+### 10-minute soak (`src/host/spikes/soak.mjs`)
+
+The built host, Small preset, 3,000 motes, autosave every 2 minutes, three viewers (whole-tank wallpaper, a zoomed screensaver, a god window with STATS), ACKs at 2 Hz. This run used the build before slot compaction, so the screensaver still received a whole-tank-sized dust frame.
+
+| Measure | Value |
+|---|---|
+| Ticks in 600 s | 18,037 (30.0 per second; every 10 s sample between 28.8 and 31.3 after the first) |
+| Throttle state | Watching throughout |
+| Bytes per viewer | 313 to 341 KB/s each |
+| Autosaves | 5, at ticks 3,626, 7,242, 10,857, 14,480 and 18,037 (shutdown), all on the worker thread; ticking never paused |
+| Host RSS | 148.7 MB at 20 s, 229 MB at 600 s |
+
+RSS did not climb steadily: it rose in steps at autosaves (the worker's buffers) and stayed flat between them (222.3 MB for 70 s, 231.1 MB for 110 s), ending slightly lower than its peak. Ten minutes cannot tell a leak from a heap growing to its plateau; the 24-hour soak is still to do.
+
 ## HTTP endpoints (contract request H7)
 
 | Route | Who | Body / reply |
