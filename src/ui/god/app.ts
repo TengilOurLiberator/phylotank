@@ -25,6 +25,7 @@ const RAIL: [Panel, string, MsgKey, string][] = [
   ['map', '◫', 'rail.map', 'M'], ['powers', '✦', 'rail.powers', 'P'], ['designer', '✎', 'rail.designer', 'D'], ['library', '▤', 'rail.library', 'L'],
   ['stats', '▦', 'rail.stats', 'S'], ['bookmarks', '⚑', 'rail.bookmarks', 'B'], ['settings', '⚙', 'rail.settings', ','],
 ];
+const RAIL_W = 76;
 const SPEEDS: Speed[] = [0, 0.25, 1, 4, 16, 'max'];
 const PAL: number[][] = [];
 
@@ -45,6 +46,7 @@ export class GodApp {
   private mini = h('div', { class: 'pt-mini' });
   private miniCanvas = h('canvas', { role: 'img', 'aria-label': t('map.title') });
   private lastMini = 0;
+  private lastTl = 0;
   private toastEl = h('div', { class: 'pt-toast', role: 'status', 'aria-live': 'polite', style: 'display:none' });
   private countEl = h('div', { class: 'pt-count', role: 'timer', 'aria-live': 'assertive', style: 'display:none' });
   private bannerEl = h('div', { class: 'pt-banner', style: 'display:none' });
@@ -152,7 +154,7 @@ export class GodApp {
   }
   private layoutMini(): void {
     const panelOpen = this.panel !== null && this.panel !== 'designer';
-    this.mini.style.left = `${panelOpen ? 64 + this.panelWidth() + 12 : 76}px`;
+    this.mini.style.left = `${panelOpen ? RAIL_W + this.panelWidth() + 12 : RAIL_W + 12}px`;
     this.mini.style.display = this.panel === 'designer' || this.panel === 'map' ? 'none' : '';
   }
 
@@ -510,13 +512,13 @@ export class GodApp {
 
   // ---------------- camera and input ----------------
   private viewBox(): { x: number; y: number; w: number; h: number } {
-    const left = 64 + (this.panel && this.panel !== 'designer' ? this.panelWidth() : 0), right = this.inspOpen ? 320 : 0;
+    const left = RAIL_W + (this.panel && this.panel !== 'designer' ? this.panelWidth() : 0), right = this.inspOpen ? 320 : 0;
     return { x: left, y: 44, w: Math.max(200, window.innerWidth - left - right), h: Math.max(150, window.innerHeight - 44 - 64) };
   }
   private dpr(): number { return this.canvas.width / Math.max(1, this.canvas.clientWidth); }
   fit(): void {
     const tank = this.client.tank;
-    const vb = { x: 64, y: 44, w: Math.max(200, window.innerWidth - 64 - (this.inspOpen ? 320 : 0)), h: Math.max(150, window.innerHeight - 108) };
+    const vb = { x: RAIL_W, y: 44, w: Math.max(200, window.innerWidth - RAIL_W - (this.inspOpen ? 320 : 0)), h: Math.max(150, window.innerHeight - 108) };
     const ppmCss = Math.min(vb.w / tank.w, vb.h / tank.h) * 0.96;
     const dpr = this.dpr();
     this.cam.zeta = Math.log2(ppmCss * dpr);
@@ -704,8 +706,11 @@ export class GodApp {
     } else this.countEl.style.display = 'none';
     this.drawOverlay(now);
     this.drawMini(now);
-    const tl = prep(this.timeCanvas, 64);
-    this.tlHits = drawTimeline(tl.c, tl.w, 64, this.client.events, this.client.snapshots, this.client.tick, 30 * 60 * 8, this.filters, this.tlHover);
+    if (now - this.lastTl > 200) {
+      this.lastTl = now;
+      const tl = prep(this.timeCanvas, 64);
+      this.tlHits = drawTimeline(tl.c, tl.w, 64, this.client.events, this.client.snapshots, this.client.tick, 30 * 60 * 8, this.filters, this.tlHover);
+    }
     if (this.panel === 'designer') this.designer.frame(now);
     this.inspector.frame();
     if (now - this.lastSlow > 500) {

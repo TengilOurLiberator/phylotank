@@ -72,6 +72,8 @@ export class MockSimLink implements SimLink {
   private lastWall = 0;
   private acc = 0;
   private frameCount = 0;
+  private statsCount = 0;
+  private lastSent = { dust: -1e9, insp: -1e9, stats: -1e9 };
   private hello = false;
   private snapSeq = 1;
   private enteredSlots = new Set<number>();
@@ -81,7 +83,7 @@ export class MockSimLink implements SimLink {
     this.rnd = mulberry32(opts.seed ?? 0x5eed);
     this.now = opts.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
     this.initWorld();
-    const warm = opts.warmupTicks ?? HZ * 240;
+    const warm = opts.warmupTicks ?? HZ * 90;
     for (let i = 0; i < warm; i++) this.step();
     this.outEvents = [];
     this.takeSnapshot('Autosave', 'auto');
@@ -189,7 +191,7 @@ export class MockSimLink implements SimLink {
       if (t >= s.fireTick) { this.scheduled.splice(i, 1); this.fire(s); }
     }
     this.modifiers = this.modifiers.filter((m) => m.until > t);
-    if (t % (HZ * 10) === 0) {
+    if (t % (HZ * 5) === 0) {
       this.history.push([t, this.species.flatMap((s) => [s.id, s.count])]);
       if (this.history.length > 2000) this.history.shift();
     }
@@ -405,15 +407,17 @@ export class MockSimLink implements SimLink {
     for (let i = 0; i < n; i++) this.step();
     if (!this.hello) return;
     this.frameCount++;
+    // frame cadences follow wall time, so a busy page still gets 1 Hz stats
+    const due = (k: 'dust' | 'insp' | 'stats', every: number) => { if (wall - this.lastSent[k] >= every || dtMs !== undefined) { this.lastSent[k] = wall; return true; } return false; };
     this.sendBodies();
-    if (this.frameCount % 2 === 0) this.emitFrame(this.dustFrame());
+    if (due('dust', 60)) this.emitFrame(this.dustFrame());
     if (this.outEvents.length > 0) {
       const evs = this.outEvents.slice(-40);
       this.outEvents = [];
       this.emitFrame(encodeCborFrame(FRAME.EVENT, this.tick, evs as unknown as CborValue));
     }
-    if (this.frameCount % 3 === 0 && this.selected >= 0) this.sendInspect();
-    if (this.frameCount % 30 === 0) { this.sendEnv(); this.sendStats(false); }
+    if (this.selected >= 0 && due('insp', 100)) this.sendInspect();
+    if (due('stats', 1000)) { this.sendEnv(); this.sendStats(false); }
   }
 
   private sendWelcome(): void {
@@ -486,7 +490,7 @@ export class MockSimLink implements SimLink {
       env: { tempC: 14, light: 0.6, vents: this.vents },
     };
     if (full) payload.history = this.history;
-    if (this.frameCount % 150 === 0 || full) payload.genes = this.geneHists();
+    if (this.statsCount++ % 5 === 0 || full) payload.genes = this.geneHists();
     const sel = this.creatures.find((c) => c.id === this.selected);
     if (sel) payload.selected = this.detail(sel);
     this.emitFrame(encodeCborFrame(FRAME.STATS, this.tick, payload as unknown as CborValue));

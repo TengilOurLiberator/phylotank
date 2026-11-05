@@ -76,9 +76,10 @@ function serve() {
       if (want('powers')) await shot(page, 'powers-hold');
       await page.waitForTimeout(700);
       await page.mouse.up();
-      await page.waitForTimeout(900);
+      await page.waitForTimeout(250);
       if (want('powers')) await shot(page, 'powers-countdown');
-      const snaps = await page.evaluate(() => window.__phylotankGod.client.snapshots.map((s) => s.kind));
+      let snaps = [];
+      for (let i = 0; i < 10 && !snaps.includes('beforePower'); i++) { await page.waitForTimeout(400); snaps = await page.evaluate(() => window.__phylotankGod.client.snapshots.map((s) => s.kind)); }
       if (!snaps.includes('beforePower')) failures.push(`major power did not create a beforePower snapshot: ${snaps}`);
       await page.waitForTimeout(3000);
     } else failures.push('no hold button for a major power');
@@ -125,9 +126,9 @@ function serve() {
     await page.waitForTimeout(300);
     if (want('release')) await shot(page, 'release-leviathan');
     await page.getByRole('button', { name: 'Confirm without holding' }).click();
-    await page.waitForTimeout(1800);
-    const after = await page.evaluate(() => window.__phylotankGod.client.species.filter((s) => s.leviathan).length);
-    if (!(after >= 1)) failures.push(`leviathan release did not reach the world (species ${before} -> leviathans ${after})`);
+    let after = 0;
+    for (let i = 0; i < 15 && after === 0; i++) { await page.waitForTimeout(400); after = await page.evaluate(() => window.__phylotankGod.client.species.filter((s) => s.leviathan).length); }
+    if (!(after >= 1)) failures.push(`leviathan release did not reach the world (species ${before} -> leviathans ${after}; toast: ${await page.locator('.pt-toast').first().innerText().catch(() => '-')})`);
     // share dialog with QR
     await page.getByRole('combobox', { name: 'Template' }).selectOption('meadowlamp');
     await page.waitForTimeout(300);
