@@ -371,7 +371,7 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
     const mature = c.length[slot]! >= e[o + ER.MAT_FRAC]! * c.adultLength[slot]!;
     if (mature) {
       const keep = e[o + ER.REPRO_RES]! * resCap;
-      const surplus = c.qReserve[slot]! - keep;
+      const surplus = Math.floor(c.qReserve[slot]! - keep);
       if (surplus > 0) {
         const mv = Math.min(surplus, Math.floor((4 * B * dt) / (E_B * Q_MASS)) + 1);
         c.qReserve[slot] = c.qReserve[slot]! - mv;
@@ -382,8 +382,9 @@ export function stepCreatures(world: World, s: EcoState, ctx: StepContext): void
         const ct = e[o + ER.BIRTH_TISSUE_Q]!;
         const cr = Math.floor(FAT_CAPACITY_0 * ct);
         const over = Math.floor(OVERHEAD_FRACTION * ct + OVERHEAD_ABS_KG * Q_PER_KG);
-        const fee = Math.floor(feeQ);
-        const per = ct + Math.ceil((C_G - 1) * ct) + cr + over + fee;
+        const base = ct + Math.ceil((C_G - 1) * ct) + cr + over;
+        const fee = s.capTaxMode === 'additive' ? Math.floor(feeQ) : Math.floor(base * 2 * pow(nAgents / world.agentCap, 8));
+        const per = base + fee;
         const afford = Math.floor(c.qRepro[slot]! / per);
         const want = e[o + ER.CLUTCH]!;
         const gate = c.brainClass[slot] === 255 || c.out[slot * 8 + 4]! > -0.5;

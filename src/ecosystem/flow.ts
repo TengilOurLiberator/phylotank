@@ -157,6 +157,11 @@ export function rebuildFlow(world: World, s: EcoState): void {
       psi[iy * W1 + ix] = onEdge ? 0 : psiAt(world, s, ix * cs, iy * cs);
     }
   }
+  // no flux into solid cells: psi is constant (zero) on every corner a solid cell touches
+  for (let iy = 0; iy < h; iy++) for (let ix = 0; ix < w; ix++) {
+    if (s.wetC[iy * w + ix]) continue;
+    psi[iy * W1 + ix] = 0; psi[iy * W1 + ix + 1] = 0; psi[(iy + 1) * W1 + ix] = 0; psi[(iy + 1) * W1 + ix + 1] = 0;
+  }
   const uF = s.uFace, vF = s.vFace;
   for (let iy = 0; iy < h; iy++) for (let ix = 0; ix < W1; ix++) uF[iy * W1 + ix] = psi[(iy + 1) * W1 + ix]! - psi[iy * W1 + ix]!;
   for (let iy = 0; iy < H1; iy++) for (let ix = 0; ix < w; ix++) vF[iy * w + ix] = -(psi[iy * W1 + ix + 1]! - psi[iy * W1 + ix]!);
@@ -188,6 +193,10 @@ export function rebuildFineFlux(world: World, s: EcoState): void {
       const a = psi[iy * W1 + ix]!, b = psi[iy * W1 + ix + 1]!, c = psi[(iy + 1) * W1 + ix]!, d = psi[(iy + 1) * W1 + ix + 1]!;
       psiF[jy * FW1 + jx] = (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
     }
+  }
+  for (let jy = 0; jy < fh; jy++) for (let jx = 0; jx < fw; jx++) {
+    if (s.wetF[jy * fw + jx]) continue;
+    psiF[jy * FW1 + jx] = 0; psiF[jy * FW1 + jx + 1] = 0; psiF[(jy + 1) * FW1 + jx] = 0; psiF[(jy + 1) * FW1 + jx + 1] = 0;
   }
   const uFF = s.uFaceF, vFF = s.vFaceF;
   for (let jy = 0; jy < fh; jy++) for (let jx = 0; jx < FW1; jx++) uFF[jy * FW1 + jx] = psiF[(jy + 1) * FW1 + jx]! - psiF[jy * FW1 + jx]!;

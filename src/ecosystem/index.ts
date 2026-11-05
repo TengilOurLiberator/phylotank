@@ -183,7 +183,7 @@ function newState(world: World, habitat: HabitatName): EcoState {
     history: { firstSeen: new Map(), peak: new Map(), lastCount: new Map(), speciations: [], extinctions: [] },
     uFace: new Float64Array((w + 1) * h), vFace: new Float64Array(w * (h + 1)), psiC: new Float64Array((w + 1) * (h + 1)), hFloor: new Float64Array(w).fill(world.preset.heightM),
     uFaceF: new Float64Array((fw + 1) * fh), vFaceF: new Float64Array(fw * (fh + 1)),
-    nAgentsAtTick: 0, capTaxTicks: 0, ecoTicks: 0, natureOn: true, yearOffset: 0, rActiveTargetQ: 0,
+    nAgentsAtTick: 0, capTaxTicks: 0, ecoTicks: 0, natureOn: true, capTaxMode: 'additive', yearOffset: 0, rActiveTargetQ: 0,
     scratch: new Map(),
     env: { t: 0, dayPhase: 0, yearPhase: 0, surfLight: 0, tSurf: P.tMean, yTh: 8, wTh: 2, strat: 1, ySurface: 0 },
     barriers: new Map(), mods: newMods(), diag: { nan: 0, refusedEndowments: 0 },

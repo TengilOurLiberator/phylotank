@@ -132,7 +132,7 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
   // 3. resolve N per coarse cell and collect (pro rata, never overdrawn)
   const rho = scratch(s, 'rho', w * h);
   for (let i = 0; i < w * h; i++) { const D = dsum[i]!; rho[i] = D <= 0 ? 0 : Math.min(1, f.qN[i]! / D); }
-  const collect = (dem: Float64Array, to: Float64Array, ch: number): void => {
+  const collect = (dem: Float64Array, to: Float64Array, ch: number, o2: boolean): void => {
     for (let j = 0; j < nF; j++) {
       const d = dem[j]!;
       if (d <= 0) continue;
@@ -143,13 +143,13 @@ export function stepProducers(world: World, s: EcoState, ctx: StepContext, dt: n
       if (q <= 0) continue;
       f.qN[i] = f.qN[i]! - q;
       to[j] = to[j]! + q;
-      produceO2(world, i, q);
+      if (o2) produceO2(world, i, q);
       book(world, ch, q);
     }
   };
-  collect(demandP, f.qP, CH.photosynthesis);
-  collect(demandBp, f.qBphoto, CH.photosynthesis);
-  collect(demandBc, f.qBchemo, CH.chemosynthesis);
+  collect(demandP, f.qP, CH.photosynthesis, true);
+  collect(demandBp, f.qBphoto, CH.photosynthesis, true);
+  collect(demandBc, f.qBchemo, CH.chemosynthesis, false);
   // 4. cysts: germinate under light and nutrient, or resuspend in fast water over the floor
   for (let ix = 0; ix < w; ix++) {
     const c = f.qCyst[ix]!;
