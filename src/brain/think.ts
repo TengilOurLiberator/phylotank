@@ -22,6 +22,11 @@ export const ROLL_COOLDOWN_S = 2;
 
 const blk = new Uint32Array(4);
 const phasePrev = new Float64Array(256);
+const tanhArg = new Float64Array(256);
+/** o[bN + i] = tanh(arg[i]) for every non-oscillator neuron i < n. */
+function tanhInto(o: Float32Array, bN: number, nKind: Uint8Array, arg: Float64Array, n: number): void {
+  for (let i = 0; i < n; i++) if (nKind[bN + i] !== OSC) o[bN + i] = tanh(arg[i]!);
+}
 const noiseBuf = new Float64Array(256);
 
 /** Fill noiseBuf[0..n) with N(0, sigma): Box-Muller on 24-bit uniforms, drawIndex = index / 4. */
@@ -123,9 +128,12 @@ export function tickBrain(world: World, c: number, s: number, st: BrainStatic, t
       let yi = y[bN + i]! + alpha[bN + i]! * (sum + noise - y[bN + i]!);
       if (yi > BRAIN_STATE_CLAMP) yi = BRAIN_STATE_CLAMP; else if (yi < -BRAIN_STATE_CLAMP) yi = -BRAIN_STATE_CLAMP;
       y[bN + i] = yi;
-      o[bN + i] = tanh(yi + theta[bN + i]!);
+      tanhArg[i] = yi + theta[bN + i]!;
     }
   }
+  // o = tanh(y + theta) in a second, tight pass (Jacobi: nothing above reads o), where tanh
+  // inlines and boxes nothing
+  tanhInto(o, bN, nKind, tanhArg, nNeu);
   if (plastic) plasticity(world, c, s, st, dtb);
   // NaN guard
   let bad = false;

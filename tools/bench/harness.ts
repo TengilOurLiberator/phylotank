@@ -183,6 +183,7 @@ async function oneRun(): Promise<RunResult> {
     hash = hashWorld(w);
     hashMs += performance.now() - ht; hashCpu += cpuNow() - hc;
   }
+  if (HASHES === 0) hash = hashWorld(w); // untimed, for the golden check
   let hashBytes = 0;
   for (const p of [w.cr, w.seg, ...w.brains]) for (const col of p.spec) hashBytes += (p.c as Record<string, ArrayBufferView>)[col.name]!.byteLength / p.capacity * p.highWater;
   for (const v of Object.values(w.fields as unknown as Record<string, ArrayBufferView>)) if (ArrayBuffer.isView(v)) hashBytes += v.byteLength;

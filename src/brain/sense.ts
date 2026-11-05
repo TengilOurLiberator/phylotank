@@ -31,6 +31,8 @@ interface Grid {
   w: number; h: number; start: Int32Array; items: Int32Array; stamp: number;
   /** posX, posY and 0.5 * length of items[k], in item order (contiguous runs for gather) */
   ix: Float64Array; iy: Float64Array; ir: Float64Array; fill: Int32Array;
+  /** the largest ir */
+  maxR: number;
 }
 const grids = new WeakMap<World, Grid>();
 
@@ -43,7 +45,7 @@ export function buildGrid(world: World, stamp: number): Grid {
     const cap = world.cr.capacity;
     g = {
       w, h, start: new Int32Array(w * h + 1), items: new Int32Array(cap), stamp: -1,
-      ix: new Float64Array(cap), iy: new Float64Array(cap), ir: new Float64Array(cap), fill: new Int32Array(w * h),
+      ix: new Float64Array(cap), iy: new Float64Array(cap), ir: new Float64Array(cap), fill: new Int32Array(w * h), maxR: 0,
     };
     grids.set(world, g);
   }
@@ -62,13 +64,17 @@ export function buildGrid(world: World, stamp: number): Grid {
   const fill = g.fill;
   fill.fill(0);
   const posX = c.posX, posY = c.posY, length = c.length;
+  let maxR = 0;
   for (let s = 0; s < hw; s++) {
     if (c.life[s] !== LIFE.ALIVE && c.life[s] !== LIFE.CARCASS) continue;
     const cell = cellOf(s);
     const at = count[cell]! + fill[cell]!++;
     g.items[at] = s;
-    g.ix[at] = posX[s]!; g.iy[at] = posY[s]!; g.ir[at] = 0.5 * length[s]!;
+    const rad = 0.5 * length[s]!;
+    g.ix[at] = posX[s]!; g.iy[at] = posY[s]!; g.ir[at] = rad;
+    if (rad > maxR) maxR = rad;
   }
+  g.maxR = maxR;
   g.stamp = stamp;
   return g;
 }
@@ -106,6 +112,8 @@ function band(colour: number, b: number): number {
 function clamp01(x: number): number { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 const NB_CAP = 512;
+/** Test hook: `cullGather = false` gathers the whole search box (the phase-1 behaviour). */
+export const senseTuning = { cullGather: true };
 const nbBuf = new Int32Array(NB_CAP);
 let nbCount = 0;
 const nearBuf = new Int32Array(NB_CAP);
@@ -114,19 +122,37 @@ let nearCount = 0;
 const nbX = new Float64Array(NB_CAP);
 const nbY = new Float64Array(NB_CAP);
 const nbR = new Float64Array(NB_CAP);
-/** Gather the neighbours of one creature once; every eye and lateral organ filters this list. */
-function gather(g: Grid, x: number, y: number, r: number, self: number): void {
+/**
+ * Gather the neighbours of one creature once; every eye and lateral organ filters this list.
+ * The search box is the cells within `r` (capped at MAX_CELL_VISITS cells). When the whole box
+ * holds at most NB_CAP items (so nothing is truncated), it is narrowed to the cells that can hold
+ * an item within `reach` of (x, y): the dropped items fail every later distance filter, and the
+ * kept ones stay in their (cell, slot) order, so the senses read exactly what they would from
+ * the whole box. Cell indices are clamped like buildGrid clamps positions.
+ */
+function gather(g: Grid, x: number, y: number, r: number, self: number, reach: number): void {
   nbCount = 0;
   const cx = Math.floor(x / GRID_CELL_M), cy = Math.floor(y / GRID_CELL_M);
   let ext = Math.ceil(r / GRID_CELL_M);
   while ((2 * ext + 1) * (2 * ext + 1) > MAX_CELL_VISITS && ext > 0) ext--;
-  const x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
-  const y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
-  const start = g.start, items = g.items, gx = g.ix, gy = g.iy, gr = g.ir;
+  let x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
+  let y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
+  const start = g.start, items = g.items, gx = g.ix, gy = g.iy, gr = g.ir, w = g.w;
+  let total = 0;
+  for (let iy = y0; iy <= y1; iy++) total += start[iy * w + x1 + 1]! - start[iy * w + x0]!;
+  if (total <= NB_CAP && senseTuning.cullGather) {
+    const wm = w - 1, hm = g.h - 1;
+    const ax = Math.floor((x - reach) / GRID_CELL_M), bx = Math.floor((x + reach) / GRID_CELL_M);
+    const ay = Math.floor((y - reach) / GRID_CELL_M), by = Math.floor((y + reach) / GRID_CELL_M);
+    x0 = Math.max(x0, ax < 0 ? 0 : ax > wm ? wm : ax);
+    x1 = Math.min(x1, bx < 0 ? 0 : bx > wm ? wm : bx);
+    y0 = Math.max(y0, ay < 0 ? 0 : ay > hm ? hm : ay);
+    y1 = Math.min(y1, by < 0 ? 0 : by > hm ? hm : by);
+  }
   // the cells x0..x1 of one row are one contiguous run of items (ordered by cell, then slot)
   for (let iy = y0; iy <= y1; iy++) {
-    const k1 = start[iy * g.w + x1 + 1]!;
-    for (let k = start[iy * g.w + x0]!; k < k1; k++) {
+    const k1 = start[iy * w + x1 + 1]!;
+    for (let k = start[iy * w + x0]!; k < k1; k++) {
       const j = items[k]!;
       if (j !== self && nbCount < NB_CAP) {
         nbX[nbCount] = gx[k]!; nbY[nbCount] = gy[k]!; nbR[nbCount] = gr[k]!;
@@ -254,11 +280,25 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   // part positions go through the PP registers (partPos), no closures
   const sgPosX = seg.posX, sgPosY = seg.posY, sgAngle = seg.angle;
 
+  // the segment and ungrown tests below: grown(p) is segStart === NONE_U32 || p < segCount
+  const ungrown = segStart !== NONE_U32;
   nbCount = 0;
   if (grid) {
     let r = 4 * len + len;
     for (const e of L.eyes) r = Math.max(r, Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + len);
-    if (L.needsNeighbours) gather(grid, x, y, r, k);
+    if (L.needsNeighbours) {
+      // Only neighbours within 5 body lengths of the centre (the near list) or within range + radius
+      // of a grown eye are ever used, so cells wholly beyond that reach can be skipped; the list
+      // keeps its order, so every filter below sees the same neighbours (see gather).
+      let reach = 5 * len;
+      for (const e of L.eyes) {
+        if (ungrown && e.part >= segCount) continue;
+        partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, e.part, x, y, heading);
+        const ox = PP[0]! - x, oy = PP[1]! - y;
+        reach = Math.max(reach, Math.sqrt(ox * ox + oy * oy) + Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + grid.maxR);
+      }
+      gather(grid, x, y, r, k, reach * 1.0001 + 1e-9);
+    }
   }
   // the lateral line only feels the near list (4 body lengths of an organ, so 5 of the centre)
   nearCount = 0;
@@ -267,9 +307,7 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const dx = nbX[q]! - x, dy = nbY[q]! - y;
     if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = nbBuf[q]!;
   }
-  // organs on parts not grown yet (segCount < nParts at an early stage) read 0 (03 §3.3.2):
-  // grown(p) is segStart === NONE_U32 || p < segCount
-  const ungrown = segStart !== NONE_U32;
+  // organs on parts not grown yet (segCount < nParts at an early stage) read 0 (03 §3.3.2)
   // eyes
   for (const e of L.eyes) {
     if (ungrown && e.part >= segCount) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
