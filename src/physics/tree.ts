@@ -12,40 +12,47 @@
  * does not converge on long drag-dominated chains (a 24-segment flagellum swam at 10% of the
  * reference speed at 16 substeps); this solve is exact per substep.
  */
-import { wrapAngle, type World } from '../core/index.js';
-import { SC, sincos } from './sincos.js';
+import { PI, TAU, type World } from '../core/index.js';
+import { sincosRange } from './sincos.js';
 import type { Work } from './work.js';
 
 // scratch per segment slot, allocated lazily per capacity
 let cap = 0;
-let DB = new Float64Array(0); // body D blocks (9), then inverted
-let DJ = new Float64Array(0); // joint D blocks (9), then inverted
-let JP = new Float64Array(0); // joint Jacobian w.r.t. parent (9)
-let JC = new Float64Array(0); // joint Jacobian w.r.t. child (9)
-let YB = new Float64Array(0); let YJ = new Float64Array(0); // forward-substituted rhs (3)
-let XB = new Float64Array(0); let XJ = new Float64Array(0); // solution (3)
-let CJ = new Float64Array(0); // joint rhs C (3)
-let DCB = new Float64Array(0); // bend rate term dC per joint
+let DBs = new Float64Array(0); // body D blocks (9), then inverted
+let DJs = new Float64Array(0); // joint D blocks (9), then inverted
+// Joint Jacobians: Jp = [[1, 0, a], [0, 1, b], [0, 0, -1]] w.r.t. the parent and
+// Jc = [[-1, 0, c], [0, -1, d], [0, 0, 1]] w.r.t. the child; only (a, b, c, d) are stored.
+let JAs = new Float64Array(0); // a, b, c, d per joint (4)
+let YBs = new Float64Array(0); let YJs = new Float64Array(0); // forward-substituted rhs (3)
+let XBs = new Float64Array(0); let XJs = new Float64Array(0); // solution (3)
+let CJs = new Float64Array(0); // joint rhs C (3)
+let DCBs = new Float64Array(0); // bend rate term dC per joint
+let CSs = new Float64Array(0); // cos, sin of each segment's predicted angle (2)
+let RSTs = new Float64Array(0); // the bend row's rest angle this substep (limits reuse it)
 
 function ensure(n: number): void {
   if (n <= cap) return;
   cap = n;
-  DB = new Float64Array(n * 9); DJ = new Float64Array(n * 9); JP = new Float64Array(n * 9); JC = new Float64Array(n * 9);
-  YB = new Float64Array(n * 3); YJ = new Float64Array(n * 3); XB = new Float64Array(n * 3); XJ = new Float64Array(n * 3);
-  CJ = new Float64Array(n * 3); DCB = new Float64Array(n);
+  DBs = new Float64Array(n * 9); DJs = new Float64Array(n * 9); JAs = new Float64Array(n * 4);
+  YBs = new Float64Array(n * 3); YJs = new Float64Array(n * 3); XBs = new Float64Array(n * 3); XJs = new Float64Array(n * 3);
+  CJs = new Float64Array(n * 3); DCBs = new Float64Array(n); CSs = new Float64Array(n * 2); RSTs = new Float64Array(n);
 }
 
-/** In-place inverse of the 3x3 block at o (general). */
+/**
+ * In-place inverse of the symmetric 3x3 block at o. Every block the tree solve inverts (the
+ * drag-augmented masses and their Schur complements) is symmetric by construction, so six
+ * cofactors suffice; the results are the same bits as the general cofactor inverse.
+ */
 function inv3(M: Float64Array, o: number): void {
   const a = M[o]!; const b = M[o + 1]!; const c = M[o + 2]!;
-  const d = M[o + 3]!; const e = M[o + 4]!; const f = M[o + 5]!;
-  const g = M[o + 6]!; const h = M[o + 7]!; const i = M[o + 8]!;
-  const A = e * i - f * h; const B = -(d * i - f * g); const C = d * h - e * g;
-  const det = a * A + b * B + c * C;
-  const r = 1 / det;
-  M[o] = A * r; M[o + 1] = -(b * i - c * h) * r; M[o + 2] = (b * f - c * e) * r;
-  M[o + 3] = B * r; M[o + 4] = (a * i - c * g) * r; M[o + 5] = -(a * f - c * d) * r;
-  M[o + 6] = C * r; M[o + 7] = -(a * h - b * g) * r; M[o + 8] = (a * e - b * d) * r;
+  const e = M[o + 4]!; const f = M[o + 5]!; const i = M[o + 8]!;
+  const A = e * i - f * f; const B = -(b * i - f * c); const C = b * f - e * c;
+  const r = 1 / (a * A + b * B + c * C);
+  const x00 = A * r; const x01 = B * r; const x02 = C * r;
+  const x11 = (a * i - c * c) * r; const x12 = -(a * f - c * b) * r; const x22 = (a * e - b * b) * r;
+  M[o] = x00; M[o + 1] = x01; M[o + 2] = x02;
+  M[o + 3] = x01; M[o + 4] = x11; M[o + 5] = x12;
+  M[o + 6] = x02; M[o + 7] = x12; M[o + 8] = x22;
 }
 
 /**
@@ -54,44 +61,49 @@ function inv3(M: Float64Array, o: number): void {
  */
 export function solveTree(
   wk: Work, sg: World['seg']['c'], s0: number, n: number, h: number, mir: number, frac: number, prescribed: boolean,
+  fixAngular = true,
 ): void {
   ensure(wk.cap);
-  const { th, thp, am } = wk;
+  // module scratch into locals: the engine then keeps the array bases in registers
+  const DB = DBs; const DJ = DJs; const JA = JAs; const YB = YBs; const YJ = YJs; const XB = XBs; const XJ = XJs;
+  const CJ = CJs; const DCB = DCBs; const CS = CSs; const RST = RSTs;
+  const { th, thp, am, jt } = wk;
   const posX = sg.posX; const posY = sg.posY;
+  // one sine and cosine per segment (each joint needs its parent's and its own)
+  sincosRange(th, s0, n, CS);
   // assemble joint rows
   for (let k = 1; k < n; k++) {
     const i = s0 + k; const p = s0 + sg.parent[i]!;
-    sincos(th[p]!); const cp = SC.c; const sp = SC.s;
-    sincos(th[i]!); const cc = SC.c; const sc = SC.s;
+    const cp = CS[p * 2]!; const sp = CS[p * 2 + 1]!;
+    const cc = CS[i * 2]!; const sc = CS[i * 2 + 1]!;
     const lp = sg.attachU[i]! * sg.len[p]!; const lc = -0.5 * sg.len[i]!;
     const rpx = lp * cp; const rpy = lp * sp; const rcx = lc * cc; const rcy = lc * sc;
     const o = i * 9;
+    const gx = posX[p]! + rpx - posX[i]! - rcx; const gy = posY[p]! + rpy - posY[i]! - rcy;
     // rows: d_x, d_y (gap P_p - P_c), bend
-    JP[o] = 1; JP[o + 1] = 0; JP[o + 2] = -rpy; JP[o + 3] = 0; JP[o + 4] = 1; JP[o + 5] = rpx; JP[o + 6] = 0; JP[o + 7] = 0; JP[o + 8] = -1;
-    JC[o] = -1; JC[o + 1] = 0; JC[o + 2] = rcy; JC[o + 3] = 0; JC[o + 4] = -1; JC[o + 5] = -rcx; JC[o + 6] = 0; JC[o + 7] = 0; JC[o + 8] = 1;
-    CJ[i * 3] = posX[p]! + rpx - posX[i]! - rcx;
-    CJ[i * 3 + 1] = posY[p]! + rpy - posY[i]! - rcy;
-    const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
-    const rest = mir * (restB + wrapAngle(restA - restB) * frac);
-    let Cb = wrapAngle(th[i]! - th[p]! - rest);
+    const ja = i * 4;
+    JA[ja] = -rpy; JA[ja + 1] = rpx; JA[ja + 2] = rcy; JA[ja + 3] = -rcx;
+    CJ[i * 3] = gx;
+    CJ[i * 3 + 1] = gy;
+    const oj = i * 8; // solver.ts JT layout
+    const rest = mir * (jt[oj + 4]! + jt[oj + 5]! * frac);
+    RST[i] = rest;
+    const cb0 = th[i]! - th[p]! - rest;
+    let Cb = cb0 - TAU * Math.floor((cb0 + PI) / TAU);
+    if (Cb === -PI) Cb = PI;
     let alpha = 0;
     const dC = (th[i]! - thp[i]!) - (th[p]! - thp[p]!);
     DCB[i] = dC;
     if (!prescribed) {
-      const comp = sg.compliance[i]!;
-      Cb -= wk.tau[i]! * comp;
-      const at = comp / (h * h);
-      const kk = 1 / comp;
-      const ie = wk.ie[i]! * wk.ie[p]! / (wk.ie[i]! + wk.ie[p]!);
-      const beta = sg.damping[i]! * 2 * Math.sqrt(kk * ie);
-      const gamma = comp * (beta + wk.cm[i]!) / h;
-      // XPBD with damping, divided by (1 + gamma): J dq + alpha' l = -(C + gamma dC) / (1 + gamma)
-      Cb = (Cb + gamma * dC) / (1 + gamma);
-      alpha = at / (1 + gamma);
+      // XPBD with damping, divided by (1 + gamma): J dq + alpha' l = -(C + gamma dC) / (1 + gamma);
+      // gamma, alpha' and the muscle's rest offset are per-tick constants (solver.ts jointConstants)
+      Cb -= jt[oj]!;
+      Cb = (Cb + jt[oj + 1]! * dC) / jt[oj + 3]!;
+      alpha = jt[oj + 2]!;
     }
     CJ[i * 3 + 2] = Cb;
-    // joint D block starts as -alpha on the diagonal
-    DJ.fill(0, o, o + 9);
+    // joint D block starts as -alpha on the diagonal (the factor loop subtracts from it)
+    DJ[o] = 0; DJ[o + 1] = 0; DJ[o + 2] = 0; DJ[o + 3] = 0; DJ[o + 4] = 0; DJ[o + 5] = 0; DJ[o + 6] = 0; DJ[o + 7] = 0;
     DJ[o + 8] = -alpha;
   }
   // body D blocks start as A
@@ -110,7 +122,7 @@ export function solveTree(
     // joint i: D_J = -alpha - Jc DBinv Jc^T, with Jc = [[-1, 0, c], [0, -1, d], [0, 0, 1]]
     {
       const o = i * 9;
-      const c = JC[o + 2]!; const d = JC[o + 5]!;
+      const c = JA[i * 4 + 2]!; const d = JA[i * 4 + 3]!;
       const B00 = DB[o]!; const B01 = DB[o + 1]!; const B02 = DB[o + 2]!; const B11 = DB[o + 4]!; const B12 = DB[o + 5]!; const B22 = DB[o + 8]!;
       const q00 = B00 - 2 * c * B02 + c * c * B22;
       const q01 = B01 - d * B02 - c * B12 + c * d * B22;
@@ -127,14 +139,16 @@ export function solveTree(
       const t0 = DB[o]! * YB[b]! + DB[o + 1]! * YB[b + 1]! + DB[o + 2]! * YB[b + 2]!;
       const t1 = DB[o + 3]! * YB[b]! + DB[o + 4]! * YB[b + 1]! + DB[o + 5]! * YB[b + 2]!;
       const t2 = DB[o + 6]! * YB[b]! + DB[o + 7]! * YB[b + 1]! + DB[o + 8]! * YB[b + 2]!;
-      for (let r = 0; r < 3; r++) YJ[b + r] = CJ[b + r]! + JC[o + r * 3]! * t0 + JC[o + r * 3 + 1]! * t1 + JC[o + r * 3 + 2]! * t2;
+      YJ[b] = (CJ[b]! - t0) + JA[i * 4 + 2]! * t2;
+      YJ[b + 1] = (CJ[b + 1]! - t1) + JA[i * 4 + 3]! * t2;
+      YJ[b + 2] = CJ[b + 2]! + t2;
     }
     inv3(DJ, i * 9);
     // parent body: D_B -= -(Jp^T DJinv Jp) i.e. D_B = A - Jp^T DJinv Jp ; y_B += Jp^T DJinv y_J
     // parent body: D_B -= Jp^T DJinv Jp, with Jp = [[1, 0, a], [0, 1, b], [0, 0, -1]]
     {
       const o = i * 9; const op = p * 9;
-      const a = JP[o + 2]!; const b = JP[o + 5]!;
+      const a = JA[i * 4]!; const b = JA[i * 4 + 1]!;
       const G00 = DJ[o]!; const G01 = DJ[o + 1]!; const G02 = DJ[o + 2]!; const G11 = DJ[o + 4]!; const G12 = DJ[o + 5]!; const G22 = DJ[o + 8]!;
       const e02 = a * G00 + b * G01 - G02;
       const e12 = a * G01 + b * G11 - G12;
@@ -148,43 +162,123 @@ export function solveTree(
       const t0 = DJ[o]! * YJ[b]! + DJ[o + 1]! * YJ[b + 1]! + DJ[o + 2]! * YJ[b + 2]!;
       const t1 = DJ[o + 3]! * YJ[b]! + DJ[o + 4]! * YJ[b + 1]! + DJ[o + 5]! * YJ[b + 2]!;
       const t2 = DJ[o + 6]! * YJ[b]! + DJ[o + 7]! * YJ[b + 1]! + DJ[o + 8]! * YJ[b + 2]!;
-      for (let r = 0; r < 3; r++) YB[p * 3 + r] = YB[p * 3 + r]! + JP[o + r]! * t0 + JP[o + 3 + r]! * t1 + JP[o + 6 + r]! * t2;
+      const q = p * 3;
+      YB[q] = YB[q]! + t0;
+      YB[q + 1] = YB[q + 1]! + t1;
+      YB[q + 2] = ((YB[q + 2]! + JA[i * 4]! * t0) + JA[i * 4 + 1]! * t1) - t2;
     }
   }
   inv3(DB, s0 * 9);
   // back substitution, root first
-  const mulTo = (M: Float64Array, om: number, v0: number, v1: number, v2: number, out: Float64Array, oo: number): void => {
-    out[oo] = M[om]! * v0 + M[om + 1]! * v1 + M[om + 2]! * v2;
-    out[oo + 1] = M[om + 3]! * v0 + M[om + 4]! * v1 + M[om + 5]! * v2;
-    out[oo + 2] = M[om + 6]! * v0 + M[om + 7]! * v1 + M[om + 8]! * v2;
-  };
-  mulTo(DB, s0 * 9, YB[s0 * 3]!, YB[s0 * 3 + 1]!, YB[s0 * 3 + 2]!, XB, s0 * 3);
+  {
+    const o = s0 * 9; const b = s0 * 3;
+    const y0 = YB[b]!; const y1 = YB[b + 1]!; const y2 = YB[b + 2]!;
+    XB[b] = DB[o]! * y0 + DB[o + 1]! * y1 + DB[o + 2]! * y2;
+    XB[b + 1] = DB[o + 3]! * y0 + DB[o + 4]! * y1 + DB[o + 5]! * y2;
+    XB[b + 2] = DB[o + 6]! * y0 + DB[o + 7]! * y1 + DB[o + 8]! * y2;
+  }
   for (let k = 1; k < n; k++) {
     const i = s0 + k; const p = s0 + sg.parent[i]!;
     const o = i * 9; const b = i * 3;
     // x_J = DJinv (y_J + Jp x_Bp)
     const xp0 = XB[p * 3]!; const xp1 = XB[p * 3 + 1]!; const xp2 = XB[p * 3 + 2]!;
-    const v0 = YJ[b]! + JP[o]! * xp0 + JP[o + 1]! * xp1 + JP[o + 2]! * xp2;
-    const v1 = YJ[b + 1]! + JP[o + 3]! * xp0 + JP[o + 4]! * xp1 + JP[o + 5]! * xp2;
-    const v2 = YJ[b + 2]! + JP[o + 6]! * xp0 + JP[o + 7]! * xp1 + JP[o + 8]! * xp2;
-    mulTo(DJ, o, v0, v1, v2, XJ, b);
+    const ja = i * 4;
+    const v0 = (YJ[b]! + xp0) + JA[ja]! * xp2;
+    const v1 = (YJ[b + 1]! + xp1) + JA[ja + 1]! * xp2;
+    const v2 = YJ[b + 2]! - xp2;
+    const l0 = DJ[o]! * v0 + DJ[o + 1]! * v1 + DJ[o + 2]! * v2;
+    const l1 = DJ[o + 3]! * v0 + DJ[o + 4]! * v1 + DJ[o + 5]! * v2;
+    const l2 = DJ[o + 6]! * v0 + DJ[o + 7]! * v1 + DJ[o + 8]! * v2;
+    XJ[b] = l0; XJ[b + 1] = l1; XJ[b + 2] = l2;
     // x_B = DBinv (y_B + Jc^T x_J)
-    const l0 = XJ[b]!; const l1 = XJ[b + 1]!; const l2 = XJ[b + 2]!;
-    const u0 = YB[b]! + JC[o]! * l0 + JC[o + 3]! * l1 + JC[o + 6]! * l2;
-    const u1 = YB[b + 1]! + JC[o + 1]! * l0 + JC[o + 4]! * l1 + JC[o + 7]! * l2;
-    const u2 = YB[b + 2]! + JC[o + 2]! * l0 + JC[o + 5]! * l1 + JC[o + 8]! * l2;
-    mulTo(DB, o, u0, u1, u2, XB, b);
+    const u0 = YB[b]! - l0;
+    const u1 = YB[b + 1]! - l1;
+    const u2 = ((YB[b + 2]! + JA[ja + 2]! * l0) + JA[ja + 3]! * l1) + l2;
+    XB[b] = DB[o]! * u0 + DB[o + 1]! * u1 + DB[o + 2]! * u2;
+    XB[b + 1] = DB[o + 3]! * u0 + DB[o + 4]! * u1 + DB[o + 5]! * u2;
+    XB[b + 2] = DB[o + 6]! * u0 + DB[o + 7]! * u1 + DB[o + 8]! * u2;
   }
   // apply corrections, record the muscle torque delivered by each bend row
   for (let k = 0; k < n; k++) {
     const i = s0 + k;
     posX[i] = posX[i]! + XB[i * 3]!; posY[i] = posY[i]! + XB[i * 3 + 1]!; th[i] = th[i]! + XB[i * 3 + 2]!;
   }
+  if (fixAngular && n > 1) angularFix(wk, sg, s0, n);
   if (!prescribed) {
     for (let k = 1; k < n; k++) {
       const i = s0 + k; const p = s0 + sg.parent[i]!;
       const dCafter = DCB[i]! + XB[i * 3 + 2]! - XB[p * 3 + 2]!;
       wk.tauReal[i] = wk.tau[i]! - wk.cm[i]! * dCafter / h;
     }
+  }
+}
+
+/**
+ * Remove the net angular impulse that the linearised joint solve leaves behind. The joint
+ * impulses g_i = A_i dq_i are internal (they sum to zero), but their lever arms are evaluated at
+ * the predicted pose while the discrete angular momentum sum m x_old x v_new is taken about the
+ * start-of-substep positions, so each substep leaves an angular impulse of order h^2 v x F
+ * (spike physics-2: the whole C1 error of spike 1). A rigid rotation of the creature about its
+ * centre of mass, which closes no joint and opens none, cancels it exactly.
+ */
+function angularFix(wk: Work, sg: World['seg']['c'], s0: number, n: number): void {
+  const { am, xp, yp, th } = wk;
+  const XB = XBs;
+  const posX = sg.posX; const posY = sg.posY;
+  // centre of mass of the corrected pose (body mass: a rotation about it moves no momentum)
+  let m = 0; let cx = 0; let cy = 0;
+  const ox = posX[s0]!; const oy = posY[s0]!;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k; const mi = sg.mass[i]!;
+    m += mi; cx += mi * (posX[i]! - ox); cy += mi * (posY[i]! - oy);
+  }
+  cx /= m; cy /= m;
+  let S = 0; let K = 0;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k; const a = i * 6; const b = i * 3;
+    const d0 = XB[b]!; const d1 = XB[b + 1]!; const d2 = XB[b + 2]!;
+    const g0 = am[a]! * d0 + am[a + 1]! * d1 + am[a + 2]! * d2;
+    const g1 = am[a + 1]! * d0 + am[a + 3]! * d1 + am[a + 4]! * d2;
+    const g2 = am[a + 2]! * d0 + am[a + 4]! * d1 + am[a + 5]! * d2;
+    const qx = xp[i]! - ox - cx; const qy = yp[i]! - oy - cy;
+    S += qx * g1 - qy * g0 + g2;
+    // the same sum for a unit rigid rotation e_i = (-(y_i - c_y), x_i - c_x, 1)
+    const ex = -(posY[i]! - oy - cy); const ey = posX[i]! - ox - cx;
+    const h0 = am[a]! * ex + am[a + 1]! * ey + am[a + 2]!;
+    const h1 = am[a + 1]! * ex + am[a + 3]! * ey + am[a + 4]!;
+    const h2 = am[a + 2]! * ex + am[a + 4]! * ey + am[a + 5]!;
+    K += qx * h1 - qy * h0 + h2;
+  }
+  if (!(K > 0)) return;
+  const dth = -S / K;
+  for (let k = 0; k < n; k++) {
+    const i = s0 + k;
+    const ex = -(posY[i]! - oy - cy); const ey = posX[i]! - ox - cx;
+    posX[i] = posX[i]! + dth * ex; posY[i] = posY[i]! + dth * ey; th[i] = th[i]! + dth;
+  }
+}
+
+/**
+ * Hard joint limits after the tree solve, about this substep's rest angle (from the bend rows).
+ * `lo`, `hi` are the limits relative to the rest, already mirrored, per joint.
+ */
+export function solveLimits(wk: Work, sg: World['seg']['c'], s0: number, n: number, mir: number): void {
+  const { th, ai } = wk;
+  const RST = RSTs;
+  const posX = sg.posX; const posY = sg.posY;
+  for (let k = 1; k < n; k++) {
+    const i = s0 + k; const p = s0 + sg.parent[i]!;
+    const lo = wk.jt[i * 8 + 6]!; const hi = wk.jt[i * 8 + 7]!;
+    if (!(lo < hi)) continue;
+    const d0 = th[i]! - th[p]! - RST[i]!;
+    let d = d0 - TAU * Math.floor((d0 + PI) / TAU);
+    if (d === -PI) d = PI;
+    let Cl = 0;
+    if (d < lo) Cl = d - lo; else if (d > hi) Cl = d - hi;
+    if (Cl === 0) continue;
+    const op = p * 6; const oc = i * 6;
+    const dl = -Cl / (ai[op + 5]! + ai[oc + 5]!);
+    posX[p] = posX[p]! - ai[op + 2]! * dl; posY[p] = posY[p]! - ai[op + 4]! * dl; th[p] = th[p]! - ai[op + 5]! * dl;
+    posX[i] = posX[i]! + ai[oc + 2]! * dl; posY[i] = posY[i]! + ai[oc + 4]! * dl; th[i] = th[i]! + ai[oc + 5]! * dl;
   }
 }

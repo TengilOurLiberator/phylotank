@@ -14,6 +14,7 @@ import {
 import { NU_WATER, RHO_WATER } from '../core/index.js';
 import { toSegmentSpecs, type SegmentSpec } from './segment-spec.js';
 import { workFor } from './work.js';
+import { initBladders } from './organs.js';
 
 /** Volume of a segment from its pool geometry (capsule of elliptic section, or plate). */
 export function segVolume(plate: boolean, l: number, r: number, span: number): number {
@@ -53,7 +54,9 @@ export function addedMass(plate: boolean, l: number, r: number, span: number): [
  * Drag coefficients `k_t1, k_n1, k_t15, k_t2, k_n2` (02 §2.3.1). `endCap` adds the nose and
  * tail pressure drag of a capsule at the root and at free tips.
  */
-export function dragCoeffs(plate: boolean, l: number, r: number, span: number, endCap: boolean, out: Float32Array, o: number): void {
+export function dragCoeffs(
+  plate: boolean, l: number, r: number, span: number, endCap: boolean, out: Float32Array, o: number, run = 0,
+): void {
   const mu = MU_WATER;
   const rho = RHO_WATER;
   let kt1: number; let kn1: number; let swet: number; let kt2: number; let kn2: number;
@@ -80,12 +83,36 @@ export function dragCoeffs(plate: boolean, l: number, r: number, span: number, e
     kt2 = 0.5 * rho * 0.004 * swet + (endCap ? 0.5 * rho * 0.1 * PI * r * r : 0);
     kn2 = 0.5 * rho * 1.1 * (span > 0 ? span : 2 * r) * l;
   }
-  const kt15 = 0.665 * rho * Math.sqrt(NU_WATER / l) * swet;
+  // Laminar skin friction (Blasius): the wall shear at distance x from the leading edge is
+  // 0.332 rho U^1.5 sqrt(nu / x), so a segment covering [run, run + l] of the boundary layer
+  // carries 0.664 rho sqrt(nu) (S_wet / l) (sqrt(run + l) - sqrt(run)). With run = 0 this is the
+  // isolated-plate value 0.665 rho sqrt(nu / l) S_wet of 02 §2.3.1; the trailing segments of
+  // a body continue their parent's boundary layer (spike physics-2, B4).
+  const kt15 = 0.665 * rho * Math.sqrt(NU_WATER) * (swet / l) * (Math.sqrt(run + l) - Math.sqrt(run));
   out[o] = kt1; out[o + 1] = kn1; out[o + 2] = kt15; out[o + 3] = kt2; out[o + 4] = kn2;
 }
 
+/**
+ * Boundary-layer run length at the base of each segment: a capsule hung from an end of its
+ * parent and roughly in line with it (within 30 degrees, either way round) continues the
+ * parent's boundary layer; fins, side branches and the root start their own.
+ */
+export function boundaryRuns(specs: readonly SegmentSpec[]): Float64Array {
+  const run = new Float64Array(specs.length);
+  for (let k = 1; k < specs.length; k++) {
+    const s = specs[k]!;
+    const p = s.parent;
+    if (p < 0 || s.plate || specs[p]!.plate) continue;
+    const c = cos(s.restAngle);
+    if (Math.abs(s.attachU) >= 0.45 && c * c > 0.75) run[k] = run[p]! + specs[p]!.length;
+  }
+  return run;
+}
+
 /** Write segment rows for creature `slot` from its phenotype. The segment range must be set. */
-function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPose: boolean, subtypes?: Uint8Array): void {
+function writeSegments(
+  world: World, slot: number, specs: SegmentSpec[], keepPose: boolean, subtypes?: ArrayLike<number>, partIdx?: ArrayLike<number>,
+): void {
   const c = world.cr.c;
   const sg = world.seg.c;
   const s0 = c.segStart[slot]!;
@@ -102,6 +129,7 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
   const scale = ledger > 0 && mGeo > 0 ? ledger / mGeo : 1;
   const hasChild = new Uint8Array(n);
   for (let k = 1; k < n; k++) if (specs[k]!.parent >= 0) hasChild[specs[k]!.parent] = 1;
+  const run = boundaryRuns(specs);
   for (let k = 0; k < n; k++) {
     const s = specs[k]!;
     const i = s0 + k;
@@ -117,8 +145,9 @@ function writeSegments(world: World, slot: number, specs: SegmentSpec[], keepPos
     sg.limitLo[i] = s.limitLo; sg.limitHi[i] = s.limitHi;
     wk.muscleFrac[i] = s.muscleFrac;
     wk.subtype[i] = subtypes ? subtypes[k]! : 0;
+    wk.part[i] = partIdx ? partIdx[k]! : k;
     if (!keepPose || wk.restInit[i] === 0) { wk.restPrev[i] = s.restAngle; wk.restInit[i] = 1; }
-    dragCoeffs(s.plate, s.length, s.radius, s.span, k === 0 || hasChild[k] === 0, sg.drag, i * 5);
+    dragCoeffs(s.plate, s.length, s.radius, s.span, k === 0 || hasChild[k] === 0, sg.drag, i * 5, run[k]!);
     if (s.parent >= 0) {
       const p = specs[s.parent]!;
       const rMin = Math.min(p.radius, s.radius);
@@ -167,6 +196,7 @@ export function loadBody(world: World, slot: number, ph: Phenotype): void {
   world.cr.c.segCount[slot] = specs.length;
   world.cr.c.length[slot] = ph.lengthM;
   writeSegments(world, slot, specs, false, ph.subtype);
+  initBladders(world, workFor(world), slot);
 }
 
 /**
@@ -175,10 +205,21 @@ export function loadBody(world: World, slot: number, ph: Phenotype): void {
  */
 export function restage(world: World, slot: number, ph: Phenotype): void {
   const c = world.cr.c;
-  const specs = toSegmentSpecs(ph);
+  let specs = toSegmentSpecs(ph);
+  let parts: number[] | null = null;
+  let subtypes: ArrayLike<number> = ph.subtype;
+  if (specs.length > c.segCount[slot]! && c.segCount[slot]! > 0) {
+    // the creature lost parts (severing): keep only the parts its segments still are
+    const wk = workFor(world);
+    const s0 = c.segStart[slot]!;
+    parts = [];
+    for (let k = 0; k < c.segCount[slot]!; k++) parts.push(wk.part[s0 + k]!);
+    const pruned = pruneSpecs(specs, parts);
+    if (pruned) { specs = pruned; subtypes = parts.map((p) => ph.subtype[p]!); } else parts = null;
+  }
   if (specs.length !== c.segCount[slot]) { loadBody(world, slot, ph); return; }
-  c.length[slot] = ph.lengthM;
-  writeSegments(world, slot, specs, true, ph.subtype);
+  c.length[slot] = parts ? specs.reduce((a, s) => a + s.length, 0) : ph.lengthM;
+  writeSegments(world, slot, specs, true, subtypes, parts ?? undefined);
   // re-seat children on their parents with the new lengths, keeping world angles
   const sg = world.seg.c;
   const s0 = c.segStart[slot]!;
@@ -192,4 +233,22 @@ export function restage(world: World, slot: number, ph: Phenotype): void {
     sg.posX[i] = ax + cos(ac) * 0.5 * sg.len[i]!;
     sg.posY[i] = ay + sin(ac) * 0.5 * sg.len[i]!;
   }
+}
+
+/**
+ * The specs of the listed Phenotype parts only, parents re-indexed; null if the list is not a
+ * parent-first subtree containing the root (then the body is reloaded whole).
+ */
+export function pruneSpecs(specs: readonly SegmentSpec[], parts: readonly number[]): SegmentSpec[] | null {
+  const at = new Map<number, number>();
+  const out: SegmentSpec[] = [];
+  for (let k = 0; k < parts.length; k++) {
+    const s = specs[parts[k]!];
+    if (!s) return null;
+    const p = s.parent < 0 ? -1 : at.get(s.parent);
+    if (p === undefined || (k === 0) !== (p === -1)) return null;
+    at.set(parts[k]!, k);
+    out.push({ ...s, parent: p });
+  }
+  return out;
 }
