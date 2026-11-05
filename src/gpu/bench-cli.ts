@@ -21,7 +21,7 @@ if (!gpu) { console.log(JSON.stringify({ error: 'no WebGPU adapter' })); } else 
   const sizes = (quick ? [256, 2048] : [256, 1024, 4096, 16384, 65536]).filter((n) => n * 8 <= segCapMax);
   const phys: BenchRow[] = [];
   for (const n of sizes) { const r = await benchPhysics(gpu, n, n >= 16384 ? 5 : 20, n <= 4096); phys.push(r); log('physics', r); }
-  for (const n of sizes.filter((k) => k <= 4096 && k * 8 * 280 * 1.25 <= gpu.limits.maxStorageBufferBindingSize)) { const r = await benchPhysics(gpu, n, 10, false, true); phys.push(r); log('physics', r); }
+  for (const n of sizes.filter((k) => k <= 4096 && k * 8 * 280 * 1.25 <= gpu.limits.maxStorageBufferBindingSize)) { const r = await benchPhysics(gpu, n, 20, false, true); phys.push(r); log('physics', r); }
   out.physics = phys;
   const brains: BenchRow[] = [];
   for (const [c, n] of (quick ? [[0, 1024]] : [[0, 4096], [0, 32768], [2, 4096], [4, 512]]) as [number, number][]) { const r = await benchBrain(gpu, c, n); brains.push(r); log('brain', r); }
