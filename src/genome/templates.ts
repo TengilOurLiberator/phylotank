@@ -113,7 +113,7 @@ function hushmaw(): Genome {
 
 function sievebell(): Genome {
   const B = new Builder(300);
-  const bell = B.mod(1, KIND.SEGMENT, SEGMENT_SUBTYPE.BELL, { root: true, len: 1, aspect: 1, span: 1, muscle: 0.08, gut: 0.3, lipid: 0.2, glow: 0.2 });
+  const bell = B.mod(1, KIND.SEGMENT, SEGMENT_SUBTYPE.BELL, { root: true, len: 1, aspect: 0.6, span: 1, muscle: 0.08, gut: 0.3, lipid: 0.3, glow: 0.2 });
   const comb = B.mod(2, KIND.MOUTH, MOUTH_SUBTYPE.FILTER, { len: 0.3, aspect: 0.4, muscle: 0.05, rangeDeg: 30, p: [150, 220, 0, 0] });
   const ring = B.mod(3, KIND.PHOTOPHORE, 0, { len: 0.12, aspect: 0.9, muscle: 0, rangeDeg: 0, glow: 0.7, p: [120, 100] });
   const jet = B.mod(4, KIND.JET, 0, { len: 0.5, aspect: 0.8, muscle: 0.3, rangeDeg: 20, p: [180] });

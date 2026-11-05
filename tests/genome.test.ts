@@ -623,3 +623,96 @@ describe('encodedSize', () => {
     }
   });
 });
+
+describe('property tests', () => {
+  function randomGenome(seed: number): Genome {
+    const d = new RngStreams(seed, 77).draw(RNG_STREAM.WORLDGEN, 0, seed);
+    const g = emptyGenome();
+    for (let i = 0; i < g.traits.length; i++) if (d.bool(0.3)) g.traits[i] = d.int(65536);
+    const nm = 1 + d.int(48);
+    for (let k = 0; k < nm; k++) {
+      const m = makeModule(10 + k, d.int(12), d.int(5), {});
+      const rec = m as unknown as Record<string, number>;
+      for (const f of ['length', 'width']) rec[f] = d.int(65536);
+      for (const f of ['span', 'taper', 'stiffness', 'lipidFraction', 'muscleFraction', 'gutFraction', 'armourCoverage', 'glow', 'p1', 'p2', 'p3', 'p4', 'p5', 'cpgPhase', 'cpgAmp', 'jointRange', 'allometry', 'photoFraction', 'recursionLimit']) rec[f] = d.int(256);
+      rec.hueOffset = d.int(256) - 128; rec.jointRest = d.int(256) - 128; rec.flags = d.int(16) | 1;
+      g.modules.push(m);
+    }
+    g.rootModuleInnov = 10;
+    const nl = d.int(65);
+    for (let k = 0; k < nl; k++) {
+      const l = makeLink(100 + k, 10 + d.int(nm), 10 + d.int(nm), {});
+      const rec = l as unknown as Record<string, number>;
+      for (const f of ['attachPos', 'repeat', 'symmetry', 'childScale', 'repeatScale', 'flags', 'phaseStep']) rec[f] = d.int(256);
+      rec.attachAngle = d.int(256) - 128;
+      g.links.push(l);
+    }
+    const nr = d.int(33);
+    for (let k = 0; k < nr; k++) g.regs.push({ innov: 300 + k, targetInnov: d.bool() ? 0 : 10 + d.int(nm), targetKind: d.bool() ? 255 : d.int(12), axis: d.int(4), param: d.bool(0.2) ? 254 : d.int(32), shape: d.int(4), centre: d.int(256), width: d.int(256), amount: d.int(256) - 128, flags: 1 });
+    return repair(g);
+  }
+  it('development of random genomes never throws, stays bounded and finite (U3)', () => {
+    let maxParts = 0;
+    for (let s = 1; s <= 1500; s++) {
+      const g = randomGenome(s);
+      validGenome(g);
+      for (const m of [0, 0.5, 1]) {
+        const ph = develop(g, m, { depth01: (s % 10) / 10, tempC: 10 }, s % 2 ? OPTS : { maxParts: 32, lCeilingM: 0.126 });
+        checkPhenotype(ph);
+        expect(ph.nParts).toBeLessThanOrEqual(s % 2 ? 64 : 32);
+        maxParts = Math.max(maxParts, ph.nParts);
+      }
+    }
+    expect(maxParts).toBe(64);
+  });
+  it('any sequence of mutate and crossover gives a valid genome, and restage equals develop', () => {
+    const reg = new InnovationRegistry();
+    const pool: Genome[] = TEMPLATE_IDS.map((id) => templateGenome(id)).concat([randomGenome(5), randomGenome(6)]);
+    const r = new Restager();
+    const d = rng.draw(RNG_STREAM.BIRTH, 3, 3);
+    for (let step = 0; step < 1500; step++) {
+      const a = pool[d.int(pool.length)]!, b = pool[d.int(pool.length)]!;
+      const c = d.bool(0.3) ? crossoverWith(a, b, ctx(step)) : mutateWith(a, ctx(step, { mutagen: 1 + d.int(20) }), reg);
+      if (step % 10 === 0) {
+        validGenome(c);
+        const m = d.u01();
+        expect(phHash(r.phenotype(c, m, ENV, OPTS))).toBe(phHash(develop(c, m, ENV, OPTS)));
+      }
+      pool[d.int(pool.length)] = c;
+    }
+  });
+});
+
+describe('golden template phenotypes (U2)', () => {
+  it('matches the checked-in hashes, so any change to development is noticed', () => {
+    const got: Record<string, string> = {};
+    for (const id of TEMPLATE_IDS) got[id] = [0, 0.5, 1].map((m) => phHash(develop(templateGenome(id), m, ENV, OPTS)).toString(16)).join(',');
+    expect(got).toEqual(GOLDEN);
+  });
+});
+/** Regenerate deliberately when development changes (and say why in the commit). */
+const GOLDEN: Record<string, string> = {
+  ashpicker: 'a834f44d6d33733,b84b3779fb304a7d,a2c3ae7fdb53d7e2',
+  blank: 'b35e80ef93e267d,b98867fb8a9a08bc,d9ec1ddd36c1072b',
+  deepcrown: 'c8bf9b28434fb00,c0b1240a449b2381,5b63c36e427fb732',
+  hushmaw: 'c551bcd1d5011412,27b0bc55a80bef64,bc88c1d52834dcb',
+  meadowlamp: 'a33e4fde40b9f112,462eb7172378147b,a18d86b235e16437',
+  motefly: 'cb601ebe603266b,335081136c078161,324f659916d93e70',
+  sievebell: 'deae30b20b5792e5,91207159fb1b1f95,3752c960497f2bb3',
+  tetherling: 'dba0b001580609e8,36df41326245a35d,d8e00329f0da4556',
+};
+
+describe('trait readers', () => {
+  it('enzymes sum to 1 and follow CONTRACT 9.3; colours pack deterministically', async () => {
+    const { enzymes, packedColour, lookOf } = await import('../src/genome/look.js');
+    for (const id of TEMPLATE_IDS) {
+      const e = enzymes(templateGenome(id));
+      expect(e[0] + e[1] + e[2]).toBeCloseTo(1, 12);
+      expect(packedColour(templateGenome(id))).toBe(packedColour(templateGenome(id)));
+      expect(lookOf(templateGenome(id)).patternKind).toBeLessThan(4);
+    }
+    const s = enzymes(templateGenome('sievebell'));
+    expect(s[0]).toBeCloseTo(0.7, 2); expect(s[2]).toBeCloseTo(0.3, 2);
+    expect(enzymes(templateGenome('tetherling'))[1]).toBeCloseTo(1, 3);
+  });
+});

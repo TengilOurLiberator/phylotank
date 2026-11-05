@@ -90,4 +90,6 @@ for (let gen = 1; gen <= G; gen++) {
 }
 const muLog = pop.reduce((a, p) => a + trait(p.g, TI.MU_LOG), 0) / pop.length;
 const mods = pop.reduce((a, p) => a + p.g.modules.length, 0) / pop.length;
+const lumped = [0.3, 0.45, 0.6, 0.9].map((t) => `${t}: ${new Set(sr.clusterAt(t).values()).size}`).join(', ');
+console.log(`view-level threshold slider (clusterAt) living species lumped at theta ${lumped}`);
 console.log(`summary N=${N} G=${G} mode=${mode} selection=${selection} seed=${seed} join=${joinRule}: promotions per 1e5 births ${(promotions / (N * G) * 1e5).toFixed(2)}, mean MU_LOG ${muLog.toFixed(2)}, mean modules ${mods.toFixed(1)}, distance calls ${sr.distanceCalls}`);
