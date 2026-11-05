@@ -131,3 +131,23 @@ describe('binding', () => {
     await lan.stop();
   });
 });
+
+describe('speed leases', () => {
+  it('caps a lease by the throttle state, lets an unattended lease run fast in Background, and lapses', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ptk-lease-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+    const host = await startHost({ port: 0, staticDir: dir, config: CFG, autostart: false });
+    expect(host.throttle.out.state).toBe('background');
+    expect(host.command({ id: 'a', epoch: 0, t: 'speed', speed: 16 }).ok).toBe(true);
+    expect(host.scheduler.speedValue).toBe(1); // Background allows 1x unless the lease is unattended
+    expect(host.command({ id: 'b', epoch: 0, t: 'speed', speed: 'max', unattended: true }).reason).toBe('unattended-needs-until');
+    expect(host.command({ id: 'c', epoch: 0, t: 'speed', speed: 'max', unattended: true, until: { tick: 50 } }).ok).toBe(true);
+    expect(host.scheduler.speedValue).toBe('max');
+    host.scheduler.start();
+    const t0 = Date.now();
+    while (host.hw.tick < 50 && Date.now() - t0 < 20_000) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(host.scheduler.speedValue).toBe(1); // lapsed at its tick
+    await host.stop();
+  });
+});

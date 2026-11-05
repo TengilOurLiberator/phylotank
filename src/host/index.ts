@@ -215,7 +215,9 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
   }
 
   function effectiveSpeed(): number | 'max' {
-    const cap = tOut.maxSpeed;
+    // the overnight lease (DESIGN R29, William's Q2) may run past Background's 1x, within the power budget
+    const night = lease.unattended && tOut.state === 'background';
+    const cap = night ? tOut.powerCap : tOut.maxSpeed;
     if (cap <= 0) return 0;
     if (lease.speed === 'max') return cap === Infinity ? 'max' : cap;
     return Math.min(lease.speed, cap);

@@ -94,6 +94,8 @@ export interface ThrottleOutput {
   trickle: boolean;
   /** Release GPU buffers (Evicted). */
   evict: boolean;
+  /** Speed limit from the power budget alone (Infinity without one); an unattended lease is held to it in Background. */
+  powerCap: number;
 }
 
 export interface ThrottleConfig {
@@ -113,7 +115,7 @@ export const DEFAULT_THROTTLE: ThrottleConfig = {
   backgroundSpeed: 1, powerBudgetW: null, idlePowerW: 30,
 };
 
-const TABLE: Record<ThrottleState, Omit<ThrottleOutput, 'state' | 'trickle' | 'evict'>> = {
+const TABLE: Record<ThrottleState, Omit<ThrottleOutput, 'state' | 'trickle' | 'evict' | 'powerCap'>> = {
   watching: { maxSpeed: Infinity, dutyCap: 0.35, streaming: 'full' },
   ambient: { maxSpeed: Infinity, dutyCap: 0.15, streaming: 'wallpaper' },
   background: { maxSpeed: 1, dutyCap: 0.10, streaming: 'none' },
@@ -130,7 +132,7 @@ export class Throttle {
   private yielding = false;
   private gpuBusySince: number | null = null;
   private powerAvgW: number | null = null;
-  out: ThrottleOutput = { state: 'background', ...TABLE.background, trickle: false, evict: false };
+  out: ThrottleOutput = { state: 'background', ...TABLE.background, trickle: false, evict: false, powerCap: Infinity };
   constructor(readonly cfg: ThrottleConfig = DEFAULT_THROTTLE) {}
 
   update(nowMs: number, s: ProbeSample, v: Visibility): ThrottleOutput {
@@ -159,14 +161,16 @@ export class Throttle {
     let maxSpeed = state === 'background' ? c.backgroundSpeed : base.maxSpeed;
     // power budget (R19): smoothed watts above idle; scale speed down proportionally when over
     if (s.gpuPowerW !== null) this.powerAvgW = this.powerAvgW === null ? s.gpuPowerW : this.powerAvgW * 0.9 + s.gpuPowerW * 0.1;
-    if (c.powerBudgetW !== null && this.powerAvgW !== null && maxSpeed > 0) {
+    let powerCap = Infinity;
+    if (c.powerBudgetW !== null && this.powerAvgW !== null) {
       const over = this.powerAvgW - c.idlePowerW;
-      if (over > c.powerBudgetW) maxSpeed = Math.min(maxSpeed === Infinity ? 1 : maxSpeed, c.powerBudgetW / over);
+      if (over > c.powerBudgetW) powerCap = c.powerBudgetW / over;
     }
+    if (powerCap < Infinity && maxSpeed > 0) maxSpeed = Math.min(maxSpeed === Infinity ? 1 : maxSpeed, powerCap);
     const trickle = (state === 'yield') && v.screensaver;
     this.out = {
       state, maxSpeed: trickle ? 0.1 : maxSpeed, dutyCap: trickle ? 0.02 : base.dutyCap,
-      streaming: trickle ? 'reduced' : base.streaming, trickle, evict: state === 'evicted',
+      streaming: trickle ? 'reduced' : base.streaming, trickle, evict: state === 'evicted', powerCap,
     };
     return this.out;
   }
