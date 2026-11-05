@@ -16,8 +16,9 @@ export const ER = {
   G_GUT: 22, GUT_VOL: 23, PHOTO_AREA: 24, ADULT_TISSUE_Q: 25, TISSUE_PEAK_Q: 26, AGE_CLOCK: 27,
   STARVING: 28, STAGE_LEN: 29, IMMIGRANT_TICK: 30, PHOTO_EMA: 31, INTAKE_EMA: 32, LAST_DMG: 33,
   SEX_PROB: 34, SHELL: 35, TOXICITY: 36, BIRTH_TISSUE_Q: 37, PREV_HEALTH: 38, REPRO_REQ: 39,
+  ODOUR_A: 40, ODOUR_B: 41, ODOUR_C: 42, ODOUR_D: 43,
 } as const;
-export const ER_LANES = 40;
+export const ER_LANES = 44;
 
 export interface BirthRequest {
   parentSlot: number; parentId: number; requestIndex: number; n: number; mode: 'bud' | 'sex';

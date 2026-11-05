@@ -103,6 +103,8 @@ export function loadCreature(world: World, s: EcoState, slot: number, init: Crea
   e[o + ER.SEX_PROB] = trait(tr, 'SEX_PROB');
   e[o + ER.SHELL] = trait(tr, 'SHELL');
   e[o + ER.TOXICITY] = trait(tr, 'TOXICITY');
+  e[o + ER.ODOUR_A] = trait(tr, 'ODOUR_A'); e[o + ER.ODOUR_B] = trait(tr, 'ODOUR_B');
+  e[o + ER.ODOUR_C] = trait(tr, 'ODOUR_C'); e[o + ER.ODOUR_D] = trait(tr, 'ODOUR_D');
   const ph = init.phenotype;
   const mouth: MouthDescriptor = ph?.mouth ?? { filter: 0, scrape: 0, bite: 0, suction: 0, latch: 0, gape: 0, biteForce: 0, mesh: 0 };
   e[o + ER.FILTER] = mouth.filter; e[o + ER.SCRAPE] = mouth.scrape; e[o + ER.BITE] = mouth.bite; e[o + ER.GAPE] = mouth.gape;

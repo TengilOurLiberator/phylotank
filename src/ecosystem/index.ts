@@ -275,7 +275,16 @@ function emitScents(world: World, s: EcoState, dt: number): void {
     if (life === LIFE.FREE) continue;
     const i = coarseIndex(world, c.posX[sl]!, c.posY[sl]!);
     if (life === LIFE.CARCASS) f.scent[i * 8 + SCENT.BLOOD] = f.scent[i * 8 + SCENT.BLOOD]! + dt * 0.05;
-    else if (life === LIFE.ALIVE && (c.flags[sl]! & CF.HURT) !== 0) f.scent[i * 8 + SCENT.ALARM] = f.scent[i * 8 + SCENT.ALARM]! + dt * 0.1;
+    else if (life === LIFE.ALIVE) {
+      if ((c.flags[sl]! & CF.HURT) !== 0) f.scent[i * 8 + SCENT.ALARM] = f.scent[i * 8 + SCENT.ALARM]! + dt * 0.1;
+      if (sl < s.erCap && s.er[sl * ER_LANES + ER.LOADED] === 1) { // pheromones A to D from the ODOUR genes (DESIGN R13)
+        const o = sl * ER_LANES;
+        f.scent[i * 8 + SCENT.PHERO_A] = f.scent[i * 8 + SCENT.PHERO_A]! + dt * 0.01 * s.er[o + ER.ODOUR_A]!;
+        f.scent[i * 8 + SCENT.PHERO_B] = f.scent[i * 8 + SCENT.PHERO_B]! + dt * 0.01 * s.er[o + ER.ODOUR_B]!;
+        f.scent[i * 8 + SCENT.PHERO_C] = f.scent[i * 8 + SCENT.PHERO_C]! + dt * 0.01 * s.er[o + ER.ODOUR_C]!;
+        f.scent[i * 8 + SCENT.PHERO_D] = f.scent[i * 8 + SCENT.PHERO_D]! + dt * 0.01 * s.er[o + ER.ODOUR_D]!;
+      }
+    }
   }
   for (const z of s.mods.toxins) {
     const i = coarseIndex(world, z[0]!, z[1]!);

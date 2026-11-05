@@ -52,7 +52,7 @@ The fine plankton field (147k cells) and the light scan dominate. Next steps if 
 ## Open items
 
 - Snapshot and hash coverage of the side table (request E4).
-- Pheromone channels 4 to 7 have transport and decay but no emitters yet (they need the ODOUR traits in the cache and a brain output).
+- Pheromones (channels 4 to 7) are emitted continuously from the ODOUR genes; a brain-gated emission output does not exist yet.
 - Reef growth by shell-building sessile creatures (04 §4.1) and root uptake from sediment are not implemented.
 - Safety valves (reseed, immigration) and the gene bank are host-side and not started; `SpawnRequest.kind = 'reseed'` is reserved for them.
 - The time-shift infectivity test and the food-web matrix `W` are not built yet; trophic levels are per-creature EMAs.
