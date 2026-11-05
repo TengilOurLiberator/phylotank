@@ -66,3 +66,12 @@ export const genome = createGenomeModule();
 export { enzymes, lookOf, packedColour, type Look } from './look.js';
 export { Phylogeny, type PhyloNode } from './phylogeny.js';
 export { diffEncode, diffDecode } from './diff.js';
+
+/**
+ * A birth's genome operators in the contract order (CONTRACT 9.6): crossover with the donor when
+ * there is one (structure and the leviathan flag from the bearer), then mutation. Both draw from
+ * streams keyed by the child's entity id, so the batch order of births does not matter.
+ */
+export function breed(mod: GenomeModule, bearer: Genome, donor: Genome | null, ctx: MutationContext): Genome {
+  return mod.mutate(donor ? mod.crossover(bearer, donor, ctx) : bearer, ctx);
+}

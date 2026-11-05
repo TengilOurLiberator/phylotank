@@ -807,3 +807,15 @@ describe('parent-diff encoding (R17)', () => {
     expect(diffDecode(a, diffEncode(a, b))).toEqual(b);
   });
 });
+
+describe('breed', () => {
+  it('budding and sexual births are deterministic and valid', async () => {
+    const { breed } = await import('../src/genome/index.js');
+    const m = createGenomeModule();
+    const a = templateGenome('meadowlamp');
+    const b = mutateWith(a, ctx(1, { mutagen: 10 }), new InnovationRegistry());
+    const c1 = breed(m, a, b, ctx(5)), c2 = breed(createGenomeModule(), a, b, ctx(5));
+    expect(encodeGenome(c1)).toEqual(encodeGenome(c2));
+    validGenome(breed(m, a, null, ctx(6)));
+  });
+});
