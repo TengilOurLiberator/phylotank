@@ -61,10 +61,10 @@ export function sampleFlow(world: World, x: number, y: number, out: Float64Array
   const fx = gx - ix;
   const fy = gy - iy;
   const i00 = iy * w + ix;
-  const lerp2 = (a: Float32Array): number =>
-    (a[i00]! * (1 - fx) + a[i00 + 1]! * fx) * (1 - fy) + (a[i00 + w]! * (1 - fx) + a[i00 + w + 1]! * fx) * fy;
-  out[0] = lerp2(f.flowU);
-  out[1] = lerp2(f.flowV);
+  // inline (a closure here allocated once per segment per tick)
+  const U = f.flowU; const V = f.flowV;
+  out[0] = (U[i00]! * (1 - fx) + U[i00 + 1]! * fx) * (1 - fy) + (U[i00 + w]! * (1 - fx) + U[i00 + w + 1]! * fx) * fy;
+  out[1] = (V[i00]! * (1 - fx) + V[i00 + 1]! * fx) * (1 - fy) + (V[i00 + w]! * (1 - fx) + V[i00 + w + 1]! * fx) * fy;
 }
 
 const flow = new Float64Array(2);
@@ -104,7 +104,7 @@ export function stepDrifters(world: World, ctx: StepContext): void {
 
 /** Linked creatures step together: common substep count, links solved inside every substep (R6). */
 export const ISLAND_SUBSTEPS = 8;
-function stepIsland(world: World, members: readonly number[], wk: Work, opts: PhysicsOptions, flowAt: FlowSampler): void {
+function stepIsland(world: World, members: readonly number[], wk: Work, opts: PhysicsOptions, flowAt: FlowSampler | null): void {
   const cts = members.map((m) => beginCreature(world, m, wk, opts, flowAt, Math.max(ISLAND_SUBSTEPS, opts.nSub)));
   const nSub = cts[0]!.nSub;
   for (let s = 0; s < nSub; s++) {
@@ -129,7 +129,7 @@ export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule
       stepDrifters(world, ctx);
       const c = world.cr.c;
       const wk = workFor(world);
-      const sampler = (x: number, y: number, out: Float64Array): void => sampleFlow(world, x, y, out);
+      const sampler = null; // the solver samples the flow grid inline (same arithmetic as sampleFlow)
       resetLinkForces(world);
       const isl = linkState(world).links.length > 0 ? islands(world) : null;
       const rootOf = new Map<number, number>();
