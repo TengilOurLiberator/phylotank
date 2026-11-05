@@ -18,24 +18,24 @@ import type { Work } from './work.js';
 
 // scratch per segment slot, allocated lazily per capacity
 let cap = 0;
-let DB = new Float64Array(0); // body D blocks (9), then inverted
-let DJ = new Float64Array(0); // joint D blocks (9), then inverted
+let DBs = new Float64Array(0); // body D blocks (9), then inverted
+let DJs = new Float64Array(0); // joint D blocks (9), then inverted
 // Joint Jacobians: Jp = [[1, 0, a], [0, 1, b], [0, 0, -1]] w.r.t. the parent and
 // Jc = [[-1, 0, c], [0, -1, d], [0, 0, 1]] w.r.t. the child; only (a, b, c, d) are stored.
-let JA = new Float64Array(0); // a, b, c, d per joint (4)
-let YB = new Float64Array(0); let YJ = new Float64Array(0); // forward-substituted rhs (3)
-let XB = new Float64Array(0); let XJ = new Float64Array(0); // solution (3)
-let CJ = new Float64Array(0); // joint rhs C (3)
-let DCB = new Float64Array(0); // bend rate term dC per joint
-let CS = new Float64Array(0); // cos, sin of each segment's predicted angle (2)
-let RST = new Float64Array(0); // the bend row's rest angle this substep (limits reuse it)
+let JAs = new Float64Array(0); // a, b, c, d per joint (4)
+let YBs = new Float64Array(0); let YJs = new Float64Array(0); // forward-substituted rhs (3)
+let XBs = new Float64Array(0); let XJs = new Float64Array(0); // solution (3)
+let CJs = new Float64Array(0); // joint rhs C (3)
+let DCBs = new Float64Array(0); // bend rate term dC per joint
+let CSs = new Float64Array(0); // cos, sin of each segment's predicted angle (2)
+let RSTs = new Float64Array(0); // the bend row's rest angle this substep (limits reuse it)
 
 function ensure(n: number): void {
   if (n <= cap) return;
   cap = n;
-  DB = new Float64Array(n * 9); DJ = new Float64Array(n * 9); JA = new Float64Array(n * 4);
-  YB = new Float64Array(n * 3); YJ = new Float64Array(n * 3); XB = new Float64Array(n * 3); XJ = new Float64Array(n * 3);
-  CJ = new Float64Array(n * 3); DCB = new Float64Array(n); CS = new Float64Array(n * 2); RST = new Float64Array(n);
+  DBs = new Float64Array(n * 9); DJs = new Float64Array(n * 9); JAs = new Float64Array(n * 4);
+  YBs = new Float64Array(n * 3); YJs = new Float64Array(n * 3); XBs = new Float64Array(n * 3); XJs = new Float64Array(n * 3);
+  CJs = new Float64Array(n * 3); DCBs = new Float64Array(n); CSs = new Float64Array(n * 2); RSTs = new Float64Array(n);
 }
 
 /**
@@ -64,7 +64,10 @@ export function solveTree(
   fixAngular = true,
 ): void {
   ensure(wk.cap);
-  const { th, thp, am } = wk;
+  // module scratch into locals: the engine then keeps the array bases in registers
+  const DB = DBs; const DJ = DJs; const JA = JAs; const YB = YBs; const YJ = YJs; const XB = XBs; const XJ = XJs;
+  const CJ = CJs; const DCB = DCBs; const CS = CSs; const RST = RSTs;
+  const { th, thp, am, jt } = wk;
   const posX = sg.posX; const posY = sg.posY;
   // one sine and cosine per segment (each joint needs its parent's and its own)
   sincosRange(th, s0, n, CS);
@@ -82,10 +85,8 @@ export function solveTree(
     JA[ja] = -rpy; JA[ja + 1] = rpx; JA[ja + 2] = rcy; JA[ja + 3] = -rcx;
     CJ[i * 3] = gx;
     CJ[i * 3 + 1] = gy;
-    const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
-    // wrapAngle inlined (a call with a double argument boxes it)
-    const dr = restA - restB;
-    const rest = mir * (restB + (dr - TAU * Math.floor((dr + PI) / TAU)) * frac);
+    const oj = i * 8; // solver.ts JT layout
+    const rest = mir * (jt[oj + 4]! + jt[oj + 5]! * frac);
     RST[i] = rest;
     const cb0 = th[i]! - th[p]! - rest;
     let Cb = cb0 - TAU * Math.floor((cb0 + PI) / TAU);
@@ -94,16 +95,11 @@ export function solveTree(
     const dC = (th[i]! - thp[i]!) - (th[p]! - thp[p]!);
     DCB[i] = dC;
     if (!prescribed) {
-      const comp = sg.compliance[i]!;
-      Cb -= wk.tau[i]! * comp;
-      const at = comp / (h * h);
-      const kk = 1 / comp;
-      const ie = wk.ie[i]! * wk.ie[p]! / (wk.ie[i]! + wk.ie[p]!);
-      const beta = sg.damping[i]! * 2 * Math.sqrt(kk * ie);
-      const gamma = comp * (beta + wk.cm[i]!) / h;
-      // XPBD with damping, divided by (1 + gamma): J dq + alpha' l = -(C + gamma dC) / (1 + gamma)
-      Cb = (Cb + gamma * dC) / (1 + gamma);
-      alpha = at / (1 + gamma);
+      // XPBD with damping, divided by (1 + gamma): J dq + alpha' l = -(C + gamma dC) / (1 + gamma);
+      // gamma, alpha' and the muscle's rest offset are per-tick constants (solver.ts jointConstants)
+      Cb -= jt[oj]!;
+      Cb = (Cb + jt[oj + 1]! * dC) / jt[oj + 3]!;
+      alpha = jt[oj + 2]!;
     }
     CJ[i * 3 + 2] = Cb;
     // joint D block starts as -alpha on the diagonal (the factor loop subtracts from it)
@@ -227,6 +223,7 @@ export function solveTree(
  */
 function angularFix(wk: Work, sg: World['seg']['c'], s0: number, n: number): void {
   const { am, xp, yp, th } = wk;
+  const XB = XBs;
   const posX = sg.posX; const posY = sg.posY;
   // centre of mass of the corrected pose (body mass: a rotation about it moves no momentum)
   let m = 0; let cx = 0; let cy = 0;
@@ -267,12 +264,11 @@ function angularFix(wk: Work, sg: World['seg']['c'], s0: number, n: number): voi
  */
 export function solveLimits(wk: Work, sg: World['seg']['c'], s0: number, n: number, mir: number): void {
   const { th, ai } = wk;
+  const RST = RSTs;
   const posX = sg.posX; const posY = sg.posY;
   for (let k = 1; k < n; k++) {
     const i = s0 + k; const p = s0 + sg.parent[i]!;
-    const restA = sg.restAngle[i]!;
-    let lo = sg.limitLo[i]! - restA; let hi = sg.limitHi[i]! - restA;
-    if (mir < 0) { const t = lo; lo = -hi; hi = -t; }
+    const lo = wk.jt[i * 8 + 6]!; const hi = wk.jt[i * 8 + 7]!;
     if (!(lo < hi)) continue;
     const d0 = th[i]! - th[p]! - RST[i]!;
     let d = d0 - TAU * Math.floor((d0 + PI) / TAU);

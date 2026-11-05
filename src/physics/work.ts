@@ -48,6 +48,8 @@ export interface Work {
   slip: Float64Array;
   /** Cosine and sine of each segment angle (scratch, 2 per segment). */
   cs: Float64Array; cs2: Float64Array;
+  /** Per-tick joint constants (solver.ts JT layout, 8 f64 per segment). */
+  jt: Float64Array;
   /** Per-tick segment constants, interleaved (solver.ts TC layout, 18 f64 per segment). */
   tc: Float64Array;
   /** Seconds until a scraped-off proboscis may latch again. */
@@ -74,7 +76,7 @@ export function workFor(world: World): Work {
       rhs: f(3), tau: f(), cm: f(), tauReal: f(), lam: f(), ux: f(), uy: f(), phi: f(), restPrev: f(), restInit: new Uint8Array(cap),
       muscleFrac: new Float32Array(cap).fill(0.3), subtype: new Uint8Array(cap), netWork: f(), dragWork: f(),
       contactHeat: new Float64Array(world.cr.capacity), leaf: new Uint8Array(cap), teF: f(), part: new Uint16Array(cap),
-      jetVol: f(), gasMol: f(), latchCool: new Float32Array(cap), tc: f(18), cs: f(2), cs2: f(2), jetF: f(), gasV: f(), slip: f(),
+      jetVol: f(), gasMol: f(), latchCool: new Float32Array(cap), tc: f(18), cs: f(2), cs2: f(2), jt: f(8), jetF: f(), gasV: f(), slip: f(),
       rollArmed: new Uint8Array(world.cr.capacity), rollCool: new Float32Array(world.cr.capacity), rollRelax: new Float32Array(world.cr.capacity),
     };
     works.set(world, wk);

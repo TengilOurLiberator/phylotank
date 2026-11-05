@@ -210,7 +210,57 @@ export function beginCreature(
   const ct = into ?? ({} as CreatureTick);
   ct.slot = slot; ct.s0 = s0; ct.n = n; ct.nSub = nSub; ct.h = dt / nSub; ct.dt = dt; ct.mir = c.mirror[slot]! < 0 ? -1 : 1;
   ct.ca = ca; ct.q10 = q10; ct.mTot = mTot; ct.tempC = tempC; ct.ciliaP = power; ct.dead = dead; ct.sink = sink; ct.noLimits = noLimits;
+  jointConstants(world, wk, opts, ct);
   return ct;
+}
+
+/** Per-joint constants of the tick in `wk.jt` (stride JT): see the JT_* names. */
+export const JT = 8;
+export const JT_CBOFF = 0; export const JT_GAMMA = 1; export const JT_ALPHA = 2; export const JT_OPG = 3;
+export const JT_RESTB = 4; export const JT_DREST = 5; export const JT_LO = 6; export const JT_HI = 7;
+
+/**
+ * Muscles and joint rows, once per tick (activation, damage and the effective inertias change
+ * only per tick, and the substep length is fixed within it).
+ *
+ * Force-velocity: tau = amax (1 - w_rel / w_max), the straight line through Hill's two end
+ * points, applied implicitly: amax enters the bend row as a rest offset amax * compliance and
+ * amax / w_max as extra XPBD damping. Explicit motors (with the 1/h velocity cap of 02 §2.2.5,
+ * or the curved Hill law fed back from the start-of-substep velocity) made gaits depend on the
+ * substep count or chatter on long chains (spike 1).
+ */
+function jointConstants(world: World, wk: Work, opts: PhysicsOptions, ct: CreatureTick): void {
+  const sg = world.seg.c;
+  const { s0, n, h, mir, q10 } = ct;
+  const { tau, cm, jt, tc } = wk;
+  for (let k = 1; k < n; k++) {
+    const i = s0 + k; const p = s0 + sg.parent[i]!;
+    const o = i * JT;
+    tau[i] = 0; cm[i] = 0; wk.tauReal[i] = 0;
+    if (!opts.prescribed) {
+      const a = sg.act[i]!;
+      if (a !== 0 && sg.tauMax[i]! > 0) {
+        const dir = a * mir > 0 ? 1 : -1;
+        const wMax = sg.omegaMax[i]! * q10;
+        const amax = (a < 0 ? -a : a) * sg.tauMax[i]! * (1 - sg.damage[i]!);
+        tau[i] = dir * amax;
+        cm[i] = amax / wMax;
+      }
+      const comp = sg.compliance[i]!;
+      const at = comp / (h * h);
+      const kk = 1 / comp;
+      const iei = tc[i * TC + TC_IE]!; const iep = tc[p * TC + TC_IE]!;
+      const ie = iei * iep / (iei + iep);
+      const beta = sg.damping[i]! * 2 * Math.sqrt(kk * ie);
+      const gamma = comp * (beta + cm[i]!) / h;
+      jt[o + JT_CBOFF] = tau[i]! * comp; jt[o + JT_GAMMA] = gamma; jt[o + JT_OPG] = 1 + gamma; jt[o + JT_ALPHA] = at / (1 + gamma);
+    }
+    const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
+    jt[o + JT_RESTB] = restB; jt[o + JT_DREST] = wrapAngle(restA - restB);
+    let lo = sg.limitLo[i]! - restA; let hi = sg.limitHi[i]! - restA;
+    if (mir < 0) { const t = lo; lo = -hi; hi = -t; }
+    jt[o + JT_LO] = lo; jt[o + JT_HI] = hi;
+  }
 }
 
 /**
@@ -354,28 +404,6 @@ export function substepCreature(world: World, ct: CreatureTick, wk: Work, opts: 
     ai[o6] = c00 * id; ai[o6 + 1] = c01 * id; ai[o6 + 2] = c02 * id;
     ai[o6 + 3] = c11 * id; ai[o6 + 4] = c12 * id; ai[o6 + 5] = c22 * id;
     rhs[i3] = r0; rhs[i3 + 1] = r1; rhs[i3 + 2] = r2;
-  }
-  // ---- 2. muscles: velocity-capped motor pairs on each joint
-  if (!opts.prescribed) {
-    for (let k = 1; k < n; k++) {
-      const i = s0 + k;
-      const p = s0 + sg.parent[i]!;
-      const a = sg.act[i]!;
-      tau[i] = 0; wk.cm[i] = 0; wk.tauReal[i] = 0;
-      if (a === 0 || sg.tauMax[i]! <= 0) continue;
-      const dir = a * mir > 0 ? 1 : -1;
-      const wMax = sg.omegaMax[i]! * q10;
-      const wRel = dir * (w[i]! - w[p]!);
-      // Force-velocity: tau = amax (1 - w_rel'/w_max), the straight line through Hill's two end
-      // points, applied implicitly: amax enters the bend row as a rest offset amax * compliance
-      // and amax / w_max as extra XPBD damping. Explicit motors (with the 1/h velocity cap of
-      // 02 §2.2.5, or with the curved Hill law fed back from the start-of-substep velocity)
-      // made gaits depend on the substep count or chatter on long chains (spike 1).
-      void wRel; void hill;
-      const amax = (a < 0 ? -a : a) * sg.tauMax[i]! * (1 - sg.damage[i]!);
-      tau[i] = dir * amax;
-      wk.cm[i] = amax / wMax;
-    }
   }
   // ---- 3. implicit velocity solve and predict
   for (let k = 0; k < n; k++) {
