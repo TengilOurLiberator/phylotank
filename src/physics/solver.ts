@@ -10,11 +10,13 @@
  * the body by force balance (resistive force theory), not by inertia.
  */
 import {
-  DT, GRAVITY, KIND, NU_WATER, log, ORGAN, RHO_WATER, cos, exp, sin, wrapAngle, B0_KLEIBER, E_A_EV,
+  DT, GRAVITY, KIND, NU_WATER, log, ORGAN, RHO_WATER, exp, wrapAngle, B0_KLEIBER, E_A_EV,
   K_BOLTZMANN_EV, T_REF_K, KLEIBER_EXP, pow, type World,
 } from '../core/index.js';
 import { CILIA_SLIP, ETA_CILIA, ETA_MUSCLE, GAUSS_XI, KAPPA_CILIA, KAPPA_ISO, MU_WATER, Q10_MUSCLE } from './constants.js';
 import { addedMass, isPlate, segVolume } from './body.js';
+import { SC, sincos } from './sincos.js';
+import { solveTree } from './tree.js';
 import type { Work } from './work.js';
 
 export interface PhysicsOptions {
@@ -40,11 +42,15 @@ export interface PhysicsOptions {
   iterations: number;
   /** Drop the |v|^1.5 and |v|^2 drag terms (benchmarks against linear resistive-force theory). */
   linearDrag: boolean;
+  /** Accumulate the drag-work diagnostic (R9 watchdog input, energy-budget tests). */
+  diagnostics: boolean;
+  /** Joint solver: exact tree solve per substep (default) or Gauss-Seidel passes. */
+  solver: 'tree' | 'gs';
 }
 
 export const DEFAULT_OPTIONS: PhysicsOptions = {
   fluid: true, gravity: true, addedMass: true, nSub: 0, minSub: 4, dt: DT, prescribed: false, walls: true,
-  contacts: true, iterations: 1, linearDrag: false,
+  contacts: true, iterations: 1, linearDrag: false, diagnostics: false, solver: 'tree',
 };
 
 const LN2_Q10 = log(Q10_MUSCLE);
@@ -145,8 +151,8 @@ export function stepCreature(
     // ---- 1. drag-augmented mass, explicit forces
     for (let k = 0; k < n; k++) {
       const i = s0 + k;
-      const t0 = th[i]!;
-      const cs = cos(t0); const sn = sin(t0);
+      sincos(th[i]!);
+      const cs = SC.c; const sn = SC.s;
       const m = sg.mass[i]!;
       const l = sg.len[i]!; const r = sg.radius[i]!; const span = sg.span[i]!;
       const plate = isPlate(sg.kind[i]!);
@@ -204,6 +210,8 @@ export function stepCreature(
       const c11 = a00 * a22 - a02 * a02; const c12 = a01 * a02 - a00 * a12; const c22 = a00 * a11 - a01 * a01;
       const id = 1 / (a00 * c00 + a01 * c01 + a02 * c02);
       const o = i * 6;
+      const am = wk.am;
+      am[o] = a00; am[o + 1] = a01; am[o + 2] = a02; am[o + 3] = a11; am[o + 4] = a12; am[o + 5] = a22;
       ai[o] = c00 * id; ai[o + 1] = c01 * id; ai[o + 2] = c02 * id;
       ai[o + 3] = c11 * id; ai[o + 4] = c12 * id; ai[o + 5] = c22 * id;
       rhs[i * 3] = r0; rhs[i * 3 + 1] = r1; rhs[i * 3 + 2] = r2;
@@ -214,18 +222,20 @@ export function stepCreature(
         const i = s0 + k;
         const p = s0 + sg.parent[i]!;
         const a = sg.act[i]!;
-        tau[i] = 0;
+        tau[i] = 0; wk.cm[i] = 0; wk.tauReal[i] = 0;
         if (a === 0 || sg.tauMax[i]! <= 0) continue;
         const dir = a * mir > 0 ? 1 : -1;
         const wMax = sg.omegaMax[i]! * q10;
         const wRel = dir * (w[i]! - w[p]!);
-        let tm = (a < 0 ? -a : a) * sg.tauMax[i]! * (1 - sg.damage[i]!) * Math.max(0, hill(wRel, wMax));
-        const mob = ai[i * 6 + 5]! + ai[p * 6 + 5]!;
-        const allowed = (wMax - wRel) / (h * mob);
-        if (tm > allowed) tm = allowed > 0 ? allowed : 0;
-        tau[i] = dir * tm;
-        rhs[i * 3 + 2] = rhs[i * 3 + 2]! + h * tau[i]!;
-        rhs[p * 3 + 2] = rhs[p * 3 + 2]! - h * tau[i]!;
+        // Force-velocity: tau = amax (1 - w_rel'/w_max), the straight line through Hill's two end
+        // points, applied implicitly: amax enters the bend row as a rest offset amax * compliance
+        // and amax / w_max as extra XPBD damping. Explicit motors (with the 1/h velocity cap of
+        // 02 §2.2.5, or with the curved Hill law fed back from the start-of-substep velocity)
+        // made gaits depend on the substep count or chatter on long chains (spike 1).
+        void wRel; void hill;
+        const amax = (a < 0 ? -a : a) * sg.tauMax[i]! * (1 - sg.damage[i]!);
+        tau[i] = dir * amax;
+        wk.cm[i] = amax / wMax;
       }
     }
     // ---- 3. implicit velocity solve and predict
@@ -242,8 +252,15 @@ export function stepCreature(
     }
     // ---- 4. joints, one Gauss-Seidel pass in BFS order
     const frac = (s + 1) / nSub;
-    for (let it = 0; it < opts.iterations; it++) {
-      for (let k = 1; k < n; k++) {
+    // Gauss-Seidel over the joints; with more than one pass, alternate the direction
+    // (symmetric GS), which carries corrections from the tips back to the root.
+    if (opts.solver === 'tree') {
+      solveTree(wk, sg, s0, n, h, mir, frac, opts.prescribed);
+      for (let k = 1; k < n; k++) solveLimit(wk, sg, s0 + k, s0 + sg.parent[s0 + k]!, mir, frac);
+    } else for (let it = 0; it < opts.iterations; it++) {
+      const fwd = (it & 1) === 0;
+      for (let q = 1; q < n; q++) {
+        const k = fwd ? q : n - q;
         const i = s0 + k;
         const p = s0 + sg.parent[i]!;
         solveJoint(wk, sg, i, p, h, mir, frac, opts.prescribed, it === 0);
@@ -264,16 +281,17 @@ export function stepCreature(
       for (let k = 1; k < n; k++) {
         const i = s0 + k;
         const p = s0 + sg.parent[i]!;
-        const dW = tau[i]! * ((th[i]! - thp[i]!) - (th[p]! - thp[p]!));
+        const dRel = (th[i]! - thp[i]!) - (th[p]! - thp[p]!);
+        const dW = wk.tauReal[i]! * dRel;
         wk.netWork[i] = wk.netWork[i]! + dW;
         if (dW > 0) sg.work[i] = sg.work[i]! + dW;
       }
     }
     // drag power by the water on each segment (diagnostic, R9): F_drag . v
-    if (opts.fluid) {
+    if (opts.fluid && opts.diagnostics) {
       for (let k = 0; k < n; k++) {
         const i = s0 + k;
-        const l = sg.len[i]!; const t0 = th[i]!; const cs = cos(t0); const sn = sin(t0);
+        const l = sg.len[i]!; sincos(th[i]!); const cs = SC.c; const sn = SC.s;
         const dr = sg.drag;
         let P = 0;
         const xi = GAUSS_XI * l;
@@ -308,8 +326,10 @@ export function stepCreature(
       const p = s0 + sg.parent[i]!;
       const tp64 = th[p]!; const tp = sg.angle[p]!;
       const lp = sg.attachU[i]! * sg.len[p]!; const lc = -0.5 * sg.len[i]!;
-      sx = sh[p * 3]! + lp * (cos(tp) - cos(tp64)) - lc * (cos(t) - cos(t64));
-      sy = sh[p * 3 + 1]! + lp * (sin(tp) - sin(tp64)) - lc * (sin(t) - sin(t64));
+      sincos(tp); const c1 = SC.c; const s1 = SC.s; sincos(tp64); const c2 = SC.c; const s2 = SC.s;
+      sincos(t); const c3 = SC.c; const s3 = SC.s; sincos(t64); const c4 = SC.c; const s4 = SC.s;
+      sx = sh[p * 3]! + lp * (c1 - c2) - lc * (c3 - c4);
+      sy = sh[p * 3 + 1]! + lp * (s1 - s2) - lc * (s3 - s4);
       posX[i] = posX[i]! + sx; posY[i] = posY[i]! + sy;
     }
     sh[i * 3] = sx; sh[i * 3 + 1] = sy;
@@ -338,8 +358,8 @@ function solveJoint(
   const { ai, th, thp } = wk;
   const posX = sg.posX; const posY = sg.posY;
   // attachment (2 rows as one along the gap)
-  const tp = th[p]!; const tc = th[i]!;
-  const cpp = cos(tp); const spp = sin(tp); const ccc = cos(tc); const scc = sin(tc);
+  sincos(th[p]!); const cpp = SC.c; const spp = SC.s;
+  sincos(th[i]!); const ccc = SC.c; const scc = SC.s;
   const lp = sg.attachU[i]! * sg.len[p]!; const lc = -0.5 * sg.len[i]!;
   const rpx = lp * cpp; const rpy = lp * spp; const rcx = lc * ccc; const rcy = lc * scc;
   const dx = posX[p]! + rpx - posX[i]! - rcx; const dy = posY[p]! + rpy - posY[i]! - rcy;
@@ -366,7 +386,7 @@ function solveJoint(
   const op = p * 6; const oc = i * 6;
   // column 3 of each inverse (response to a unit torque)
   const wB = ai[op + 5]! + ai[oc + 5]!;
-  const Cb = wrapAngle(th[i]! - th[p]! - rest);
+  const Cb = wrapAngle(th[i]! - th[p]! - rest) - (prescribed ? 0 : wk.tau[i]! * sg.compliance[i]!);
   const alpha = prescribed ? 0 : sg.compliance[i]! / (h * h);
   if (prescribed || alpha > 0) {
     let dl: number;
@@ -376,9 +396,13 @@ function solveJoint(
       const k = 1 / sg.compliance[i]!;
       const ie = wk.ie[i]! * wk.ie[p]! / (wk.ie[i]! + wk.ie[p]!);
       const beta = sg.damping[i]! * 2 * Math.sqrt(k * ie);
-      const gamma = sg.compliance[i]! * beta / h;
+      const gamma = sg.compliance[i]! * (beta + wk.cm[i]!) / h;
       const dC = (th[i]! - thp[i]!) - (th[p]! - thp[p]!);
-      dl = -(Cb + (first ? gamma * dC : 0)) / ((1 + (first ? gamma : 0)) * wB + alpha);
+      if (first) wk.lam[i] = 0;
+      dl = -(Cb + alpha * wk.lam[i]! + gamma * dC) / ((1 + gamma) * wB + alpha);
+      wk.lam[i] = wk.lam[i]! + dl;
+      // the muscle's share of this row's generalised force: T0 - c_mus dC'/h (dC' after the update)
+      wk.tauReal[i] = wk.tau[i]! - wk.cm[i]! * (dC + wB * dl) / h;
     }
     applyTorqueCorrection(wk, sg, p, i, dl);
   }
@@ -399,4 +423,19 @@ function applyTorqueCorrection(wk: Work, sg: World['seg']['c'], p: number, i: nu
   const op = p * 6; const oc = i * 6;
   sg.posX[p] = sg.posX[p]! - ai[op + 2]! * dl; sg.posY[p] = sg.posY[p]! - ai[op + 4]! * dl; th[p] = th[p]! - ai[op + 5]! * dl;
   sg.posX[i] = sg.posX[i]! + ai[oc + 2]! * dl; sg.posY[i] = sg.posY[i]! + ai[oc + 4]! * dl; th[i] = th[i]! + ai[oc + 5]! * dl;
+}
+
+/** Hard joint limits only (after the tree solve). */
+function solveLimit(wk: Work, sg: World['seg']['c'], i: number, p: number, mir: number, frac: number): void {
+  const restA = sg.restAngle[i]!; const restB = wk.restPrev[i]!;
+  const rest = mir * (restB + wrapAngle(restA - restB) * frac);
+  let lo = sg.limitLo[i]! - restA; let hi = sg.limitHi[i]! - restA;
+  if (mir < 0) { const t = lo; lo = -hi; hi = -t; }
+  if (!(lo < hi)) return;
+  const d = wrapAngle(wk.th[i]! - wk.th[p]! - rest);
+  let Cl = 0;
+  if (d < lo) Cl = d - lo; else if (d > hi) Cl = d - hi;
+  if (Cl === 0) return;
+  const wB = wk.ai[p * 6 + 5]! + wk.ai[i * 6 + 5]!;
+  applyTorqueCorrection(wk, sg, p, i, -Cl / wB);
 }

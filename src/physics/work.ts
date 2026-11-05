@@ -12,12 +12,20 @@ export interface Work {
   xp: Float64Array; yp: Float64Array; thp: Float64Array;
   /** Inverse of the drag-augmented generalised mass, symmetric 3x3: a00 a01 a02 a11 a12 a22. */
   ai: Float64Array;
+  /** The drag-augmented generalised mass itself (same packing), for the tree solve. */
+  am: Float64Array;
   /** Translational mass matrix with added mass (m00 m01 m11) and effective inertia. */
   mm: Float64Array; ie: Float64Array;
   /** Right-hand side scratch (3 per segment). */
   rhs: Float64Array;
   /** Joint muscle torque this substep (on the child's joint). */
   tau: Float64Array;
+  /** Linearised Hill damping of the joint muscle this substep, N m s/rad. */
+  cm: Float64Array;
+  /** Muscle torque actually delivered by the bend row this substep (for work). */
+  tauReal: Float64Array;
+  /** Accumulated bend multiplier within a substep (XPBD, for iterations > 1). */
+  lam: Float64Array;
   /** Flow velocity at the segment centre this tick. */
   ux: Float64Array; uy: Float64Array;
   /** Fin feathering factor phi this tick. */
@@ -40,8 +48,8 @@ export function workFor(world: World): Work {
   if (!wk) {
     const f = (n = 1): Float64Array => new Float64Array(cap * n);
     wk = {
-      cap, th: f(), vx: f(), vy: f(), w: f(), xp: f(), yp: f(), thp: f(), ai: f(6), mm: f(3), ie: f(),
-      rhs: f(3), tau: f(), ux: f(), uy: f(), phi: f(), restPrev: f(), restInit: new Uint8Array(cap),
+      cap, th: f(), vx: f(), vy: f(), w: f(), xp: f(), yp: f(), thp: f(), ai: f(6), am: f(6), mm: f(3), ie: f(),
+      rhs: f(3), tau: f(), cm: f(), tauReal: f(), lam: f(), ux: f(), uy: f(), phi: f(), restPrev: f(), restInit: new Uint8Array(cap),
       muscleFrac: new Float32Array(cap).fill(0.3), netWork: f(), dragWork: f(),
       contactHeat: new Float64Array(world.cr.capacity),
     };

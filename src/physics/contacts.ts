@@ -7,8 +7,9 @@
  * same contact list. Terrain uses the SDF grid.
  */
 import {
-  KIND, LIFE, ORGAN, PI, cos, sin, type StepContext, type World,
+  KIND, LIFE, ORGAN, PI, type StepContext, type World,
 } from '../core/index.js';
+import { SC, sincos } from './sincos.js';
 import {
   BITE_OFF, BITE_ON, CONTACT_FRICTION, C_BITE, DEPEN_BL_PER_S, FIX_POS, H_TISSUE, RHO_TISSUE, SIGMA_JAW,
 } from './constants.js';
@@ -18,20 +19,22 @@ import type { Work } from './work.js';
 export const HASH_LEVELS = 8;
 const CELL0 = 1e-3;
 const LEVEL_SIZE = [1, 4, 16, 64, 256, 1024, 4096, 16384].map((k) => k * CELL0);
-const KEY_L = 2 ** 40;
-const KEY_Y = 2 ** 20;
 /** Candidate cap per item (REVIEW R5: bound the work by cells visited and candidates). */
 export const MAX_CANDIDATES = 64;
 
 export interface SpatialHash {
   n: number;
+  /** Items sorted by (bucket, slot). */
   items: Int32Array;
-  keys: Float64Array;
+  /** Per segment slot: level and integer cell coordinates (for exact cell checks). */
   level: Uint8Array;
+  cx: Int32Array;
+  cy: Int32Array;
+  /** Bucket table (power of two): start offsets into items, length T + 1. */
+  start: Int32Array;
+  mask: number;
   levelMask: number;
-  /** key -> [start, end) into items (lookup only, never iterated for results). */
-  ranges: Map<number, number>;
-  ends: Map<number, number>;
+  bucketOf: Int32Array;
 }
 
 function bound(sg: World['seg']['c'], i: number): number { return 0.5 * sg.len[i]! + sg.radius[i]!; }
@@ -42,14 +45,15 @@ export function levelFor(R: number): number {
   return l;
 }
 
-export function cellKey(l: number, x: number, y: number): number {
-  const cs = LEVEL_SIZE[l]!;
-  const ix = Math.floor(x / cs) + 1;
-  const iy = Math.floor(y / cs) + 1;
-  return l * KEY_L + iy * KEY_Y + ix;
+function bucket(l: number, ix: number, iy: number, mask: number): number {
+  return (Math.imul(ix, 73856093) ^ Math.imul(iy, 19349663) ^ Math.imul(l, 83492791)) & mask;
 }
 
-/** Build the hash over the segments of live bodies, ordered by (cell key, slot). */
+/**
+ * Build the hash over the segments of live bodies by a counting sort over hashed cells.
+ * Items are scattered in ascending slot order, so each bucket lists its items by slot: the
+ * order is (bucket, slot), a deterministic function of the state (CONTRACT 4.2 rule 4).
+ */
 export function buildHash(world: World, hs?: SpatialHash): SpatialHash {
   const c = world.cr.c;
   const sg = world.seg.c;
@@ -58,14 +62,19 @@ export function buildHash(world: World, hs?: SpatialHash): SpatialHash {
     const life = c.life[s];
     if ((life === LIFE.ALIVE || life === LIFE.CARCASS) && c.segCount[s]! > 0) n += c.segCount[s]!;
   }
-  if (!hs || hs.items.length < n) {
-    const cap = Math.max(16, n * 2);
+  let T = 16;
+  while (T < 2 * n) T *= 2;
+  if (!hs || hs.items.length < n || hs.start.length < T + 1) {
+    const cap = world.seg.capacity;
     hs = {
-      n: 0, items: new Int32Array(cap), keys: new Float64Array(world.seg.capacity), level: new Uint8Array(world.seg.capacity),
-      levelMask: 0, ranges: new Map(), ends: new Map(),
+      n: 0, items: new Int32Array(Math.max(16, n * 2)), level: new Uint8Array(cap), cx: new Int32Array(cap), cy: new Int32Array(cap),
+      start: new Int32Array(Math.max(T, 16) * 2 + 1), mask: 0, levelMask: 0, bucketOf: new Int32Array(cap),
     };
   }
-  hs.ranges.clear(); hs.ends.clear(); hs.levelMask = 0;
+  hs.mask = T - 1;
+  hs.levelMask = 0;
+  const start = hs.start;
+  start.fill(0, 0, T + 1);
   let m = 0;
   for (let s = 0; s < world.cr.highWater; s++) {
     const life = c.life[s];
@@ -74,21 +83,33 @@ export function buildHash(world: World, hs?: SpatialHash): SpatialHash {
     for (let k = 0; k < c.segCount[s]!; k++) {
       const i = s0 + k;
       const l = levelFor(bound(sg, i));
-      hs.level[i] = l;
+      const cs = LEVEL_SIZE[l]!;
+      const ix = Math.floor(sg.posX[i]! / cs); const iy = Math.floor(sg.posY[i]! / cs);
+      hs.level[i] = l; hs.cx[i] = ix; hs.cy[i] = iy;
       hs.levelMask |= 1 << l;
-      hs.keys[i] = cellKey(l, sg.posX[i]!, sg.posY[i]!);
-      hs.items[m++] = i;
+      const b = bucket(l, ix, iy, hs.mask);
+      hs.bucketOf[i] = b;
+      start[b + 1] = start[b + 1]! + 1;
+      m++;
+    }
+  }
+  for (let b = 0; b < T; b++) start[b + 1] = start[b + 1]! + start[b]!;
+  // scatter in ascending slot order (fill cursors in a copy of start)
+  const fill = hs.items; // reuse: two passes below
+  void fill;
+  const cursor = new Int32Array(start.subarray(0, T));
+  for (let s = 0; s < world.cr.highWater; s++) {
+    const life = c.life[s];
+    if ((life !== LIFE.ALIVE && life !== LIFE.CARCASS) || c.segCount[s] === 0) continue;
+    const s0 = c.segStart[s]!;
+    for (let k = 0; k < c.segCount[s]!; k++) {
+      const i = s0 + k;
+      const b = hs.bucketOf[i]!;
+      hs.items[cursor[b]!] = i;
+      cursor[b] = cursor[b]! + 1;
     }
   }
   hs.n = m;
-  const keys = hs.keys;
-  const view = hs.items.subarray(0, m);
-  view.sort((a, b) => (keys[a]! - keys[b]!) || (a - b));
-  for (let j = 0; j < m; j++) {
-    const k = keys[view[j]!]!;
-    if (!hs.ranges.has(k)) hs.ranges.set(k, j);
-    hs.ends.set(k, j + 1);
-  }
   return hs;
 }
 
@@ -107,19 +128,55 @@ export function queryPairs(
   for (let l = li; l < HASH_LEVELS; l++) {
     if ((hs.levelMask & (1 << l)) === 0) continue;
     const cs = LEVEL_SIZE[l]!;
-    const ix = Math.floor(x / cs) + 1; const iy = Math.floor(y / cs) + 1;
+    const ix = Math.floor(x / cs); const iy = Math.floor(y / cs);
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         cells++;
-        const key = l * KEY_L + (iy + dy) * KEY_Y + ix + dx;
-        const st = hs.ranges.get(key);
-        if (st === undefined) continue;
-        const en = hs.ends.get(key)!;
-        for (let q = st; q < en; q++) {
+        const qx = ix + dx; const qy = iy + dy;
+        const b = bucket(l, qx, qy, hs.mask);
+        const en = hs.start[b + 1]!;
+        for (let q = hs.start[b]!; q < en; q++) {
           const j = hs.items[q]!;
+          if (hs.level[j] !== l || hs.cx[j] !== qx || hs.cy[j] !== qy) continue;
           if (l === li && j <= i) continue;
           visit(i, j);
           if (++found >= MAX_CANDIDATES) return cells;
+        }
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * Perception-style radius query (REVIEW R5): visit items within `R` of (x, y), skipping levels
+ * whose items subtend less than `minAngle` at that distance, and stopping after `maxCells`
+ * cell visits. Returns the number of cells visited.
+ */
+export function queryRadius(
+  world: World, hs: SpatialHash, x: number, y: number, R: number, minAngle: number, maxCells: number,
+  visit: (j: number) => void,
+): number {
+  const sg = world.seg.c;
+  let cells = 0;
+  for (let l = HASH_LEVELS - 1; l >= 0; l--) {
+    if ((hs.levelMask & (1 << l)) === 0) continue;
+    const cs = LEVEL_SIZE[l]!;
+    // items at level l have size about cs / 2 or more; skip if they look smaller than minAngle at R
+    if (l > 0 && (cs / 4) / R < minAngle) break;
+    if (l === 0 && (cs / 4) / R < minAngle) break;
+    const x0 = Math.floor((x - R) / cs); const x1 = Math.floor((x + R) / cs);
+    const y0 = Math.floor((y - R) / cs); const y1 = Math.floor((y + R) / cs);
+    for (let qy = y0; qy <= y1; qy++) {
+      for (let qx = x0; qx <= x1; qx++) {
+        if (++cells > maxCells) return cells;
+        const b = bucket(l, qx, qy, hs.mask);
+        const en = hs.start[b + 1]!;
+        for (let q = hs.start[b]!; q < en; q++) {
+          const j = hs.items[q]!;
+          if (hs.level[j] !== l || hs.cx[j] !== qx || hs.cy[j] !== qy) continue;
+          const ddx = sg.posX[j]! - x; const ddy = sg.posY[j]! - y;
+          if (ddx * ddx + ddy * ddy <= R * R) visit(j);
         }
       }
     }
@@ -201,7 +258,7 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     pairs++;
     const ra = sg.radius[i]!; const rb = sg.radius[j]!;
     const ha = 0.5 * sg.len[i]!; const hb = 0.5 * sg.len[j]!;
-    const ca = cos(sg.angle[i]!); const sa = sin(sg.angle[i]!); const cb = cos(sg.angle[j]!); const sb = sin(sg.angle[j]!);
+    sincos(sg.angle[i]!); const ca = SC.c; const sa = SC.s; sincos(sg.angle[j]!); const cb = SC.c; const sb = SC.s;
     const axc = sg.posX[i]!; const ayc = sg.posY[i]!; const bxc = sg.posX[j]!; const byc = sg.posY[j]!;
     closestSegSeg(axc - ca * ha, ayc - sa * ha, axc + ca * ha, ayc + sa * ha,
       bxc - cb * hb, byc - sb * hb, bxc + cb * hb, byc + sb * hb, cp);

@@ -3,8 +3,11 @@
  * (02 §2.2.3 to §2.2.5, §2.3.1), written into the segment pool by `loadBody` and `restage`.
  */
 import {
-  KIND, NONE_U32, PI, cbrt, cos, log, sin, type Phenotype, type World,
+  KIND, NONE_U32, PI, cbrt, log, type Phenotype, type World,
 } from '../core/index.js';
+import { SC, sincos } from './sincos.js';
+const cos = (a: number): number => { sincos(a); return SC.c; };
+const sin = (a: number): number => { sincos(a); return SC.s; };
 import {
   C_ADDED, MU_WATER, OMEGA_MAX_15C, RHO_ARMOUR, RHO_LIPID, RHO_TISSUE, SIGMA_MUSCLE, SIGMA_STRUCT,
 } from './constants.js';
