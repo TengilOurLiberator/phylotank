@@ -14,6 +14,7 @@
  * after two runs below half the minimum crowd, and the same carcass cannot start another within
  * `frenzyCooldownS`, so a crowd milling at the threshold does not flap.
  */
+import { DIET } from '../../core/index.js';
 import { CF, entityIdOf, TICK_HZ, type V2, type World } from './util.js';
 import { forNear } from './scan.js';
 import type { Derived, Detector, Scan } from './types.js';
@@ -27,6 +28,7 @@ export interface CarcassOptions {
   updateS?: number;
   maxCarcasses?: number;
   frenzyCooldownS?: number;
+  frenzyFeeders?: number;
 }
 
 interface Tracked { id: number; first: number; lastEmit: number; scav: number; massKg: number; pos: V2; size: number; fall: boolean; big: boolean }
@@ -39,14 +41,12 @@ export class CarcassDetector implements Detector {
   private readonly frenzies = new Map<number, Frenzy>();
 
   constructor(opts: CarcassOptions = {}) {
-    this.o = { carcassRel: 0.25, carcassKg: 10, frenzyRel: 0.05, frenzyMin: 5, frenzyOverBackground: 3, updateS: 30, maxCarcasses: 256, frenzyCooldownS: 60, ...opts };
+    this.o = { carcassRel: 0.25, carcassKg: 10, frenzyRel: 0.05, frenzyMin: 5, frenzyOverBackground: 3, updateS: 30, maxCarcasses: 256, frenzyCooldownS: 60, frenzyFeeders: 3, ...opts };
   }
 
   run(scan: Scan, out: Derived[]): void {
     const w = scan.world; const c = w.cr.c; const t = scan.tick;
     const lc = w.lCeilingM;
-    const area = w.preset.widthM * w.preset.heightM;
-    const density = scan.nAlive / area;
     const bigL = this.o.carcassRel * lc;
     const eligibleL = Math.max(this.o.frenzyRel * lc, 4 * scan.medianAdultM);
     // candidates: big ones and frenzy-eligible ones, biggest first, bounded
@@ -60,6 +60,17 @@ export class CarcassDetector implements Detector {
     if (cand.length > this.o.maxCarcasses) cand.length = this.o.maxCarcasses;
     const seen = new Set<number>();
     const H = w.preset.heightM;
+    // does the ecology record diets at all? (early exit on the first creature that has eaten)
+    let dietKnown = false;
+    for (let i = 0; i < scan.nAlive && !dietKnown && cand.length > 0; i++) {
+      const o = 7 * scan.alive[i]!;
+      for (let k = 0; k < 7; k++) if (c.diet[o + k]! > 0) { dietKnown = true; break; }
+    }
+    const meatEater = (o: number): boolean => {
+      const b = 7 * o; let sum = 0;
+      for (let k = 0; k < 7; k++) sum += Math.max(0, c.diet[b + k]!);
+      return sum > 0 && (Math.max(0, c.diet[b + DIET.CARCASS]!) + Math.max(0, c.diet[b + DIET.LIVE_PREY]!)) >= 0.25 * sum;
+    };
     for (const s of cand) {
       const id = entityIdOf(w, s);
       seen.add(id);
@@ -67,7 +78,7 @@ export class CarcassDetector implements Detector {
       const x = c.posX[s]!; const y = c.posY[s]!;
       const r = Math.max(0.2, 5 * L);
       let feeding = 0;
-      const n = forNear(scan, x, y, r, (o) => { if ((c.flags[o]! & CF.EATING) !== 0) feeding++; });
+      const n = forNear(scan, x, y, r, (o) => { if (meatEater(o)) feeding++; });
       const pos: V2 = [x, y];
       const big = L >= bigL || c.massKg[s]! >= this.o.carcassKg || (c.flags[s]! & CF.LEVIATHAN) !== 0;
       const fall = y >= H - Math.max(0.3, 2 * L) && Math.abs(c.velY[s]!) < 0.005;
@@ -86,8 +97,10 @@ export class CarcassDetector implements Detector {
         }
       }
       // frenzy
-      const expected = density * Math.PI * r * r;
-      const crowd = n >= this.o.frenzyMin && n >= this.o.frenzyOverBackground * expected;
+      const R = Math.max(1, 4 * r);
+      const ring = forNear(scan, x, y, R) - n;
+      const expected = (ring / (Math.PI * (R * R - r * r))) * Math.PI * r * r;
+      const crowd = n >= this.o.frenzyMin && n >= this.o.frenzyOverBackground * expected && (!dietKnown || feeding >= this.o.frenzyFeeders);
       const f = this.frenzies.get(id);
       if (crowd && (!f || f.ended >= 0)) {
         if (f && t - f.ended < this.o.frenzyCooldownS * TICK_HZ) continue;

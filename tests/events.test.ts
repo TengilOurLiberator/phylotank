@@ -3,7 +3,7 @@
  * event is staged, determinism and read-only checks, and the measured cost per tick.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { CF, hashWorld, LIFE, NONE_U32, ORGAN, type SimEvent, type World, type WorldConfig } from '../src/core/index.js';
+import { hashWorld, LIFE, NONE_U32, ORGAN, type SimEvent, type World, type WorldConfig } from '../src/core/index.js';
 import { drainEvents, sim } from '../src/sim/index.js';
 import { EventSuite, type Derived } from '../src/sim/events/index.js';
 import { BloomDetector } from '../src/sim/events/bloom.js';
@@ -81,8 +81,12 @@ describe('carcass and frenzy', () => {
     c.life[k!] = LIFE.CARCASS; c.length[k!] = 0.4 * w.lCeilingM; c.massKg[k!] = 0.05; c.posX[k!] = 16; c.posY[k!] = 9; c.velY[k!] = -0.01;
     const a = runAt(d, w, 60);
     expect(a).toEqual([expect.objectContaining({ k: 'carcass', phase: 'start', scavengers: 0, fall: false, size: c.length[k!], pos: [16, 9], durationS: 0 })]);
-    // a crowd gathers (some of them eating)
-    rest.slice(0, 8).forEach((s, i) => { c.posX[s] = 16 + 0.02 * i; c.posY[s] = 9.01; if (i < 3) c.flags[s]! |= CF.EATING; });
+    // a crowd of grazers gathers: not a frenzy once diets are known
+    for (const s of rest) c.diet[7 * s] = 1;
+    rest.slice(0, 8).forEach((s, i) => { c.posX[s] = 16 + 0.02 * i; c.posY[s] = 9.01; });
+    expect(runAt(d, w, 75).filter((e) => e.k === 'frenzy')).toEqual([]);
+    // three of them eat meat
+    rest.slice(0, 3).forEach((s) => { c.diet[7 * s + 4] = 1; });
     const b = runAt(d, w, 90);
     expect(b.filter((e) => e.k === 'carcass')).toEqual([]); // updates wait 30 s
     expect(b.filter((e) => e.k === 'frenzy')).toEqual([expect.objectContaining({ phase: 'start', n: 8, feeding: 3, carcass: expect.any(Number) })]);

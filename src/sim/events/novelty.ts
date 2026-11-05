@@ -33,7 +33,11 @@ export interface NoveltyOptions {
 
 /** Organ bits counted in the descriptor, in order. */
 const ORGANS = [ORGAN.EYE, ORGAN.MOUTH, ORGAN.CLAW, ORGAN.JET, ORGAN.CILIA, ORGAN.PHOTOPHORE, ORGAN.SHELL, ORGAN.PHOTOSYNTH, ORGAN.CHEMO, ORGAN.LATERAL_LINE, ORGAN.BLADDER, ORGAN.PAIRED] as const;
-const ORGAN_NAMES = ['eye', 'mouth', 'claw', 'jet', 'cilia', 'photophore', 'shell', 'photosynth', 'chemo', 'lateral line', 'bladder', 'paired'];
+const ORGAN_NAMES: readonly [string, string][] = [
+  ['eye', 'eyes'], ['mouth', 'mouths'], ['claw', 'claws'], ['jet', 'jets'], ['ciliated part', 'ciliated parts'], ['light organ', 'light organs'],
+  ['shell', 'shells'], ['photosynthetic part', 'photosynthetic parts'], ['chemosensor', 'chemosensors'], ['lateral line', 'lateral lines'],
+  ['bladder', 'bladders'], ['paired limb', 'paired limbs'],
+];
 export const DESCRIPTOR_LEN = 4 + ORGANS.length + 1;
 
 /** The body-plan descriptor of a slot (exported for tests). */
@@ -68,7 +72,7 @@ export function describe(world: World, slot: number, out = new Float64Array(DESC
 export function planText(d: Float64Array): string {
   const inv = (v: number): number => Math.round(exp(v * LN2) - 1);
   const parts = [`${inv(d[0]!)} part${inv(d[0]!) === 1 ? '' : 's'}`];
-  for (let i = 0; i < ORGANS.length; i++) { const k = inv(d[4 + i]!); if (k > 0) parts.push(`${k} ${ORGAN_NAMES[i]}${k > 1 && i < 3 ? 's' : ''}`); }
+  for (let i = 0; i < ORGANS.length; i++) { const k = inv(d[4 + i]!); if (k > 0) parts.push(`${k} ${ORGAN_NAMES[i]![k === 1 ? 0 : 1]}`); }
   return parts.slice(0, 5).join(', ');
 }
 
