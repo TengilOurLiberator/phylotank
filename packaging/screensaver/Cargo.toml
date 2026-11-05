@@ -1,13 +1,19 @@
 [package]
 name = "phylotank-scr"
-version = "0.0.1"
-edition = "2021"
-license = "Unlicense"
-description = "Windows screensaver wrapper for Phylotank (opens screensaver.html in a WebView2 window)"
+description = "Windows screensaver wrapper for Phylotank (opens screensaver.html in a WebView2 window per monitor)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
 
 [[bin]]
-name = "phylotank"
+name = "phylotank-scr"
 path = "src/main.rs"
 
-# wry and tao arrive with the real window; this skeleton has no dependencies so it builds anywhere.
 [dependencies]
+phylotank-common = { path = "../common" }
+
+[target.'cfg(windows)'.dependencies]
+wry.workspace = true
+tao.workspace = true
+windows-sys.workspace = true

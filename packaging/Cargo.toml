@@ -1,0 +1,39 @@
+# Native Windows wrappers: the screensaver (phylotank.scr) and the tray shell (Phylotank.exe),
+# plus the host-agnostic code they share. Everything Windows-specific sits behind cfg(windows),
+# so `cargo test` runs the shared logic on any OS and `cargo check --target x86_64-pc-windows-gnu`
+# checks the Windows code from Linux.
+[workspace]
+resolver = "2"
+members = ["common", "screensaver", "tray"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "Unlicense"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wry = "0.57"
+tao = "0.37"
+tray-icon = "0.26"
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_Input",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

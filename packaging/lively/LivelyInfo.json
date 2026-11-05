@@ -1,12 +1,14 @@
 {
   "AppVersion": "0.0.1.0",
   "Title": "Phylotank",
-  "Desc": "An artificial-life deep-sea tank: glowing creatures whose bodies and brains evolve.",
+  "Thumbnail": "thumbnail.png",
+  "Preview": "thumbnail.png",
+  "Desc": "An artificial-life deep-sea tank: glowing creatures whose bodies and brains evolve. Shows your Phylotank host's world when it runs, otherwise a built-in tank.",
   "Author": "Phylotank contributors",
   "License": "Unlicense (code), CC0-1.0 (assets)",
   "Contact": "https://github.com/TengilOurLiberator/phylotank",
   "Type": 1,
-  "FileName": "wallpaper.html",
+  "FileName": "index.html",
   "Arguments": null,
   "IsAbsolutePath": false
 }

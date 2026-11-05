@@ -1,0 +1,124 @@
+# Release on a version tag (v*): build the Lively zip, the browser-only bundle and the
+# Windows portable zip, and attach them to a DRAFT GitHub release with SHA-256 sums.
+# Drafts, because the binaries are unsigned (review R20): William publishes by hand after a
+# look, and the notes say how SmartScreen will react.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build (for example v0.1.0)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web:
+    name: Lively zip and browser-only bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - id: v
+        name: Version from the tag
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          V="${TAG#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$PKG" != "$V" ]; then echo "::warning::tag $TAG does not match package.json version $PKG"; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: node packaging/lively/build-zip.mjs --version "${{ steps.v.outputs.version }}"
+      - name: Browser-only bundle (the dream tank, no host)
+        run: |
+          mkdir -p packaging/out
+          cd dist && zip -r -X "../packaging/out/phylotank-web-${{ steps.v.outputs.version }}.zip" . -x '*.map' -x 'host.mjs'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: |
+            packaging/out/phylotank-lively-*.zip
+            packaging/out/phylotank-web-*.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows portable zip
+    needs: web
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: rustup toolchain install stable --profile minimal
+      - name: Test and build the screensaver and the tray
+        working-directory: packaging
+        run: |
+          cargo test --workspace --locked
+          cargo build --workspace --release --locked
+      - name: Portable zip
+        shell: pwsh
+        run: node packaging/windows/make-portable.mjs --bin packaging/target/release --node (Get-Command node).Source --version "${{ needs.web.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: packaging/out/phylotank-windows-*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Draft GitHub release
+    needs: [web, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Checksums
+        run: cd out && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          VERSION: ${{ needs.web.outputs.version }}
+        run: |
+          cat > notes.md <<NOTES
+          Phylotank ${VERSION}. Install guide: [docs/INSTALL.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/INSTALL.md).
+
+          - \`phylotank-lively-${VERSION}.zip\`: Lively Wallpaper package (built-in tank, or your host's world when the tray app runs).
+          - \`phylotank-windows-${VERSION}.zip\`: portable Windows build (tray app, screensaver, host, Node runtime). Run \`install.cmd\`; no admin rights needed.
+          - \`phylotank-web-${VERSION}.zip\`: browser-only dream tank; serve the folder over HTTP and open \`index.html\`.
+
+          The Windows files are **not code-signed** yet, so SmartScreen will warn ("More info", then "Run anyway"). Check the download against \`SHA256SUMS.txt\`.
+          NOTES
+          PRE=""
+          case "$VERSION" in 0.*|*-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" out/* --draft $PRE --title "Phylotank ${VERSION}" --notes-file notes.md --generate-notes

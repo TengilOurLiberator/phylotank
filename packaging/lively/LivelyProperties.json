@@ -1,0 +1,13 @@
+{
+  "source": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Tank",
+    "items": ["Automatic: my host, else the built-in tank", "My host only", "Built-in tank only"]
+  },
+  "port": {
+    "type": "textbox",
+    "value": "47615",
+    "text": "Host port"
+  }
+}
