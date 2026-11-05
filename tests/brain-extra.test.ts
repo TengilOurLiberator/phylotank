@@ -80,3 +80,14 @@ describe('behaviour classifier', () => {
     feed(1, { speedBL: 4 }); expect(t.label()).toBe('strike');
   });
 });
+
+describe('bootstrapping (03 §3.15 E1, toy arena)', () => {
+  it('the reflex-only brain forages and beats random brains', async () => {
+    const { baseGenome, evaluate, randomDirect } = await import('../src/brain/spike8.js');
+    const trials = [101, 102, 103, 104, 105, 106, 107, 108];
+    const reflex = evaluate(baseGenome('direct'), trials);
+    const randoms = [0, 1, 2, 3, 4].map((i) => evaluate(randomDirect(500 + i, 30), trials));
+    expect(reflex).toBeGreaterThan(0.3);
+    expect(randoms.filter((r) => r >= reflex).length).toBe(0);
+  });
+});
