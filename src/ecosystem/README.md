@@ -32,3 +32,7 @@ Spike 3 (evolvability toy, with genome): generations per wall hour by size class
 ## Acceptance tests
 
 04 §4.14; the audit is exact (integer equality) on every ecology tick for 10,000 ticks of a populated world; v0.1 acceptance 3 (8-hour run: population in band, at least 3 body plans, nutrient total exact).
+
+## Status (phase 1)
+
+Implemented: habitat presets and the SDF, flow, light, temperature, oxygen, sulphur, turbidity, scent transport, plankton, mats, vent mats, cysts, cycling, the reservoir and excess relaxation, the ledger and audit, metabolism, feeding, growth, reproduction requests, ageing, carcasses, pathogens, every god power with envelopes and lead times, nature mode, metrics. Design notes and decisions: [docs/modules/ecosystem.md](../../docs/modules/ecosystem.md). Contract requests (how the sim commits births, the bite buffer, snapshot coverage): [docs/contract-requests/ecosystem.md](../../docs/contract-requests/ecosystem.md). Spike: [docs/spikes/ecosystem-3.md](../../docs/spikes/ecosystem-3.md). Tests: `tests/ecosystem.test.ts` with the stand-in harness `tests/ecosystem-harness.ts`.
