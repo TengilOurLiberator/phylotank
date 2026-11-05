@@ -40,3 +40,22 @@ describe('backend selector', () => {
     expect(b.reason).toMatch(/WebGPU adapter/);
   });
 });
+
+describe('device loss', () => {
+  it('a lost device is reported, and a fresh acquire recovers the backend', async () => {
+    const g = await gpuContext();
+    if (!g) return; // skip guard
+    const first = await selectBackend({ gpu: g.gpu });
+    expect(first.kind).toBe('gpu');
+    first.gpu!.device.destroy();
+    expect(await first.gpu!.lost).toMatch(/destroyed/);
+    // recovery: a new adapter and device (an adapter is consumed by its first requestDevice)
+    const again = await selectBackend({ gpu: g.gpu });
+    expect(again.kind).toBe('gpu');
+    const tw = makeWorld(); spawn(tw, createPhysics().loadBody, makePhenotype(fish()), 10, 8, 0.4);
+    setCmds(tw.world, 0, (k) => Math.sin(k));
+    await again.physics.step(tw.world, tw.ctx);
+    expect(Number.isFinite(tw.world.seg.c.posX[0]!)).toBe(true);
+    again.gpu!.device.destroy();
+  });
+});

@@ -120,3 +120,19 @@ fn f64Sub1(v: vec2u) -> vec2u {
   return f64Pack(971u + p, shl64(F, 52u - p));
 }
 `;
+
+/** Test kernel: for each pair (a, b) of f64 bit patterns, write a * b, a + b and floor(a) as u64. */
+export const F64_TEST_WGSL = /* wgsl */ `
+@group(0) @binding(0) var<storage, read> inp: array<vec4u>;
+@group(0) @binding(1) var<storage, read_write> outp: array<vec4u>;
+@group(0) @binding(2) var<storage, read_write> outf: array<vec2u>;
+${F64_WGSL}
+@compute @workgroup_size(64)
+fn f64_test(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= arrayLength(&inp)) { return; }
+  let a = inp[i].xy; let b = inp[i].zw;
+  outp[i] = vec4u(f64Mul(a, b), f64Add(a, b));
+  outf[i] = f64FloorU64(a);
+}
+`;

@@ -104,7 +104,7 @@ npx vitest run tests/gpu
 
 ## 6. Not done, next
 
-- Device loss: `GpuContext.lost` resolves with the reason, but nothing recovers yet (host-2: request a new adapter, never reuse the consumed one, re-upload from the World).
+- Device loss: `GpuContext.lost` resolves with the reason; `tests/gpu-select.test.ts` shows recovery by a fresh `selectBackend()` (a new adapter; the old one is consumed) and a re-upload from the World on the next step. Nothing yet does this automatically inside a running host.
 - Contacts on the GPU (find, Jacobi solve with i32 accumulators), perception queries on the hash, metabolism, `prepare` on the GPU, the reduced tier.
 - Residency across modules: the brain kernel writes `cmd` into the physics buffers, physics feeds the hash in place (done), the ecosystem reads `powerW`. Today each module round-trips through the World columns, which costs more than the kernels on lavapipe (spike §3.2).
 - Workgroup-per-batch integrate (02 §2.10.1) for big creatures, instead of one thread per creature.
