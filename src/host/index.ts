@@ -239,7 +239,11 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
   function updateThrottle(): void {
     const before = tOut.state;
     tOut = throttle.update(now(), probe.sample(), visibility());
-    if (tOut.state !== before) log(`throttle: ${before} -> ${tOut.state}`);
+    if (tOut.state !== before) {
+      log(`throttle: ${before} -> ${tOut.state}`);
+      // Evicted: the CPU backend has no GPU buffers to drop, but the world goes to disk (05 §5.2.4)
+      if (tOut.evict && hw.store) { hw.save('auto'); lastSaveTick = hw.tick; }
+    }
     if (lease.untilWallMs !== undefined && Date.now() >= lease.untilWallMs) endLease('until-wall');
     applySpeed();
   }

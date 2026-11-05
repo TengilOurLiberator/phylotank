@@ -51,4 +51,4 @@
 
 - Releases and sim settings (contract request H2), detectors (CONTRACT 11 derived events), lite snapshots, the GENO, SPEC and LINE sections (no genome store or species registry exists yet), predictive deltas (protocol 1.1), NEAR_POSE, INSPECT, FIELDS, GENOME_REQ.
 - The Windows probes themselves, EcoQoS, mDNS, the GPU backend and its duty-cap controller.
-- A 24-hour soak. The 3 MB/s wallpaper budget is not measured against a Default-preset world with creatures; by arithmetic, 3,000 motes as whole-tank dust are 18 KB per frame (270 KB/s at 15 Hz) plus a 37 KB glow field at 2 Hz (74 KB/s).
+- A 24-hour soak. The 3 MB/s wallpaper budget is measured only for the phase-0 skeleton: a wallpaper watching the whole Default tank with 8,192 motes received 526 KB/s (`tests/host-recovery.test.ts`, this container). Real creatures, bodies and events will change that.

@@ -56,3 +56,57 @@ describe('kill and resume', () => {
     await host.stop();
   });
 });
+
+describe('host housekeeping', () => {
+  it('autosaves on its cadence, caps viewers at 16 and survives junk frames', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ptk-house-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+    const host = await startHost({ port: 0, staticDir: dir, config: CFG, worldDir: join(dir, 'w'), autosaveMs: 100 });
+    const before = host.hw.listSnapshots().length;
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(host.hw.listSnapshots().length).toBeGreaterThan(before);
+    const WebSocket = (await import('ws')).default;
+    const { encodeCborFrame, FRAME } = await import('../src/core/index.js');
+    const open = (): Promise<InstanceType<typeof WebSocket>> => new Promise((res) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${host.port}/ws/v1`);
+      ws.on('open', () => { ws.send(encodeCborFrame(FRAME.HELLO, 0, { view: 'wallpaper' })); res(ws); });
+    });
+    const socks = await Promise.all(Array.from({ length: 17 }, open));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(host.clients()).toHaveLength(16);
+    // junk: short frames, a wrong protocol major, random bytes, text frames
+    let seed = 5;
+    const rnd = (): number => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    for (const ws of socks.slice(0, 8)) {
+      const junk = new Uint8Array(1 + Math.floor(rnd() * 200)).map(() => Math.floor(rnd() * 256));
+      junk[0] = [FRAME.VIEWPORT, FRAME.COMMAND, FRAME.ACK, 0x77][Math.floor(rnd() * 4)]!;
+      ws.send(junk);
+    }
+    socks[8]!.send('hello');
+    await new Promise((r) => setTimeout(r, 300));
+    const h = await fetch(`http://127.0.0.1:${host.port}/health`);
+    expect((await h.json() as { ok: boolean }).ok).toBe(true);
+    for (const ws of socks) ws.close();
+    await host.stop();
+  });
+
+  it('streams a whole Default tank to a wallpaper within 3 MB/s', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ptk-bw-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+    const host = await startHost({ port: 0, staticDir: dir, config: { preset: 'default', seedLo: 1, seedHi: 2, backend: 'cpu', skeletonMotes: 8192 } });
+    const WebSocket = (await import('ws')).default;
+    const { encodeCborFrame, FRAME } = await import('../src/core/index.js');
+    let bytes = 0;
+    const ws = new WebSocket(`ws://127.0.0.1:${host.port}/ws/v1`);
+    await new Promise<void>((res) => ws.on('open', () => { ws.send(encodeCborFrame(FRAME.HELLO, 0, { view: 'wallpaper' })); res(); }));
+    await new Promise((r) => setTimeout(r, 500));
+    ws.on('message', (d) => { bytes += (d as Buffer).length; });
+    await new Promise((r) => setTimeout(r, 2000));
+    const perSec = bytes / 2;
+    console.log(`wallpaper stream, 8192 motes, whole Default tank: ${Math.round(perSec / 1000)} KB/s`);
+    expect(perSec).toBeGreaterThan(100_000);
+    expect(perSec).toBeLessThan(3_000_000);
+    ws.close();
+    await host.stop();
+  });
+});
