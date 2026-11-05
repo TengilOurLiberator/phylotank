@@ -4,9 +4,9 @@ Owner: host engineer. Design: [sections/05-architecture.md](../../docs/sections/
 
 ## Responsibilities
 
-- Node host (`startHost`, in place): static files from a manifest, Origin and Host checks, `/ws/v1` with HELLO/WELCOME and the shared `SimSession`, capped inbound messages.
-- To do: per-client interest management and LOD culling, BODY frames, flow control, tokens and scopes (view, god, paired LAN devices), the command pipeline (validate, schedule with lead time, journal, broadcast `god` events, `beforePower` snapshots), detectors (hunt, school, giant, outbreak and the rest of CONTRACT 11), persistence (`.ptk` writer and reader using `src/core/container.ts`, atomic writes, autosave cadence and retention, journal and replay), throttle states, governors (journalled, CONTRACT 4.4), the CLI (`serve`, `replay`, `bench`, `inspect`, `export`).
-- Later: the WebGPU backend through Dawn if spike 2 passes; the Tauri shell lives in `packaging/`.
+- Done in phase 1 (see [docs/modules/host.md](../../docs/modules/host.md)): static files from a manifest; Origin, Host and peer checks; localhost-only bind by default, LAN binding with token pairing; `/ws/v1` with HELLO/WELCOME, per-client interest management, the three LOD streams (BODY_ENTER/LEAVE/FRAME, DUST_FRAME, GLOW_FIELD), ENV, CENSUS, FIELDS, STATS, INSPECT, EVENT; flow control and freeze detection; god-command intake (validate, rate-limit, epoch check, lead time, journal, `god` events, `beforePower` snapshots, speed leases, manual snapshots, rewind); `.ptk` persistence with atomic writes and checksums, autosave and retention, chained migrations, crash recovery by journal replay with hash checks; throttle states behind an `OsProbe` interface; a journalled governor; host detectors (giant, record, endangered, extinction, massDeath, hunt, migration, school, carcass, frenzy); an optional Dawn loader and device manager; the CLI (`serve`, `inspect`, `replay`, `gpu-probe`, `--headless`).
+- To do: releases and sim settings (contract request H2), the remaining detectors (outbreak, epidemicFront, bloomFront, newRole, novelty, speciation), lite snapshots and the GENO/SPEC/LINE sections, protocol 1.1 deltas, NEAR_POSE, GENOME_REQ, the Windows probes in the shell, mDNS.
+- Later: the WebGPU backend through Dawn (spike 2 says viable, [host-2](../../docs/spikes/host-2.md)); the Tauri shell lives in `packaging/`.
 
 ## Interfaces
 
@@ -22,7 +22,7 @@ Owner: host engineer. Design: [sections/05-architecture.md](../../docs/sections/
 
 ## First tasks
 
-Spike 2 (Dawn on Node: `mapAsync` latency p50 and p99, timestamp resolution, sustained ticks with a per-tick readback, device-loss recovery, a 24-hour memory soak; lavapipe in CI; Deno as fallback) and spike 5 (GPU etiquette and power). Record in `docs/spikes/`.
+Spike 2 (done: [docs/spikes/host-2.md](../../docs/spikes/host-2.md); Dawn on Node: `mapAsync` latency p50 and p99, timestamp resolution, sustained ticks with a per-tick readback, device-loss recovery, a 24-hour memory soak; lavapipe in CI; Deno as fallback) and spike 5 (GPU etiquette and power). Record in `docs/spikes/`.
 
 ## Acceptance tests
 
