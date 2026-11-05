@@ -8,8 +8,8 @@
  * `oPrev := o`, and the act step writing `out`, `cmd`, `cmd2`.
  */
 import {
-  BRAIN_CLASSES, BRAIN_STATE_CLAMP, DT, LIFE, cos, NEURON_KIND, NONE_U32, PI, RNG_STREAM, TAU, log, sin, sigmoid,
-  splitU64, tanh, philox4x32, type World,
+  BRAIN_CLASSES, BRAIN_STATE_CLAMP, DT, LIFE, NEURON_KIND, NONE_U32, PI, RNG_STREAM, TAU, sin, sigmoid,
+  boxMullerParts, tanh, philox4x32, type World,
 } from '../core/index.js';
 import { W_MAX, etaOf } from './develop.js';
 import { DEST, brainState, recomputeAlphas, type BrainStatic } from './pool.js';
@@ -19,25 +19,70 @@ const OSC = NEURON_KIND.OSCILLATOR;
 const NOISY_LO = NEURON_KIND.DRIVE;
 const MOTOR_TRIGGER_MATE = 3, MOTOR_TRIGGER_LAY = 4, MOTOR_ROLL = 7;
 export const ROLL_COOLDOWN_S = 2;
-const TWO_M24 = 1 / 16777216;
 
 const blk = new Uint32Array(4);
 const phasePrev = new Float64Array(256);
+const tanhArg = new Float64Array(256);
+/** o[bN + i] = tanh(arg[i]) for every non-oscillator neuron i < n. */
+function tanhInto(o: Float32Array, bN: number, nKind: Uint8Array, arg: Float64Array, n: number): void {
+  for (let i = 0; i < n; i++) if (nKind[bN + i] !== OSC) o[bN + i] = tanh(arg[i]!);
+}
 const noiseBuf = new Float64Array(256);
 
 /** Fill noiseBuf[0..n) with N(0, sigma): Box-Muller on 24-bit uniforms, drawIndex = index / 4. */
 export function gaussianBlock(k0: number, k1: number, tick: number, entityId: number, n: number, sigma: number, out: Float64Array): void {
-  const [lo, hi] = splitU64(entityId);
-  for (let b = 0; b * 4 < n; b++) {
-    philox4x32(tick >>> 0, lo, hi, b, k0, k1, blk);
-    for (let pair = 0; pair < 2; pair++) {
-      const u1 = 1 - ((blk[pair * 2]! >>> 8) * TWO_M24);
-      const u2 = (blk[pair * 2 + 1]! >>> 8) * TWO_M24;
-      const r = Math.sqrt(-2 * log(u1)) * sigma;
-      const t = TAU * u2;
-      const i = b * 4 + pair * 2;
-      if (i < n) out[i] = r * cos(t);
-      if (i + 1 < n) out[i + 1] = r * sin(t);
+  // splitU64 without the tuple: entityId is a non-negative safe integer
+  const lo = entityId % 4294967296 >>> 0, hi = Math.floor(entityId / 4294967296) >>> 0;
+  const t0 = tick >>> 0;
+  const bm = bmBuf;
+  for (let b = 0, i = 0; i < n; b++, i += 4) {
+    philox4x32(t0, lo, hi, b, k0, k1, blk);
+    // pair 0 -> out[i], out[i + 1]; pair 1 -> out[i + 2], out[i + 3]; r = sqrt(-2 log u1) * sigma
+    boxMullerParts(blk, 0, bm); // u1 = 1 - (blk[0] >>> 8) 2^-24, u2 = (blk[1] >>> 8) 2^-24
+    const r0 = bm[0]! * sigma;
+    out[i] = r0 * bm[1]!;
+    if (i + 1 < n) out[i + 1] = r0 * bm[2]!;
+    if (i + 2 < n) {
+      boxMullerParts(blk, 2, bm);
+      const r1 = bm[0]! * sigma;
+      out[i + 2] = r1 * bm[1]!;
+      if (i + 3 < n) out[i + 3] = r1 * bm[2]!;
+    }
+  }
+}
+const bmBuf = new Float64Array(3);
+
+/** Neurons that read exploration noise: not motors, modulators or oscillators (see tickBrain). */
+function noisy(kind: number): boolean { return kind >= NOISY_LO && kind !== NEURON_KIND.MODULATOR && kind !== OSC; }
+
+/**
+ * gaussianBlock for the exploration noise: the same values at the same indices, but only the
+ * draws some neuron reads. A Philox block (4 values) runs only when one of its neurons is noisy,
+ * and a Box-Muller pair only when one of its two is; the values left out are never read, so the
+ * brain is bit-identical. Motors are over half the neurons, so this skips about 60% of the work.
+ */
+function explorationNoise(
+  k0: number, k1: number, tick: number, entityId: number, n: number, sigma: number, out: Float64Array, nKind: Uint8Array, bN: number,
+): void {
+  const lo = entityId % 4294967296 >>> 0, hi = Math.floor(entityId / 4294967296) >>> 0;
+  const t0 = tick >>> 0;
+  const bm = bmBuf;
+  for (let b = 0, i = 0; i < n; b++, i += 4) {
+    const a0 = noisy(nKind[bN + i]!) || (i + 1 < n && noisy(nKind[bN + i + 1]!));
+    const a1 = i + 2 < n && (noisy(nKind[bN + i + 2]!) || (i + 3 < n && noisy(nKind[bN + i + 3]!)));
+    if (!a0 && !a1) continue;
+    philox4x32(t0, lo, hi, b, k0, k1, blk);
+    if (a0) {
+      boxMullerParts(blk, 0, bm);
+      const r0 = bm[0]! * sigma;
+      out[i] = r0 * bm[1]!;
+      if (i + 1 < n) out[i + 1] = r0 * bm[2]!;
+    }
+    if (a1) {
+      boxMullerParts(blk, 2, bm);
+      const r1 = bm[0]! * sigma;
+      out[i + 2] = r1 * bm[1]!;
+      if (i + 3 < n) out[i + 3] = r1 * bm[2]!;
     }
   }
 }
@@ -83,7 +128,7 @@ export function tickBrain(world: World, c: number, s: number, st: BrainStatic, t
   const fLow = p.fBand[s * 2]!, fHigh = p.fBand[s * 2 + 1]!;
   const F = fLow + (fHigh - fLow) * sigmoid(4 * oPrev[bN]!);
   const amp = sigmoid(4 * oPrev[bN + 1]!);
-  if (st.exploration > 0) gaussianBlock(k0, k1, tick, st.entityId, nNeu, st.exploration, noiseBuf);
+  if (st.exploration > 0) explorationNoise(k0, k1, tick, st.entityId, nNeu, st.exploration, noiseBuf, nKind, bN);
   for (let i = 0; i < nNeu; i++) phasePrev[i] = phase[bN + i]!;
   for (let i = 0; i < nNeu; i++) {
     let sum = 0;
@@ -118,9 +163,12 @@ export function tickBrain(world: World, c: number, s: number, st: BrainStatic, t
       let yi = y[bN + i]! + alpha[bN + i]! * (sum + noise - y[bN + i]!);
       if (yi > BRAIN_STATE_CLAMP) yi = BRAIN_STATE_CLAMP; else if (yi < -BRAIN_STATE_CLAMP) yi = -BRAIN_STATE_CLAMP;
       y[bN + i] = yi;
-      o[bN + i] = tanh(yi + theta[bN + i]!);
+      tanhArg[i] = yi + theta[bN + i]!;
     }
   }
+  // o = tanh(y + theta) in a second, tight pass (Jacobi: nothing above reads o), where tanh
+  // inlines and boxes nothing
+  tanhInto(o, bN, nKind, tanhArg, nNeu);
   if (plastic) plasticity(world, c, s, st, dtb);
   // NaN guard
   let bad = false;

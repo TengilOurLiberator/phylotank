@@ -33,8 +33,20 @@ function pow2(k: number): number {
   return f64[0]!;
 }
 
+/**
+ * POW2[POW2_ZERO + k] = 2^k exactly for k in [-1074, 1023] (subnormals included), built by exact
+ * halving and doubling. For k in [-1022, 1023] it equals pow2(k); reading a table avoids the
+ * store-to-load forwarding stall of assembling a double from two 32-bit halves.
+ */
+const POW2_ZERO = 1074;
+const POW2 = new Float64Array(1074 + 1024);
+POW2[POW2_ZERO] = 1;
+for (let k = 1; k <= 1023; k++) POW2[POW2_ZERO + k] = POW2[POW2_ZERO + k - 1]! * 2;
+for (let k = 1; k <= 1074; k++) POW2[POW2_ZERO - k] = POW2[POW2_ZERO - k + 1]! * 0.5;
+
 /** x * 2^k with exact power-of-two scaling, handling the extreme exponent ranges. */
 export function scalbn(x: number, k: number): number {
+  if (k <= 1023 && k >= -1022) return x * POW2[POW2_ZERO + k]!;
   let y = x;
   let n = k;
   while (n > 1023) { y *= pow2(1023); n -= 1023; }
@@ -75,10 +87,11 @@ export function log(x: number): number {
   let m = x;
   if (m < 2.2250738585072014e-308) { m *= 18014398509481984; e = -54; } // subnormal: * 2^54
   f64[0] = m;
-  const hi = u32[HI]!;
-  e += ((hi >>> 20) & 0x7ff) - 1023;
-  u32[HI] = (hi & 0x000fffff) | 0x3ff00000;
-  m = f64[0]!; // in [1, 2)
+  const ex = ((u32[HI]! >>> 20) & 0x7ff) - 1023;
+  e += ex;
+  // m * 2^-ex is exact and equals m with its exponent field set to 0x3ff (no store-forwarding
+  // stall from rewriting half of the scratch double)
+  m *= POW2[POW2_ZERO - ex]!; // in [1, 2)
   if (m > SQRT2) { m *= 0.5; e += 1; }
   const f = m - 1;
   const s = f / (2 + f);
@@ -134,16 +147,82 @@ function cosPoly(r: number): number {
   return 1 - z * p;
 }
 
-function reduce(x: number): { r: number; q: number } {
+// Argument reduction r = x - k pi/2 (Cody-Waite, three parts), quadrant q = k mod 4. It is
+// written out in sin, cos and sinCos: a helper returning {r, q} or writing module-level doubles
+// allocates a heap number per call whenever the call is not inlined.
+// k & 3 is ((k % 4) + 4) % 4 for every int32 k (two's complement), without a float modulo.
+
+/**
+ * sin(x) and cos(x) from one argument reduction: out[0] = sin(x), out[1] = cos(x), the same
+ * bits as sin(x) and cos(x) called separately.
+ */
+export function sinCos(x: number, out: Float64Array): void {
+  if (x !== x || x === Infinity || x === -Infinity) { out[0] = NaN; out[1] = NaN; return; }
   const k = Math.round(x * TWO_OVER_PI);
   const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
-  const q = ((k % 4) + 4) % 4;
-  return { r, q };
+  const q = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
+  const s = sinPoly(r), c = cosPoly(r);
+  switch (q) {
+    case 0: out[0] = s; out[1] = c; return;
+    case 1: out[0] = c; out[1] = -s; return;
+    case 2: out[0] = -s; out[1] = -c; return;
+    default: out[0] = -c; out[1] = s;
+  }
+}
+
+/**
+ * The Box-Muller parts for one pair of 24-bit uniforms taken from two random words w[at] and
+ * w[at + 1] (the brain's noise draw): u1 = 1 - (w[at] >>> 8) 2^-24 in (0, 1], u2 = (w[at + 1]
+ * >>> 8) 2^-24 in [0, 1). Writes out[0] = Math.sqrt(-2 * log(u1)), out[1] = cos(TAU * u2),
+ * out[2] = sin(TAU * u2), the same bits as those calls, with log, the reduction and both
+ * polynomials written out. The words come in through the array, so a call that is not inlined
+ * boxes no double arguments and returns none. The NaN, zero, infinity and subnormal branches of
+ * log and sin cannot be taken on this domain; a test checks all 2^24 uniforms exhaustively.
+ */
+const BM_TWO_M24 = 1 / 16777216;
+export function boxMullerParts(w: Uint32Array, at: number, out: Float64Array): void {
+  const u1 = 1 - ((w[at]! >>> 8) * BM_TWO_M24);
+  const u2 = (w[at + 1]! >>> 8) * BM_TWO_M24;
+  // log(u1)
+  f64[0] = u1;
+  const ex = ((u32[HI]! >>> 20) & 0x7ff) - 1023;
+  let e = ex;
+  let m = u1 * POW2[POW2_ZERO - ex]!;
+  if (m > SQRT2) { m *= 0.5; e += 1; }
+  const f = m - 1;
+  const s = f / (2 + f);
+  const z = s * s;
+  let p = 1 / 23;
+  p = p * z + 1 / 21;
+  p = p * z + 1 / 19;
+  p = p * z + 1 / 17;
+  p = p * z + 1 / 15;
+  p = p * z + 1 / 13;
+  p = p * z + 1 / 11;
+  p = p * z + 1 / 9;
+  p = p * z + 1 / 7;
+  p = p * z + 1 / 5;
+  p = p * z + 1 / 3;
+  p = p * z + 1;
+  out[0] = Math.sqrt(-2 * (e * LN2_HI + (e * LN2_LO + 2 * s * p)));
+  // sin and cos of TAU * u2, k in [0, 4]
+  const x = TAU * u2;
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const sn = sinPoly(r), cs = cosPoly(r);
+  switch (k & 3) {
+    case 0: out[2] = sn; out[1] = cs; return;
+    case 1: out[2] = cs; out[1] = -sn; return;
+    case 2: out[2] = -sn; out[1] = -cs; return;
+    default: out[2] = -cs; out[1] = sn;
+  }
 }
 
 export function sin(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
-  const { r, q } = reduce(x);
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const q = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
   switch (q) {
     case 0: return sinPoly(r);
     case 1: return cosPoly(r);
@@ -154,7 +233,9 @@ export function sin(x: number): number {
 
 export function cos(x: number): number {
   if (x !== x || x === Infinity || x === -Infinity) return NaN;
-  const { r, q } = reduce(x);
+  const k = Math.round(x * TWO_OVER_PI);
+  const r = ((x - k * PIO2_1) - k * PIO2_2) - k * PIO2_3;
+  const q = k <= 2147483647 && k >= -2147483648 ? k & 3 : ((k % 4) + 4) % 4;
   switch (q) {
     case 0: return cosPoly(r);
     case 1: return -sinPoly(r);
@@ -168,10 +249,18 @@ export function tan(x: number): number { return sin(x) / cos(x); }
 const TAN_PI_8 = 0.41421356237309503;
 const QUARTER_PI = 0.7853981633974483;
 
+// the atanSeries coefficients ((n odd ? -1 : 1) / (2n + 1)), computed once, n = 0..22
+const ATAN_C = new Float64Array(23);
+for (let n = 0; n <= 22; n++) ATAN_C[n] = ((n & 1) === 1 ? -1 : 1) / (2 * n + 1);
 function atanSeries(t: number): number {
   const z = t * t;
+  const C = ATAN_C;
   let p = -1 / 47;
-  for (let n = 22; n >= 0; n--) p = p * z + ((n & 1) === 1 ? -1 : 1) / (2 * n + 1);
+  p = p * z + C[22]!; p = p * z + C[21]!; p = p * z + C[20]!; p = p * z + C[19]!; p = p * z + C[18]!;
+  p = p * z + C[17]!; p = p * z + C[16]!; p = p * z + C[15]!; p = p * z + C[14]!; p = p * z + C[13]!;
+  p = p * z + C[12]!; p = p * z + C[11]!; p = p * z + C[10]!; p = p * z + C[9]!; p = p * z + C[8]!;
+  p = p * z + C[7]!; p = p * z + C[6]!; p = p * z + C[5]!; p = p * z + C[4]!; p = p * z + C[3]!;
+  p = p * z + C[2]!; p = p * z + C[1]!; p = p * z + C[0]!;
   return t * p;
 }
 

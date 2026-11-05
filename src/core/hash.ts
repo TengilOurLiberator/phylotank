@@ -89,8 +89,8 @@ function sub(aH: number, aL: number, bH: number, bL: number): void {
   rH = (aH - bH - (lo < 0 ? 1 : 0)) >>> 0;
 }
 
-/** xxh64 as [hi, lo] u32 words. */
-export function xxh64Parts(bytes: Uint8Array, seedHi = 0, seedLo = 0): [number, number] {
+/** xxh64 as [hi, lo] u32 words, byte by byte: the portable reference (any endianness and alignment). */
+export function xxh64PartsPortable(bytes: Uint8Array, seedHi = 0, seedLo = 0): [number, number] {
   const len = bytes.length;
   let i = 0;
   let hH: number, hL: number;
@@ -150,6 +150,142 @@ export function xxh64Parts(bytes: Uint8Array, seedHi = 0, seedLo = 0): [number, 
   mul(hH, hL, P3H, P3L); hH = rH; hL = rL;
   hL = (hL ^ hH) >>> 0;
   return [hH, hL];
+}
+
+
+// ---------- fast xxh64: whole words through a Uint32Array view, every 64-bit step inlined ----------
+// Same function as xxh64PartsPortable (tests check it bit for bit). The high word of a 32 x 32
+// product is formed in doubles from 16-bit halves of the constant (each partial product is below
+// 2^48, so exact), the low word with Math.imul. Little-endian engines only (all shipping
+// targets); a big-endian engine takes the portable path.
+const LITTLE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+const P1Lh = P1L >>> 16, P1Ll = P1L & 0xffff;
+const P2Lh = P2L >>> 16, P2Ll = P2L & 0xffff;
+const P3Lh = P3L >>> 16, P3Ll = P3L & 0xffff;
+const P5Lh = P5L >>> 16, P5Ll = P5L & 0xffff;
+const INV16 = 1 / 65536;
+/** high 32 bits of a * (cH * 65536 + cL) for a < 2^32 and 16-bit cH, cL, exactly */
+function hiMul(a: number, cH: number, cL: number): number {
+  return Math.floor((a * cH + Math.floor(a * cL * INV16)) * INV16);
+}
+
+/** xxh64 as [hi, lo] u32 words. */
+export function xxh64Parts(bytes: Uint8Array, seedHi = 0, seedLo = 0): [number, number] {
+  if (!LITTLE) return xxh64PartsPortable(bytes, seedHi, seedLo);
+  const len = bytes.length;
+  // an aligned view of the whole words; an unaligned input is copied once (memcpy speed)
+  const src = (bytes.byteOffset & 3) === 0 ? bytes : bytes.slice();
+  const nw = len >>> 2;
+  const w = new Uint32Array(src.buffer, src.byteOffset, nw);
+  let i = 0; // word index
+  let hH: number, hL: number;
+  seedHi >>>= 0; seedLo >>>= 0;
+  if (len >= 32) {
+    add(seedHi, seedLo, P1H, P1L); add(rH, rL, P2H, P2L);
+    let v1H = rH, v1L = rL;
+    add(seedHi, seedLo, P2H, P2L);
+    let v2H = rH, v2L = rL;
+    let v3H = seedHi, v3L = seedLo;
+    sub(seedHi, seedLo, P1H, P1L);
+    let v4H = rH, v4L = rL;
+    const stripes = len >>> 5;
+    for (let n = 0; n < stripes; n++, i += 8) {
+      let inL: number, inH: number, mL: number, mH: number, s: number, sL: number, sH: number, xH: number, xL: number;
+      // v = rotl(v + in * P2, 31) * P1, four times
+      inL = w[i]!; inH = w[i + 1]!;
+      mL = Math.imul(inL, P2L) >>> 0;
+      mH = hiMul(inL, P2Lh, P2Ll) + Math.imul(inH, P2L) + Math.imul(inL, P2H);
+      s = v1L + mL; sL = s >>> 0; sH = (v1H + mH + (s > 0xffffffff ? 1 : 0)) >>> 0;
+      xH = ((sH << 31) | (sL >>> 1)) >>> 0; xL = ((sL << 31) | (sH >>> 1)) >>> 0;
+      v1L = Math.imul(xL, P1L) >>> 0;
+      v1H = (hiMul(xL, P1Lh, P1Ll) + Math.imul(xH, P1L) + Math.imul(xL, P1H)) >>> 0;
+
+      inL = w[i + 2]!; inH = w[i + 3]!;
+      mL = Math.imul(inL, P2L) >>> 0;
+      mH = hiMul(inL, P2Lh, P2Ll) + Math.imul(inH, P2L) + Math.imul(inL, P2H);
+      s = v2L + mL; sL = s >>> 0; sH = (v2H + mH + (s > 0xffffffff ? 1 : 0)) >>> 0;
+      xH = ((sH << 31) | (sL >>> 1)) >>> 0; xL = ((sL << 31) | (sH >>> 1)) >>> 0;
+      v2L = Math.imul(xL, P1L) >>> 0;
+      v2H = (hiMul(xL, P1Lh, P1Ll) + Math.imul(xH, P1L) + Math.imul(xL, P1H)) >>> 0;
+
+      inL = w[i + 4]!; inH = w[i + 5]!;
+      mL = Math.imul(inL, P2L) >>> 0;
+      mH = hiMul(inL, P2Lh, P2Ll) + Math.imul(inH, P2L) + Math.imul(inL, P2H);
+      s = v3L + mL; sL = s >>> 0; sH = (v3H + mH + (s > 0xffffffff ? 1 : 0)) >>> 0;
+      xH = ((sH << 31) | (sL >>> 1)) >>> 0; xL = ((sL << 31) | (sH >>> 1)) >>> 0;
+      v3L = Math.imul(xL, P1L) >>> 0;
+      v3H = (hiMul(xL, P1Lh, P1Ll) + Math.imul(xH, P1L) + Math.imul(xL, P1H)) >>> 0;
+
+      inL = w[i + 6]!; inH = w[i + 7]!;
+      mL = Math.imul(inL, P2L) >>> 0;
+      mH = hiMul(inL, P2Lh, P2Ll) + Math.imul(inH, P2L) + Math.imul(inL, P2H);
+      s = v4L + mL; sL = s >>> 0; sH = (v4H + mH + (s > 0xffffffff ? 1 : 0)) >>> 0;
+      xH = ((sH << 31) | (sL >>> 1)) >>> 0; xL = ((sL << 31) | (sH >>> 1)) >>> 0;
+      v4L = Math.imul(xL, P1L) >>> 0;
+      v4H = (hiMul(xL, P1Lh, P1Ll) + Math.imul(xH, P1L) + Math.imul(xL, P1H)) >>> 0;
+    }
+    rotl(v1H, v1L, 1); let aH = rH, aL = rL;
+    rotl(v2H, v2L, 7); add(aH, aL, rH, rL); aH = rH; aL = rL;
+    rotl(v3H, v3L, 12); add(aH, aL, rH, rL); aH = rH; aL = rL;
+    rotl(v4H, v4L, 18); add(aH, aL, rH, rL); hH = rH; hL = rL;
+    round(0, 0, v1H, v1L); hH = (hH ^ rH) >>> 0; hL = (hL ^ rL) >>> 0; mul(hH, hL, P1H, P1L); add(rH, rL, P4H, P4L); hH = rH; hL = rL;
+    round(0, 0, v2H, v2L); hH = (hH ^ rH) >>> 0; hL = (hL ^ rL) >>> 0; mul(hH, hL, P1H, P1L); add(rH, rL, P4H, P4L); hH = rH; hL = rL;
+    round(0, 0, v3H, v3L); hH = (hH ^ rH) >>> 0; hL = (hL ^ rL) >>> 0; mul(hH, hL, P1H, P1L); add(rH, rL, P4H, P4L); hH = rH; hL = rL;
+    round(0, 0, v4H, v4L); hH = (hH ^ rH) >>> 0; hL = (hL ^ rL) >>> 0; mul(hH, hL, P1H, P1L); add(rH, rL, P4H, P4L); hH = rH; hL = rL;
+  } else {
+    add(seedHi, seedLo, P5H, P5L); hH = rH; hL = rL;
+  }
+  add(hH, hL, Math.floor(len / 4294967296) >>> 0, len >>> 0); hH = rH; hL = rL;
+  // 8-byte tail: h = rotl(h ^ round(0, in), 27) * P1 + P4
+  while (i + 2 <= nw) {
+    const inL = w[i]!, inH = w[i + 1]!;
+    const mL = Math.imul(inL, P2L) >>> 0;
+    const mH = (hiMul(inL, P2Lh, P2Ll) + Math.imul(inH, P2L) + Math.imul(inL, P2H)) >>> 0;
+    const xH = ((mH << 31) | (mL >>> 1)) >>> 0, xL = ((mL << 31) | (mH >>> 1)) >>> 0;
+    const kL = Math.imul(xL, P1L) >>> 0;
+    const kH = (hiMul(xL, P1Lh, P1Ll) + Math.imul(xH, P1L) + Math.imul(xL, P1H)) >>> 0;
+    const gH = (hH ^ kH) >>> 0, gL = (hL ^ kL) >>> 0;
+    const yH = ((gH << 27) | (gL >>> 5)) >>> 0, yL = ((gL << 27) | (gH >>> 5)) >>> 0;
+    const zL = Math.imul(yL, P1L) >>> 0;
+    const zH = (hiMul(yL, P1Lh, P1Ll) + Math.imul(yH, P1L) + Math.imul(yL, P1H)) >>> 0;
+    const t = zL + P4L;
+    hL = t >>> 0; hH = (zH + P4H + (t > 0xffffffff ? 1 : 0)) >>> 0;
+    i += 2;
+  }
+  let b = i * 4;
+  if (b + 4 <= len) {
+    // h = rotl(h ^ (in32 * P1), 23) * P2 + P3
+    const in32 = w[i]!;
+    const kL = Math.imul(in32, P1L) >>> 0;
+    const kH = (hiMul(in32, P1Lh, P1Ll) + Math.imul(in32, P1H)) >>> 0;
+    const gH = (hH ^ kH) >>> 0, gL = (hL ^ kL) >>> 0;
+    const yH = ((gH << 23) | (gL >>> 9)) >>> 0, yL = ((gL << 23) | (gH >>> 9)) >>> 0;
+    const zL = Math.imul(yL, P2L) >>> 0;
+    const zH = (hiMul(yL, P2Lh, P2Ll) + Math.imul(yH, P2L) + Math.imul(yL, P2H)) >>> 0;
+    const t = zL + P3L;
+    hL = t >>> 0; hH = (zH + P3H + (t > 0xffffffff ? 1 : 0)) >>> 0;
+    b += 4;
+  }
+  while (b < len) {
+    // h = rotl(h ^ (byte * P5), 11) * P1
+    const by = src[b]!;
+    const kL = Math.imul(by, P5L) >>> 0;
+    const kH = (hiMul(by, P5Lh, P5Ll) + Math.imul(by, P5H)) >>> 0;
+    const gH = (hH ^ kH) >>> 0, gL = (hL ^ kL) >>> 0;
+    const yH = ((gH << 11) | (gL >>> 21)) >>> 0, yL = ((gL << 11) | (gH >>> 21)) >>> 0;
+    hL = Math.imul(yL, P1L) >>> 0;
+    hH = (hiMul(yL, P1Lh, P1Ll) + Math.imul(yH, P1L) + Math.imul(yL, P1H)) >>> 0;
+    b++;
+  }
+  // avalanche: h ^= h >> 33; h *= P2; h ^= h >> 29; h *= P3; h ^= h >> 32
+  hL = (hL ^ (hH >>> 1)) >>> 0;
+  let zL = Math.imul(hL, P2L) >>> 0;
+  let zH = (hiMul(hL, P2Lh, P2Ll) + Math.imul(hH, P2L) + Math.imul(hL, P2H)) >>> 0;
+  hL = (zL ^ ((zL >>> 29) | (zH << 3))) >>> 0;
+  hH = (zH ^ (zH >>> 29)) >>> 0;
+  zL = Math.imul(hL, P3L) >>> 0;
+  zH = (hiMul(hL, P3Lh, P3Ll) + Math.imul(hH, P3L) + Math.imul(hL, P3H)) >>> 0;
+  return [zH, (zL ^ zH) >>> 0];
 }
 
 export function xxh64(bytes: Uint8Array, seed: bigint = 0n): bigint {

@@ -14,6 +14,7 @@ import {
 } from '../core/index.js';
 import { IN } from './layout.js';
 import { brainState, type BrainStatic } from './pool.js';
+import type { FullLayout } from './layout.js';
 import { gaussianBlock } from './think.js';
 
 export const GRID_CELL_M = 0.5;
@@ -24,8 +25,15 @@ const TAU_SMELL = 5;
 const PLANT_KGM2_REF = 1e-3;
 const I0 = 0.05;
 const LOG_NORM = 1 / log(1 + 1 / I0);
+const LOG11 = log(11);
 
-interface Grid { w: number; h: number; start: Int32Array; items: Int32Array; stamp: number }
+interface Grid {
+  w: number; h: number; start: Int32Array; items: Int32Array; stamp: number;
+  /** posX, posY and 0.5 * length of items[k], in item order (contiguous runs for gather) */
+  ix: Float64Array; iy: Float64Array; ir: Float64Array; fill: Int32Array;
+  /** the largest ir */
+  maxR: number;
+}
 const grids = new WeakMap<World, Grid>();
 
 /** Rebuild the neighbour grid: live creatures and carcasses, ascending slot within each cell. */
@@ -34,7 +42,11 @@ export function buildGrid(world: World, stamp: number): Grid {
   const w = Math.max(1, Math.ceil(world.preset.widthM / GRID_CELL_M));
   const h = Math.max(1, Math.ceil(world.preset.heightM / GRID_CELL_M));
   if (!g || g.w !== w || g.h !== h || g.items.length < world.cr.capacity) {
-    g = { w, h, start: new Int32Array(w * h + 1), items: new Int32Array(world.cr.capacity), stamp: -1 };
+    const cap = world.cr.capacity;
+    g = {
+      w, h, start: new Int32Array(w * h + 1), items: new Int32Array(cap), stamp: -1,
+      ix: new Float64Array(cap), iy: new Float64Array(cap), ir: new Float64Array(cap), fill: new Int32Array(w * h), maxR: 0,
+    };
     grids.set(world, g);
   }
   if (g.stamp === stamp) return g;
@@ -49,12 +61,20 @@ export function buildGrid(world: World, stamp: number): Grid {
   };
   for (let s = 0; s < hw; s++) if (c.life[s] === LIFE.ALIVE || c.life[s] === LIFE.CARCASS) count[cellOf(s) + 1]!++;
   for (let i = 0; i < w * h; i++) count[i + 1]! += count[i]!;
-  const fill = new Int32Array(w * h);
+  const fill = g.fill;
+  fill.fill(0);
+  const posX = c.posX, posY = c.posY, length = c.length;
+  let maxR = 0;
   for (let s = 0; s < hw; s++) {
     if (c.life[s] !== LIFE.ALIVE && c.life[s] !== LIFE.CARCASS) continue;
     const cell = cellOf(s);
-    g.items[count[cell]! + fill[cell]!++] = s;
+    const at = count[cell]! + fill[cell]!++;
+    g.items[at] = s;
+    const rad = 0.5 * length[s]!;
+    g.ix[at] = posX[s]!; g.iy[at] = posY[s]!; g.ir[at] = rad;
+    if (rad > maxR) maxR = rad;
   }
+  g.maxR = maxR;
   g.stamp = stamp;
   return g;
 }
@@ -92,27 +112,85 @@ function band(colour: number, b: number): number {
 function clamp01(x: number): number { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 const NB_CAP = 512;
+/** Test hook: `cullGather = false` gathers the whole search box (the phase-1 behaviour). */
+export const senseTuning = { cullGather: true };
 const nbBuf = new Int32Array(NB_CAP);
 let nbCount = 0;
 const nearBuf = new Int32Array(NB_CAP);
 let nearCount = 0;
-/** Gather the neighbours of one creature once; every eye and lateral organ filters this list. */
-function gather(g: Grid, x: number, y: number, r: number, self: number): void {
+// positions and radii (0.5 * length) of the gathered neighbours, contiguous for the eye loops
+const nbX = new Float64Array(NB_CAP);
+const nbY = new Float64Array(NB_CAP);
+const nbR = new Float64Array(NB_CAP);
+/**
+ * Gather the neighbours of one creature once; every eye and lateral organ filters this list.
+ * The search box is the cells within `r` (capped at MAX_CELL_VISITS cells). When the whole box
+ * holds at most NB_CAP items (so nothing is truncated), it is narrowed to the cells that can hold
+ * an item within `reach` of (x, y): the dropped items fail every later distance filter, and the
+ * kept ones stay in their (cell, slot) order, so the senses read exactly what they would from
+ * the whole box. Cell indices are clamped like buildGrid clamps positions.
+ */
+function gather(g: Grid, x: number, y: number, r: number, self: number, reach: number): void {
   nbCount = 0;
   const cx = Math.floor(x / GRID_CELL_M), cy = Math.floor(y / GRID_CELL_M);
   let ext = Math.ceil(r / GRID_CELL_M);
   while ((2 * ext + 1) * (2 * ext + 1) > MAX_CELL_VISITS && ext > 0) ext--;
-  const x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
-  const y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
+  let x0 = Math.max(0, cx - ext), x1 = Math.min(g.w - 1, cx + ext);
+  let y0 = Math.max(0, cy - ext), y1 = Math.min(g.h - 1, cy + ext);
+  const start = g.start, items = g.items, gx = g.ix, gy = g.iy, gr = g.ir, w = g.w;
+  let total = 0;
+  for (let iy = y0; iy <= y1; iy++) total += start[iy * w + x1 + 1]! - start[iy * w + x0]!;
+  if (total <= NB_CAP && senseTuning.cullGather) {
+    const wm = w - 1, hm = g.h - 1;
+    const ax = Math.floor((x - reach) / GRID_CELL_M), bx = Math.floor((x + reach) / GRID_CELL_M);
+    const ay = Math.floor((y - reach) / GRID_CELL_M), by = Math.floor((y + reach) / GRID_CELL_M);
+    x0 = Math.max(x0, ax < 0 ? 0 : ax > wm ? wm : ax);
+    x1 = Math.min(x1, bx < 0 ? 0 : bx > wm ? wm : bx);
+    y0 = Math.max(y0, ay < 0 ? 0 : ay > hm ? hm : ay);
+    y1 = Math.min(y1, by < 0 ? 0 : by > hm ? hm : by);
+  }
+  // the cells x0..x1 of one row are one contiguous run of items (ordered by cell, then slot)
   for (let iy = y0; iy <= y1; iy++) {
-    for (let ix = x0; ix <= x1; ix++) {
-      const cell = iy * g.w + ix;
-      for (let k = g.start[cell]!; k < g.start[cell + 1]!; k++) {
-        const j = g.items[k]!;
-        if (j !== self && nbCount < NB_CAP) nbBuf[nbCount++] = j;
+    const k1 = start[iy * w + x1 + 1]!;
+    for (let k = start[iy * w + x0]!; k < k1; k++) {
+      const j = items[k]!;
+      if (j !== self && nbCount < NB_CAP) {
+        nbX[nbCount] = gx[k]!; nbY[nbCount] = gy[k]!; nbR[nbCount] = gr[k]!;
+        nbBuf[nbCount++] = j;
       }
     }
   }
+}
+/**
+ * The per-part inputs other than eyes and chemo, in layout order, as (index, kind, part, slot)
+ * quads: built once per layout, so the per-tick loop reads one Int32Array instead of every
+ * input channel object.
+ */
+const partInputCache = new WeakMap<FullLayout, Int32Array>();
+function partInputsOf(L: FullLayout): Int32Array {
+  let a = partInputCache.get(L);
+  if (a) return a;
+  const q: number[] = [];
+  for (let i = 0; i < L.nIn; i++) {
+    const chn = L.inputs[i]!;
+    const kind = chn.kind;
+    if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
+    q.push(i, kind, chn.part, chn.slot);
+  }
+  a = Int32Array.from(q);
+  partInputCache.set(L, a);
+  return a;
+}
+
+// partPos() result registers: a Float64Array, since module-level doubles are boxed on every write
+const PP = new Float64Array(3);
+/** Position and angle of part p (its segment once grown, else the creature centre) into PP. */
+function partPos(sgPosX: ArrayLike<number>, sgPosY: ArrayLike<number>, sgAngle: ArrayLike<number>, segStart: number, segCount: number, p: number, x: number, y: number, heading: number): void {
+  if (segStart !== NONE_U32 && p >= 0 && p < segCount) {
+    const sg = segStart + p;
+    PP[0] = sgPosX[sg]!; PP[1] = sgPosY[sg]!; PP[2] = sgAngle[sg]!; return;
+  }
+  PP[0] = x; PP[1] = y; PP[2] = heading;
 }
 const depthBuf = new Float64Array(16);
 const objBuf = new Int32Array(16);
@@ -141,7 +219,8 @@ export function sense(world: World, ctx: StepContext): void {
         const I = BRAIN_CLASSES[c]!.i;
         const nIn = pool.c.nIn[s]!;
         gaussianBlock(sn.k0, sn.k1, tick, st.entityId, nIn, st.sensorNoise, noise);
-        for (let i = 1; i < nIn; i++) pool.c.inputs[s * I + i]! += noise[i]!;
+        const inputs = pool.c.inputs, bI = s * I;
+        for (let i = 1; i < nIn; i++) inputs[bI + i]! += noise[i]!;
       }
     }
   }
@@ -198,36 +277,42 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
   inp[bI + IN.FATIGUE] = clamp01(1 - cr.anaerobic[k]!);
   inp[bI + IN.ITCH] = 0; // parasite latching arrives with disease (v0.4)
 
-  let PX = 0, PY = 0, PA = 0;
-  const partPos = (p: number): void => {
-    if (segStart !== NONE_U32 && p >= 0 && p < segCount) {
-      const sg = segStart + p;
-      PX = seg.posX[sg]!; PY = seg.posY[sg]!; PA = seg.angle[sg]!; return;
-    }
-    PX = x; PY = y; PA = heading;
-  };
+  // part positions go through the PP registers (partPos), no closures
+  const sgPosX = seg.posX, sgPosY = seg.posY, sgAngle = seg.angle;
 
+  // the segment and ungrown tests below: grown(p) is segStart === NONE_U32 || p < segCount
+  const ungrown = segStart !== NONE_U32;
   nbCount = 0;
   if (grid) {
     let r = 4 * len + len;
     for (const e of L.eyes) r = Math.max(r, Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + len);
-    if (L.needsNeighbours) gather(grid, x, y, r, k);
+    if (L.needsNeighbours) {
+      // Only neighbours within 5 body lengths of the centre (the near list) or within range + radius
+      // of a grown eye are ever used, so cells wholly beyond that reach can be skipped; the list
+      // keeps its order, so every filter below sees the same neighbours (see gather).
+      let reach = 5 * len;
+      for (const e of L.eyes) {
+        if (ungrown && e.part >= segCount) continue;
+        partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, e.part, x, y, heading);
+        const ox = PP[0]! - x, oy = PP[1]! - y;
+        reach = Math.max(reach, Math.sqrt(ox * ox + oy * oy) + Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + grid.maxR);
+      }
+      gather(grid, x, y, r, k, reach * 1.0001 + 1e-9);
+    }
   }
   // the lateral line only feels the near list (4 body lengths of an organ, so 5 of the centre)
   nearCount = 0;
   const near2 = 25 * len * len;
   for (let q = 0; q < nbCount; q++) {
-    const j = nbBuf[q]!;
-    const dx = cr.posX[j]! - x, dy = cr.posY[j]! - y;
-    if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = j;
+    const dx = nbX[q]! - x, dy = nbY[q]! - y;
+    if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = nbBuf[q]!;
   }
   // organs on parts not grown yet (segCount < nParts at an early stage) read 0 (03 §3.3.2)
-  const grown = (p: number): boolean => segStart === NONE_U32 || p < segCount;
   // eyes
   for (const e of L.eyes) {
-    if (!grown(e.part)) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
-    partPos(e.part);
-    const ex = PX, ey = PY;
+    if (ungrown && e.part >= segCount) { inp.fill(0, bI + e.base, bI + e.base + e.receptors * (e.bands.length + 1)); continue; }
+    partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, e.part, x, y, heading);
+    const ex = PP[0]!, ey = PP[1]!;
     const R = e.receptors;
     const lanes = e.bands.length + 1;
     const axis = heading - mirror * e.mount;
@@ -235,19 +320,19 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const binW = e.fovRad / R;
     const ax = cos(axis), ay = sin(axis);
     for (let r = 0; r < R; r++) { depthBuf[r] = Infinity; objBuf[r] = -1; }
+    const half = e.fovRad / 2;
     for (let q = 0; q < nbCount; q++) {
       {
-        const j = nbBuf[q]!;
-        const dx = cr.posX[j]! - ex, dy = cr.posY[j]! - ey;
+        const dx = nbX[q]! - ex, dy = nbY[q]! - ey;
         const d2 = dx * dx + dy * dy;
-        const rad = 0.5 * cr.length[j]!;
+        const rad = nbR[q]!;
         if (d2 > (range + rad) * (range + rad) || d2 <= 0) continue;
+        const j = nbBuf[q]!;
         const dist = Math.sqrt(d2);
         const ratio = rad / dist;
         // atan(x) = x (1 - x^2/3) within 2e-3 relative for x < 0.1
         const a = dist <= rad ? PI / 2 : ratio < 0.1 ? ratio * (1 - (ratio * ratio) / 3) : atan(ratio);
         if (a < MIN_ANGLE) continue;
-        const half = e.fovRad / 2;
         // cone pre-check with dot products before the atan2
         if (half + a < PI && dx * ax + dy * ay < dist * cos(half + a)) continue;
         const rel = wrapAngle(atan2(dy, dx) - axis);
@@ -291,9 +376,9 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // chemo organs: level and rate per channel (rate = tauSmell * d(level)/dt along own motion)
   for (const ch of L.chemos) {
-    if (!grown(ch.part)) { inp.fill(0, bI + ch.base, bI + ch.base + 2 * ch.channels.length); continue; }
-    partPos(ch.part);
-    const cx = PX, cy = PY;
+    if (ungrown && ch.part >= segCount) { inp.fill(0, bI + ch.base, bI + ch.base + 2 * ch.channels.length); continue; }
+    partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, ch.part, x, y, heading);
+    const cx = PP[0]!, cy = PP[1]!;
     let at = bI + ch.base;
     for (const chan of ch.channels) {
       const lv = scentLevel(world, cx, cy, chan);
@@ -308,18 +393,16 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
 
   // per-part inputs other than eyes and chemo, in layout order
   const nIn = L.nIn;
-  for (let i = 0; i < nIn; i++) {
-    const chn = L.inputs[i]!;
-    const kind = chn.kind;
-    if (kind < IN.LATERAL || kind === IN.CHEMO_LEVEL || kind === IN.CHEMO_RATE) continue;
-    const p = chn.part;
-    if (!grown(p)) { inp[bI + i] = 0; continue; }
-    partPos(p);
-    const px = PX, py = PY, pa = PA;
+  const pin = partInputsOf(L);
+  for (let q = 0; q < pin.length; q += 4) {
+    const i = pin[q]!, kind = pin[q + 1]!, p = pin[q + 2]!, slot = pin[q + 3]!;
+    if (ungrown && p >= segCount) { inp[bI + i] = 0; continue; }
+    partPos(sgPosX, sgPosY, sgAngle, segStart, segCount, p, x, y, heading);
+    const px = PP[0]!, py = PP[1]!, pa = PP[2]!;
     const sg = segStart !== NONE_U32 && p < segCount ? segStart + p : -1;
     switch (kind) {
       case IN.LATERAL: {
-        if (chn.slot !== 0) break; // both sides written together
+        if (slot !== 0) break; // both sides written together
         const nxD = mirror * sin(pa), nyD = -mirror * cos(pa);
         let pD = 0, pV = 0;
         const rng = 4 * len;
@@ -339,12 +422,12 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
         }
         const p0 = Math.max(1e-15, cr.massKg[k]! / len);
         const selfNoise = 0.1 * (Math.sqrt(vx * vx + vy * vy) / len);
-        inp[bI + i] = clamp01(log(1 + pD / p0) / log(11) - selfNoise);
-        if (i + 1 < nIn) inp[bI + i + 1] = clamp01(log(1 + pV / p0) / log(11) - selfNoise);
+        inp[bI + i] = clamp01(log(1 + pD / p0) / LOG11 - selfNoise);
+        if (i + 1 < nIn) inp[bI + i + 1] = clamp01(log(1 + pV / p0) / LOG11 - selfNoise);
         break;
       }
       case IN.TOUCH: {
-        if (chn.slot !== 0) break;
+        if (slot !== 0) break;
         const r = sg >= 0 ? Math.max(1e-4, seg.radius[sg]!) : len * 0.1;
         const nxD = mirror * sin(pa), nyD = -mirror * cos(pa);
         const sD = sdfAt(world, px + nxD * 2 * r, py + nyD * 2 * r);
