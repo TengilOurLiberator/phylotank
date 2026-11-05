@@ -37,6 +37,8 @@ export interface SpeciesRecord {
   children: number[]; founders: number[];
   /** The latest daughter split off by split detection; members move over lazily at reproduction. */
   splitInto: number;
+  /** Set when reconcile merged this species into another (status 'absorbed'). */
+  absorbedInto: number;
   genus: string; epithet: string; common: { en: string; sv: string }; namedBy: 'generator' | 'user' | 'template';
 }
 export type SpeciesEvent =
@@ -115,7 +117,7 @@ export class SpeciesRegistry {
     this.records.push({
       id, parentId, status: 'incipient', bornTick: tick, promotedTick: 0, extinctTick: 0, medoid: g, founder: g,
       founderAdultKg: adultKg, genTimeS: Math.max(1, tMatureS), reservoir: [g], joins: 0, pop: 0, peakPop: 0, biomassKg: 0,
-      children: [], founders: [], splitInto: 0, genus: '', epithet: '', common: { en: '', sv: '' }, namedBy: 'generator',
+      children: [], founders: [], splitInto: 0, absorbedInto: 0, genus: '', epithet: '', common: { en: '', sv: '' }, namedBy: 'generator',
     });
     if (parentId > 0) this.records[parentId]?.children.push(id);
     return id;
@@ -139,7 +141,7 @@ export class SpeciesRegistry {
   assign(inp: AssignInput): { species: number; events: SpeciesEvent[] } {
     const events: SpeciesEvent[] = [];
     let sid = 0;
-    let S = this.records[inp.parentSpecies];
+    let S = this.records[this.resolve(inp.parentSpecies)];
     // a split daughter claims members of its parent species that are closer to its medoid
     if (S && S.splitInto) {
       const D = this.records[S.splitInto];
@@ -205,8 +207,42 @@ export class SpeciesRegistry {
   /** Change a member's living mass (growth, starvation). */
   addMass(sid: number, dKg: number): void { const r = this.records[sid]; if (r) r.biomassKg = Math.max(0, r.biomassKg + dKg); }
 
+  /** Follow merges: the species an id now belongs to. */
+  resolve(id: number): number {
+    let r = this.records[id];
+    for (let k = 0; r && r.status === 'absorbed' && r.absorbedInto && k < 64; k++) r = this.records[r.absorbedInto];
+    return r ? r.id : id;
+  }
+
+  /**
+   * Periodic reconcile, step 4 of 01 §1.9.4: merge two living species whose medoids are closer
+   * than theta / 2 (and, for sexual species, whose hybrid success is above 50% when the caller
+   * passes it). The younger is absorbed into the older; its members are counted in the older
+   * one and `resolve()` maps the old id. Returns the merges as [absorbed, into] pairs.
+   */
+  reconcile(hybridSuccess?: (a: number, b: number) => number): [number, number][] {
+    const live = this.living(true);
+    const merges: [number, number][] = [];
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i]!;
+      if (a.status === 'absorbed') continue;
+      for (let j = i + 1; j < live.length; j++) {
+        const b = live[j]!;
+        if (b.status === 'absorbed') continue;
+        if (this.dist(a.medoid, b.medoid) >= this.theta / 2) continue;
+        if (hybridSuccess && hybridSuccess(a.id, b.id) <= 0.5) continue;
+        b.status = 'absorbed'; b.absorbedInto = a.id;
+        a.pop += b.pop; a.biomassKg += b.biomassKg; b.pop = 0; b.biomassKg = 0;
+        if (a.splitInto === b.id) a.splitInto = 0;
+        merges.push([b.id, a.id]);
+      }
+    }
+    return merges;
+  }
+
   /** A member died (or became a carcass). */
-  death(sid: number, massKg: number, entityId: number, tick: number): SpeciesEvent[] {
+  death(sid0: number, massKg: number, entityId: number, tick: number): SpeciesEvent[] {
+    const sid = this.resolve(sid0);
     const r = this.records[sid];
     if (!r || r.pop <= 0) return [];
     r.pop--; r.biomassKg = Math.max(0, r.biomassKg - massKg);

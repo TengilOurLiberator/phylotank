@@ -33,11 +33,12 @@ const adultKg = develop(founder, 1, ENV, OPTS).massKg;
 const genTicks = Math.max(1, Math.round(lh.tMatureS * TICK_HZ));
 const root = sr.found(founder, 0, { adultMassKg: adultKg, tMatureS: lh.tMatureS, name: { genus: 'Flagellux', epithet: 'minima' } });
 
-interface Ind { g: Genome; sp: number; id: number; w: number }
+interface Ind { g: Genome; sp: number; id: number; w: number; w2: number }
 const L0 = Math.log(trait(founder, TI.ADULT_LENGTH));
 function viability(g: Genome): number {
   if (selection === 'neutral') return 1;
   const ph = develop(g, 1, ENV, OPTS);
+  if (selection === 'twoniche') return nicheWeight(g, +0.69);
   if (selection === 'disruptive') {
     // positive control: two size optima, half and twice the founder length
     const dl = Math.log(ph.adultLengthM) - L0;
@@ -48,9 +49,14 @@ function viability(g: Genome): number {
   const dp = (ph.nParts - 9) / 6;
   return Math.exp(-0.5 * (dl * dl + dp * dp)) * (ph.mouth.filter > 0 ? 1 : 0.2);
 }
+/** Levene-style two-niche positive control: niche A favours twice, niche B half the founder length. */
+function nicheWeight(g: Genome, target: number): number {
+  const dl = Math.log(develop(g, 1, ENV, OPTS).adultLengthM) - L0;
+  return Math.exp(-0.5 * ((dl - target) / 0.25) ** 2) + 0.001;
+}
 let nextId = 1;
 let pop: Ind[] = [];
-for (let i = 0; i < N; i++) { const id = nextId++; sr.assign({ genome: founder, parentSpecies: root, tick: 0, entityId: id, massKg: adultKg, adultMassKg: adultKg, tMatureS: lh.tMatureS }); pop.push({ g: founder, sp: root, id, w: 1 }); }
+for (let i = 0; i < N; i++) { const id = nextId++; sr.assign({ genome: founder, parentSpecies: root, tick: 0, entityId: id, massKg: adultKg, adultMassKg: adultKg, tMatureS: lh.tMatureS }); pop.push({ g: founder, sp: root, id, w: 1, w2: 1 }); }
 // fix: the founders above joined `root` through assign; that is the same species
 let promotions = 0, incipientFounded = 0;
 const t0 = Date.now();
@@ -59,14 +65,16 @@ for (let gen = 1; gen <= G; gen++) {
   const tick = gen * genTicks;
   const draw = rng.draw(100, tick, 0); // the spike's own selection stream (not a sim stream)
   // cumulative weights
-  const cum = new Float64Array(pop.length);
-  let s = 0;
-  for (let i = 0; i < pop.length; i++) { s += pop[i]!.w; cum[i] = s; }
+  const cum = new Float64Array(pop.length), cum2 = new Float64Array(pop.length);
+  let s = 0, s2 = 0;
+  for (let i = 0; i < pop.length; i++) { s += pop[i]!.w; cum[i] = s; s2 += pop[i]!.w2; cum2[i] = s2; }
   const next: Ind[] = [];
   for (let k = 0; k < N; k++) {
-    const x = draw.u01x53() * s;
+    const second = selection === 'twoniche' && k >= N / 2;
+    const cumK = second ? cum2 : cum;
+    const x = draw.u01x53() * (second ? s2 : s);
     let lo = 0, hi = pop.length - 1;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (cum[mid]! > x) hi = mid; else lo = mid + 1; }
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cumK[mid]! > x) hi = mid; else lo = mid + 1; }
     const p = pop[lo]!;
     const id = nextId++;
     const g = mutateWith(p.g, { rng, tick, childId: id, lCeilingM: L_CEIL, mutagen: 1 }, reg);
@@ -74,7 +82,7 @@ for (let gen = 1; gen <= G; gen++) {
     const r = sr.assign({ genome: g, parentSpecies: p.sp, tick, entityId: id, massKg: adultKg, adultMassKg: adultKg, tMatureS: lh.tMatureS, parentGenome: p.g });
     if (sr.records.length > before) incipientFounded++;
     promotions += r.events.filter((e) => e.k === 'speciation').length;
-    next.push({ g, sp: r.species, id, w: viability(g) });
+    next.push({ g, sp: r.species, id, w: viability(g), w2: selection === 'twoniche' ? nicheWeight(g, -0.69) : 1 });
   }
   for (const p of pop) sr.death(p.sp, adultKg, p.id, tick);
   promotions += sr.tick(tick).filter((e) => e.k === 'speciation').length;

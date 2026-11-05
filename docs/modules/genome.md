@@ -18,6 +18,8 @@ Owner: genome engineer. Design source: [01-genome](../sections/01-genome.md), re
 | `registry.ts` | `InnovationRegistry` with the two-generation sliding window |
 | `store.ts` | `GenomeStore`: content-addressed blobs, deterministic u32 handles |
 | `life.ts` | `lifeHistory`: adult and birth length, growth constant, `tMature`, lifespan, clutch |
+| `phylogeny.ts` | the pruned individual phylogeny with MRCA |
+| `look.ts` | diet enzymes, the look block, the packed far-LOD colour |
 | `ceiling.ts` | `clampToCeiling`, `expressedAdultLength`, `isLeviathan` |
 | `kinds.ts`, `genes.ts`, `blank.ts`, `constants.ts` | builders from decoded values, decode helpers, Blank, tuning constants |
 
@@ -70,8 +72,8 @@ Each template has its own reserved innovation block (100 apart), so forks of one
 
 ## Known gaps and later work
 
-- CPPN structural operators (add connection, split node) for ENCODING 1; point mutation of CPPN genes works.
-- Species reconcile (01 §1.9.4, every 10 sim minutes) and merging are not implemented; split detection and lazy reassignment are.
-- The phylogeny (pruned individual tree) and the parent-diff forest for `.ptk` are host work; `GenomeStore.entries()` is the hook.
+- CPPN genomes (ENCODING 1) get add-connection, split-node, toggle and change-function operators with 64-bit hashed ids, but only between CPPN node ids already in the genome: the CPPN input and output node ids are the brain module's to define.
+- Species reconcile does the merge step (medoids within theta / 2, hybrid success from the caller); the stratified resample and leader re-clustering of 01 §1.9.4 steps 1 to 3 are not done (the lineage rule makes them less needed).
+- The pruned individual phylogeny (`Phylogeny`: births, pruning on death, MRCA, unary-chain compaction) is here; the species tree is the `SpeciesRecord` parent links. The parent-diff forest for `.ptk` is host work; `GenomeStore.entries()` is the hook.
 - Names: no bundled real-genus list (07 §6.4's GBIF check); the blocklist is a short built-in one.
 - Performance: see spike genome-1; full develop is 15 to 40 µs and a restage 2 to 15 µs of CPU, above the 20 and 3 µs targets for the larger templates.

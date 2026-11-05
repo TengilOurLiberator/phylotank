@@ -568,6 +568,23 @@ describe('species registry, lineage rule (R14)', () => {
   });
 });
 
+describe('species reconcile', () => {
+  it('merges species whose medoids are within theta / 2 and resolves the old id', async () => {
+    const { SpeciesRegistry } = await import('../src/genome/species.js');
+    const sr = new SpeciesRegistry({ lCeilingM: 0.2, rng, mode: 'phenotype' });
+    const g = templateGenome('motefly');
+    const a = sr.found(g, 0, { adultMassKg: 1e-7, tMatureS: 10 });
+    const b = sr.found(cloneGenome(g), 5, { adultMassKg: 1e-7, tMatureS: 10 });
+    const c = sr.found(templateGenome('hushmaw'), 5, { adultMassKg: 1e-7, tMatureS: 10 });
+    for (const sp of [a, b, c]) sr.assign({ genome: g, parentSpecies: sp, tick: 9, entityId: sp * 10, massKg: 1e-7, adultMassKg: 1e-7, tMatureS: 10 });
+    expect(sr.reconcile()).toEqual([[b, a]]);
+    expect(sr.resolve(b)).toBe(a);
+    expect(sr.get(a)!.pop).toBe(2);
+    expect(sr.assign({ genome: g, parentSpecies: b, tick: 10, entityId: 99, massKg: 1e-7, adultMassKg: 1e-7, tMatureS: 10 }).species).toBe(a);
+    expect(sr.reconcile((x, y) => (x === a && y === c ? 1 : 0))).toEqual([]);
+  });
+});
+
 describe('names', () => {
   it('generates deterministic, pronounceable binomials of at most 24 letters, unique in a world', () => {
     const seen = new Set<string>();
