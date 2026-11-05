@@ -14,7 +14,7 @@ pub fn run(owner: Option<HWND>) -> ! {
         Its settings (camera, captions, audio) live in the Phylotank god window. Open it now?";
     if win::message_box(owner, text, "Phylotank", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK {
         if probe::probe(port, Duration::from_millis(500)).is_up() {
-            let _ = win::open_local_url(&format!("http://127.0.0.1:{port}/god.html"));
+            let _ = win::open_local_url(&phylotank_common::view_url(port, "god.html"));
         } else {
             win::message_box(
                 owner,

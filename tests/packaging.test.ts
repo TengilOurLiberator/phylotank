@@ -118,6 +118,7 @@ describe('Lively loader state machine', () => {
   it('only ever talks to the loopback host', () => {
     expect(L.healthUrl(47615)).toBe('http://127.0.0.1:47615/health');
     expect(L.hostWallpaperUrl(47615)).toBe('http://127.0.0.1:47615/wallpaper.html?lively=1');
+    expect(L.hostWallpaperUrl(47616)).toBe('http://127.0.0.1:47616/wallpaper.html?lively=1&host=ws%3A%2F%2F127.0.0.1%3A47616%2Fws%2Fv1');
   });
 });
 

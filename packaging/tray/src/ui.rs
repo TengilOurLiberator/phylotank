@@ -5,7 +5,7 @@
 
 use crate::launch::Options;
 use crate::supervisor::{State, Supervisor};
-use phylotank_common::{cmdline, current_port, paths, win};
+use phylotank_common::{cmdline, current_port, paths, view_url, win};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -14,10 +14,6 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 enum UserEvent {
     Status(State),
     Menu(MenuEvent),
-}
-
-fn view_url(port: u16, page: &str) -> String {
-    format!("http://127.0.0.1:{port}/{page}")
 }
 
 /// A 32 x 32 glowing mote, drawn in code so the build needs no image files.

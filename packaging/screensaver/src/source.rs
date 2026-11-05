@@ -39,7 +39,7 @@ impl Source {
     /// The URL for monitor `i`, or `None` for the idle page (loaded as HTML).
     pub fn url(&self, monitor: usize) -> Option<String> {
         match self {
-            Source::Host { port } => Some(format!("http://127.0.0.1:{port}/screensaver.html?monitor={monitor}")),
+            Source::Host { port } => Some(phylotank_common::view_url(*port, &format!("screensaver.html?monitor={monitor}"))),
             Source::Bundled { .. } => Some(format!("{BUNDLED_ORIGIN}/screensaver.html?monitor={monitor}")),
             Source::Idle => None,
         }
@@ -98,7 +98,11 @@ mod tests {
 
     #[test]
     fn urls_per_monitor() {
-        assert_eq!(Source::Host { port: 47616 }.url(1).unwrap(), "http://127.0.0.1:47616/screensaver.html?monitor=1");
+        assert_eq!(Source::Host { port: 47615 }.url(1).unwrap(), "http://127.0.0.1:47615/screensaver.html?monitor=1");
+        assert_eq!(
+            Source::Host { port: 47616 }.url(0).unwrap(),
+            "http://127.0.0.1:47616/screensaver.html?monitor=0&host=ws%3A%2F%2F127.0.0.1%3A47616%2Fws%2Fv1"
+        );
         assert_eq!(Source::Bundled { dir: PathBuf::new() }.url(0).unwrap(), "http://phylotank.localhost/screensaver.html?monitor=0");
         assert_eq!(Source::Idle.url(0), None);
     }

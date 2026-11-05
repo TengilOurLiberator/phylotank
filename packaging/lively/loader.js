@@ -35,7 +35,12 @@
   function retryDelay(failures) { return failures < RETRY_MS.length ? RETRY_MS[failures] : MONITOR_MS; }
   function hostBase(port) { return 'http://127.0.0.1:' + port; }
   function healthUrl(port) { return hostBase(port) + '/health'; }
-  function hostWallpaperUrl(port) { return hostBase(port) + '/wallpaper.html?lively=1'; }
+  // The view shell streams from the host only when served on the default port, unless ?host=
+  // names the socket (src/ui chooseLink), so a non-default port is passed explicitly.
+  function hostWallpaperUrl(port) {
+    var q = port === DEFAULT_PORT ? '' : '&host=' + encodeURIComponent('ws://127.0.0.1:' + port + '/ws/v1');
+    return hostBase(port) + '/wallpaper.html?lively=1' + q;
+  }
 
   function initial(source) {
     return { source: source, mounted: 'none', failures: 0, misses: 0 };

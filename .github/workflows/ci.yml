@@ -1,0 +1,166 @@
+# CI (05 §5.8.2, trimmed to what exists in phase 1): unit tests, build and the Playwright
+# e2e smoke on Ubuntu; the native wrappers' host-agnostic tests plus a Windows cross-check
+# on Ubuntu; and a real Windows build of the screensaver, the tray and the portable zip.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_VERSION: 1.63.0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web:
+    name: Test, build, e2e (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit, contract, determinism, boundary and host tests
+        run: npm test
+      - name: Typecheck and bundle
+        run: npm run build
+      - name: Install Playwright and headless Chromium
+        # tests/e2e/smoke.cjs requires a global Playwright (it is not a devDependency)
+        run: |
+          npm install --global "playwright@${PLAYWRIGHT_VERSION}"
+          playwright install --with-deps chromium
+      - name: E2E smoke (WebGL2 through SwiftShader, worker and host links)
+        run: NODE_PATH="$(npm root -g)" npm run test:e2e
+      - name: Build the Lively package
+        run: node packaging/lively/build-zip.mjs
+      - name: Check the Lively package from file:// (dream-tank fallback, swap to the host)
+        run: NODE_PATH="$(npm root -g)" node packaging/lively/check-package.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phylotank-lively
+          path: packaging/out/phylotank-lively-*.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: tests/artifacts/
+          if-no-files-found: ignore
+
+  native-check:
+    name: Native wrappers (tests on Linux, Windows cross-check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packaging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build dist (the supervisor test runs the real host)
+        working-directory: .
+        run: npm ci && npm run build
+      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup target add x86_64-pc-windows-gnu
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packaging/target
+          key: cargo-linux-${{ hashFiles('packaging/Cargo.lock') }}
+          restore-keys: cargo-linux-
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Windows code (wry, tao, Raw Input, registry) type-checks from Linux
+        run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+
+  windows:
+    name: Windows build (phylotank.scr, Phylotank.exe, portable zip)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Host smoke test on Windows (CPU backend, headless)
+        run: node dist/host.mjs --headless --ticks 300
+      - run: rustup toolchain install stable --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packaging/target
+          key: cargo-windows-${{ hashFiles('packaging/Cargo.lock') }}
+          restore-keys: cargo-windows-
+      - name: Native tests (argument parser, exit gate, supervisor with the real host)
+        working-directory: packaging
+        run: cargo test --workspace --locked
+      - name: Release build
+        working-directory: packaging
+        run: cargo build --workspace --release --locked
+      - name: Portable zip (bundles this runner's node.exe)
+        shell: pwsh
+        run: node packaging/windows/make-portable.mjs --bin packaging/target/release --node (Get-Command node).Source
+      - name: Install, smoke-test and uninstall as a normal user (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-ChildItem packaging/out/phylotank-windows-*.zip | Select-Object -First 1
+          $unpacked = Join-Path $env:RUNNER_TEMP 'pt-zip'
+          $dest = Join-Path $env:RUNNER_TEMP 'pt-installed'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $unpacked -Force
+          & (Join-Path $unpacked 'Phylotank\install.ps1') -Destination $dest -NoShortcut -NoStart -TimeoutMinutes 15
+          $ss = (Get-ItemProperty 'HKCU:\Control Panel\Desktop').'SCRNSAVE.EXE'
+          Write-Host "SCRNSAVE.EXE = $ss"
+          if ($ss -notlike '*.scr' -and $ss -notlike '*PHYLOT*') { throw "screensaver not set: $ss" }
+          # /p with a dead parent window must exit at once
+          $p = Start-Process -FilePath (Join-Path $dest 'phylotank.scr') -ArgumentList '/p', '0' -PassThru
+          if (-not $p.WaitForExit(5000)) { $p.Kill(); throw 'phylotank.scr /p 0 did not exit' }
+          # the tray supervises the host: wait for it to listen on 47615
+          $tray = Start-Process -FilePath (Join-Path $dest 'Phylotank.exe') -ArgumentList '--no-tray' -PassThru
+          $up = $false
+          for ($i = 0; $i -lt 40 -and -not $up; $i++) {
+            Start-Sleep -Milliseconds 500
+            $c = New-Object System.Net.Sockets.TcpClient
+            try { $up = $c.ConnectAsync('127.0.0.1', 47615).Wait(400) } catch { } finally { $c.Dispose() }
+          }
+          $hostJson = Join-Path $env:LOCALAPPDATA 'Phylotank\host.json'
+          if (Test-Path $hostJson) { Get-Content $hostJson | Write-Host }
+          Stop-Process -Id $tray.Id -Force
+          Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not $up) { Get-Content (Join-Path $env:LOCALAPPDATA 'Phylotank\logs\host.log') -ErrorAction SilentlyContinue | Write-Host; throw 'the tray did not bring the host up' }
+          & (Join-Path $dest 'uninstall.ps1')
+          if (Test-Path $dest) { throw 'uninstall left the install folder' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phylotank-windows
+          path: packaging/out/phylotank-windows-*.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phylotank-windows-binaries
+          path: |
+            packaging/target/release/phylotank-scr.exe
+            packaging/target/release/phylotank-tray.exe
+          if-no-files-found: error
