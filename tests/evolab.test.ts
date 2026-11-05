@@ -119,7 +119,11 @@ describe('evolab detectors', () => {
     const v = Object.fromEntries(runDetectors(rows, obs).map((x) => [x.name, x]));
     expect(v.immortalBlobs!.fired).toBe(true);
     expect(v.microbeFlood!.fired).toBe(true);
-    const calm = rows.map((r) => ({ ...r, capFill: 0.5, maxAgeOverLifespan: 1.2, trait_lifespanMult: 4, trait_senescence: 0.5 }));
+    const blob = rows.map((r, i) => ({ ...r, maxAgeOverLifespan: 1.5, trait_senescence: 0.5, trait_lifespanMult: 4 + i * 0.3, sessileFrac: i > 5 ? 0.95 : 0 }));
+    const b = runDetectors(blob, obs).find((x) => x.name === 'immortalBlobs')!;
+    expect(b.fired).toBe(true);
+    expect(b.firstH).toBeGreaterThan(5);
+    const calm = rows.map((r) => ({ ...r, sessileFrac: 0, capFill: 0.5, maxAgeOverLifespan: 1.2, trait_lifespanMult: 4, trait_senescence: 0.5 }));
     const w = Object.fromEntries(runDetectors(calm, obs).map((x) => [x.name, x]));
     expect(w.immortalBlobs!.fired).toBe(false);
     expect(w.microbeFlood!.fired).toBe(false);
