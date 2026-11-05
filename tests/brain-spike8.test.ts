@@ -159,4 +159,26 @@ describe.skipIf(!ON)('spike 8', () => {
     }
     if (process.env.SPIKE8_OUT) writeFileSync(process.env.SPIKE8_OUT, JSON.stringify(out, null, 1));
   }, 7_200_000);
+
+  it('lesion', () => {
+    // How much of the evolved gain is in the brain genes proper (DSYN or CPPN) rather than in the
+    // reflex gains and gait? Re-evolve (deterministic) and evaluate with those genes removed.
+    if (MODE !== 'lesion') return;
+    const seeds = (process.env.SPIKE8_SEEDS ?? '1,2,3').split(',').map(Number);
+    const POP = Number(process.env.SPIKE8_POP ?? 20), GENS = Number(process.env.SPIKE8_GENS ?? 25);
+    const train = [1, 2, 3, 4], test = [101, 102, 103, 104, 105, 106, 107, 108];
+    const res: unknown[] = [];
+    for (const enc of ['direct', 'cppn'] as Encoding[]) {
+      for (const seed of seeds) {
+        const x = evolve(enc, seed, POP, GENS, train).best;
+        const base = evaluate(x, test);
+        const y: Geno = { ...x, g: { ...x.g, directSynapses: [], cppnConns: [], cppnNodes: [] } };
+        const lesioned = evaluate(y, test);
+        const reflexOnly = evaluate({ ...baseGenome(enc), phaseStep: x.phaseStep, cpgAmp: x.cpgAmp }, test);
+        res.push({ enc, seed, base, lesioned, reflexWithEvolvedGait: reflexOnly });
+        log('lesion', enc, seed, base.toFixed(3), 'without brain genes', lesioned.toFixed(3), 'base genome with evolved gait', reflexOnly.toFixed(3));
+      }
+    }
+    if (process.env.SPIKE8_OUT) writeFileSync(process.env.SPIKE8_OUT, JSON.stringify(res, null, 1));
+  }, 7_200_000);
 });
