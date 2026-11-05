@@ -27,3 +27,9 @@ Spike 4 (Lively and WebView2, with packaging) and spike 6 (wallpaper calm record
 ## Acceptance tests
 
 06 §6.8.1 visual snapshot tests (SSIM at least 0.98 against goldens, from recorded streams); flash analyser zero WCAG 2.3.1 violations over 10 minutes (v0.1 acceptance 6); wallpaper at most 1.5 ms per frame at 4K on the 5090; `npm run test:e2e` stays green.
+
+## Status (phase 1, 2026-11-05)
+
+Built: the WebGL2 frame graph, SDF bodies, five LOD tiers, OKLCH colour from genes, trails, bloom, dither, the three-layer flash defence, per-mode settings and the wallpaper 30 fps cap. Design notes, decisions and what is left: [docs/modules/render.md](../../docs/modules/render.md). Spikes: [render-04-lively](../../docs/spikes/render-04-lively.md), [render-06-calm](../../docs/spikes/render-06-calm.md). Contract requests: [docs/contract-requests/render.md](../../docs/contract-requests/render.md).
+
+Visual test page: `web/render-test.html` (bundle built by `node tests/render/harness.mjs`, which also writes `tests/artifacts/render-*.png`).
