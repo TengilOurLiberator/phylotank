@@ -384,3 +384,41 @@ describe('cost', () => {
     });
   }
 });
+
+describe('the director reads these events', () => {
+  it('turns the staged detectors\' events into stories without knowing the entities first', async () => {
+    const { StoryBook } = await import('../src/director/index.js');
+    const w = world(600);
+    const book = new StoryBook({ maxStories: 512, mergeRadiusM: 20, mergeWindowS: 10, lCeilingM: w.lCeilingM, tankW: 32, tankH: 18 });
+    const c = w.cr.c;
+    const suite = new EventSuite({ every: 30, records: { warmupS: 0 }, roles: { parentOf: () => undefined } });
+    const stamp = (d: Derived[]): SimEvent[] => d.map((e, i) => ({ ...e, t: w.g.tick, eid: 1e6 + i, epoch: 0 }) as unknown as SimEvent);
+    const evs: SimEvent[] = [];
+    w.g.tick = 30; evs.push(...stamp(suite.run(w)));
+    // a big corpse with a crowd, a migration, an outbreak, a predator turn
+    const all = aliveOf(w);
+    const k = all[0]!;
+    c.life[k] = LIFE.CARCASS; c.length[k] = 0.4 * w.lCeilingM; c.posX[k] = 16; c.posY[k] = 9;
+    all.slice(1, 9).forEach((s) => { c.posX[s] = 16.01; c.posY[s] = 9.01; });
+    for (let r = 2; r <= 70; r++) {
+      w.g.tick = 30 * r;
+      for (const s of all.slice(20)) c.posY[s] = Math.max(0.1, c.posY[s]! - 0.1);
+      for (const s of all.slice(20, 20 + 8 * r)) c.infStrain[2 * s] = 5;
+      if (r === 10) for (const s of all) { for (let i = 0; i < 7; i++) c.diet[7 * s + i] = i === 0 ? 1 : 0; }
+      if (r === 30) for (const s of all) { for (let i = 0; i < 7; i++) c.diet[7 * s + i] = i === 5 ? 1 : 0; }
+      evs.push(...stamp(suite.run(w)));
+    }
+    const kinds = new Set(evs.map((e) => e.k));
+    for (const k2 of ['carcass', 'frenzy', 'migration', 'outbreak', 'epidemicFront', 'newRole']) expect(kinds).toContain(k2);
+    for (const e of evs) book.ingest(e);
+    const types = new Set([...book.stories.values()].map((s) => s.type));
+    for (const t of ['carcass', 'frenzy', 'migration', 'outbreak']) expect(types).toContain(t);
+    // today's StoryBook drops a newRole whose species it has never seen placed, although the event
+    // carries its position (contract requests EV1 and EV5)
+    expect(types).not.toContain('newRole');
+    expect(evs.find((e) => e.k === 'newRole')).toMatchObject({ pos: [expect.any(Number), expect.any(Number)] });
+    // every story the events made sits where the event said, not at the tank centre
+    const carcass = [...book.stories.values()].find((s) => s.type === 'carcass')!;
+    expect(carcass.pos).toEqual([16, 9]);
+  });
+});
