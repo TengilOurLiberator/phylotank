@@ -23,6 +23,8 @@ export const INTEREST_GROW = 0.25;
 export const MAX_LEAD_S = 1;
 export const GLOW_W = 128;
 export const GLOW_H = 72;
+/** Slots of headroom before a sparse slot range is compacted. */
+export const COMPACT_SLACK = 64;
 
 export interface Caps { maxBytesPerSec: number; maxBodies: number; maxDust: number }
 export const DEFAULT_CAPS: Caps = { maxBytesPerSec: 4_000_000, maxBodies: 2_000, maxDust: 150_000 };
@@ -206,6 +208,11 @@ export class InterestStream {
     const want = new Set(cls.body.map((s) => entityId(world, s)));
     const leave: number[] = [];
     for (const id of this.bodies.liveIds()) if (!want.has(id)) leave.push(this.bodies.release(id));
+    // compaction: if most slots are holes, move the top bodies down (BODY_LEAVE now, BODY_ENTER below)
+    const keep = this.bodies.size - leave.length;
+    if (this.bodies.extent > 2 * keep + COMPACT_SLACK) {
+      for (const id of this.bodies.liveIds()) if (this.bodies.slotOf(id)! >= keep) leave.push(this.bodies.release(id));
+    }
     if (leave.length) out.push(encodeBodyLeave(tick, leave.sort((a, b) => a - b)));
     this.bodies.settle();
     const enter: BodyEnter[] = [];
@@ -226,7 +233,13 @@ export class InterestStream {
     // dust slots: release creatures that left the dust tier
     const wantDust = new Set(cls.dust.map((s) => entityId(world, s)));
     for (const id of this.dust.liveIds()) if (!wantDust.has(id)) this.dust.release(id);
-    for (const s of cls.dust) this.dust.alloc(entityId(world, s));
+    // compaction (a zoom-in leaves holes up to the old extent): the top points are sent empty in
+    // this frame and take the lowest free slots in the next, so nSlots shrinks within two frames
+    const moved = new Set<number>();
+    if (this.dust.extent > 2 * this.dust.size + COMPACT_SLACK) {
+      for (const id of this.dust.liveIds()) if (this.dust.slotOf(id)! >= this.dust.size) { this.dust.release(id); moved.add(id); }
+    }
+    for (const s of cls.dust) { const id = entityId(world, s); if (!moved.has(id)) this.dust.alloc(id); }
     return out;
   }
 

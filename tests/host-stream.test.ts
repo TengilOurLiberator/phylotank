@@ -250,3 +250,19 @@ describe('host streaming to several viewers', () => {
     noTokenGod.ws.close();
   });
 });
+
+describe('slot compaction', () => {
+  it('shrinks the dust and body slot ranges after a zoom-in, within two frames', () => {
+    const w = sim.create(CFG);
+    const st = new InterestStream({ maxBodies: 5000, maxDust: 5000 });
+    st.update(w); st.dustFrameBytes(w); // whole tank as dust: 400 slots
+    expect(st.dust.extent).toBe(400);
+    st.setViewport({ rect: [0, 0, 6, 3.4], pxPerM: 300, paused: false, resync: false, leadS: 0 }, 0);
+    for (let i = 0; i < 3; i++) { st.update(w); st.dustFrameBytes(w); }
+    const inView = st.dust.size;
+    expect(inView).toBeGreaterThan(0);
+    expect(st.dust.extent).toBeLessThanOrEqual(2 * inView + 64);
+    const d = decodeDust(st.dustFrameBytes(w));
+    expect([...d.colour.subarray(0, d.n)].filter((c) => c !== DUST_EMPTY).length).toBe(inView);
+  });
+});
