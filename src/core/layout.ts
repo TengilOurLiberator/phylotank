@@ -92,6 +92,8 @@ export const CREATURE_COLUMNS = [
   { name: 'wdE0', type: 'f64', init: -1 },
   { name: 'wdIn', type: 'f64' },
   { name: 'wdTicks', type: 'u16' },
+  { name: 'brainStage', type: 'f64' },
+  { name: 'birthY', type: 'f64' },
 ] as const satisfies readonly ColumnSpec[];
 
 export const SEGMENT_COLUMNS = [

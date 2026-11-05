@@ -120,7 +120,9 @@ export function encodeColumns(pool: Pool<readonly ColumnSpec[]>, count = pool.hi
     const arr = (pool.c as Record<string, AnyTypedArray>)[col.name]!;
     const byteLen = TYPE_BYTES[col.type] * lanes * count;
     const name = utf8Encode(col.name);
-    w.u8(name.length).bytes(name).u8(TYPE_CODE[col.type]).u8(lanes).u8(0).u32(count).u32(byteLen).align(8);
+    // lanes is a u16 split over the old u8 lanes field and the reserved byte after it (brain
+    // synapse columns have k x n lanes, more than 255); files with the reserved byte 0 read as before
+    w.u8(name.length).bytes(name).u8(TYPE_CODE[col.type]).u8(lanes & 0xff).u8(lanes >> 8).u32(count).u32(byteLen).align(8);
     w.bytes(new Uint8Array(arr.buffer, arr.byteOffset, byteLen)).align(8);
   }
   return w.finish();
@@ -135,8 +137,8 @@ export function decodeColumns(bytes: Uint8Array): ColumnData[] {
     const code = r.u8();
     const type = CODE_TYPE[code];
     if (!type) throw new FormatError(`unknown column type ${code}`);
-    const lanes = r.u8();
-    r.u8();
+    const lanesLo = r.u8();
+    const lanes = lanesLo | (r.u8() << 8);
     const count = r.u32();
     const byteLen = r.u32();
     if (byteLen !== TYPE_BYTES[type] * lanes * count) throw new FormatError(`column ${name} has inconsistent length`);

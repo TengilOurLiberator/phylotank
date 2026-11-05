@@ -80,8 +80,8 @@ export function drawMinimap(
 
 export type EvFilter = 'god' | 'life' | 'death' | 'disease' | 'records';
 export function eventClass(e: SimEvent): EvFilter | null {
-  switch (e.k) {
-    case 'god': case 'release': return 'god';
+  switch (e.k as string) {
+    case 'god': case 'release': case 'setting': case 'rename': return 'god';
     case 'speciation': case 'school': case 'newRole': case 'migration': case 'bloomFront': case 'hunt': case 'birth': return 'life';
     case 'extinction': case 'massDeath': case 'death': case 'frenzy': case 'carcass': return 'death';
     case 'outbreak': case 'epidemicFront': case 'infect': return 'disease';
@@ -238,4 +238,36 @@ export function drawLines(c: CanvasRenderingContext2D, w: number, h: number, ser
     c.fillStyle = s.colour; c.font = '11px system-ui';
     c.fillText(`${s.label}: ${s.values.length ? s.values[s.values.length - 1]!.toFixed(2) : '–'}`, pad + k * 150, h - 4);
   });
+}
+
+/**
+ * Gene drift heat map (07 §3.6): time on x, gene value (32 bins, low at the bottom) on y,
+ * density as brightness. Each column is normalised to its own maximum so a shrinking species
+ * still shows where its genes sit. Returns the tick range drawn.
+ */
+export function drawDrift(c: CanvasRenderingContext2D, w: number, h: number, samples: readonly [number, number[]][], colour: readonly number[], labels: { lo: string; hi: string; t0: (tick: number) => string } = { lo: 'min', hi: 'max', t0: String }): [number, number] | null {
+  c.clearRect(0, 0, w, h);
+  if (samples.length === 0) return null;
+  c.font = '10px system-ui';
+  const L = Math.max(34, c.measureText(labels.lo).width + 10, c.measureText(labels.hi).width + 10), R = w - 8, T = 8, B = h - 22;
+  const t0 = samples[0]![0], t1 = Math.max(t0 + 1, samples[samples.length - 1]![0]);
+  const X = (t: number) => L + ((t - t0) / (t1 - t0)) * (R - L);
+  const bh = (B - T) / 32;
+  c.fillStyle = '#02070b'; c.fillRect(L, T, R - L, B - T);
+  for (let i = 0; i < samples.length; i++) {
+    const [tk, bins] = samples[i]!;
+    const x0 = X(tk), x1 = i + 1 < samples.length ? X(samples[i + 1]![0]) : Math.max(x0 + 2, R);
+    const max = Math.max(1, ...bins);
+    for (let b = 0; b < 32; b++) {
+      const v = (bins[b] ?? 0) / max;
+      if (v <= 0) continue;
+      c.fillStyle = rgb(colour, 0.08 + 0.92 * Math.sqrt(v));
+      c.fillRect(x0, B - (b + 1) * bh, Math.max(1, x1 - x0 + 0.5), bh + 0.5);
+    }
+  }
+  c.strokeStyle = 'rgba(120,190,210,.3)'; c.lineWidth = 1; c.strokeRect(L + 0.5, T + 0.5, R - L - 1, B - T - 1);
+  c.fillStyle = 'rgba(160,190,200,.85)'; c.font = '10px system-ui';
+  c.fillText(labels.hi, 4, T + 9); c.fillText(labels.lo, 4, B);
+  c.fillText(labels.t0(t0), L, h - 6); c.textAlign = 'right'; c.fillText(labels.t0(t1), R, h - 6); c.textAlign = 'left';
+  return [t0, t1];
 }

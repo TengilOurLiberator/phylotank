@@ -71,7 +71,7 @@ export function encodeFields(world: World): Uint8Array {
     const lanes = 'lanes' in spec ? spec.lanes : 1;
     const count = arr.length / lanes;
     const name = utf8Encode(spec.name);
-    w.u8(name.length).bytes(name).u8(TYPE_CODE[spec.type]).u8(lanes).u8(0).u32(count).u32(arr.byteLength).align(8);
+    w.u8(name.length).bytes(name).u8(TYPE_CODE[spec.type]).u8(lanes & 0xff).u8(lanes >> 8).u32(count).u32(arr.byteLength).align(8);
     w.bytes(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength)).align(8);
   }
   return w.finish();

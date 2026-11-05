@@ -28,7 +28,7 @@ export { DEFAULT_OPTIONS, stepCreature, hill, tauAct, basalW } from './solver.js
 export { massProps, dragCoeffs, segVolume, tissueDensity } from './body.js';
 export { workFor } from './work.js';
 export { drainFlags, waterFrameEnergy } from './watchdog.js';
-export { drainBites, type BiteRecord } from './contacts.js';
+export { contactState, drainBites, type BiteRecord } from './contacts.js';
 export { LINK, latches, linkState, type Link } from './links.js';
 
 /** Drag rate for passive drifters (1/s): a mote follows the water with a ~0.5 s lag. */

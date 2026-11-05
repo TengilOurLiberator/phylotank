@@ -30,7 +30,18 @@ export interface StatsPayload {
   genes?: Record<string, Record<string, number[]>>;
   selected?: InspectDetail;
   env?: { tempC: number; light: number; vents: [number, number][] };
+  /** Current world settings and balancing knobs (07 §3.9), as the host applied them. */
+  settings?: Record<string, number | string | boolean>;
+  /** Energy flows over the last 10 sim-minutes for the food web (07 §3.6). */
+  web?: FoodWeb;
 }
+
+/** Abiotic food-web nodes (Ecopath convention: trophic level 1). */
+export const ABIOTIC = { plankton: -1, plants: -2, detritus: -3 } as const;
+/** Flow kinds: 0 eating (grazing, predation, filtering), 1 parasitism, 2 scavenging. */
+export type FlowKind = 0 | 1 | 2;
+/** `flows`: [from (eaten), to (eater), kg per sim-day, kind]; negative ids are ABIOTIC nodes. */
+export interface FoodWeb { windowS: number; flows: [number, number, number, FlowKind][] }
 
 // ---------- INSPECT (0x22): u32 idLo, idHi, u16 nNeu, i8 x nNeu, u8 nScope, f32 x nScope ----------
 export interface InspectFrame { tick: number; id: number; act: Int8Array; scope: Float32Array }

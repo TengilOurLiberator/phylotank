@@ -5,8 +5,9 @@
  * be switched at run time without a reload.
  */
 import { Emitter } from './dom.js';
+import { EN2, SV2 } from './i18n2.js';
 
-const EN = {
+const EN1 = {
   'app.name': 'Phylotank',
   'app.worldName': 'Founding Waters',
   'app.mockBanner': 'Standalone mock sim: no host connected. Everything here is simulated by the UI mock.',
@@ -161,10 +162,11 @@ const EN = {
   'count.creatures': '{n, plural, one {# creature} other {# creatures}}',
   'unit.days': '{v} d', 'unit.hours': '{v} h', 'unit.min': '{v} min', 'unit.s': '{v} s',
 } as const;
+const EN = { ...EN1, ...EN2 } as const;
 
 export type MsgKey = keyof typeof EN;
 
-const SV: Record<MsgKey, string> = {
+const SV1: Record<keyof typeof EN1, string> = {
   'app.name': 'Phylotank',
   'app.worldName': 'Grundvattnen',
   'app.mockBanner': 'Fristående låtsassimulering: ingen värd ansluten. Allt här simuleras av gränssnittets attrapp.',
@@ -319,6 +321,8 @@ const SV: Record<MsgKey, string> = {
   'count.creatures': '{n, plural, one {# varelse} other {# varelser}}',
   'unit.days': '{v} d', 'unit.hours': '{v} h', 'unit.min': '{v} min', 'unit.s': '{v} s',
 };
+
+const SV: Record<MsgKey, string> = { ...SV1, ...SV2 };
 
 const ACCENT: Record<string, string> = { a: 'á', e: 'é', i: 'í', o: 'ö', u: 'ü', c: 'ç', n: 'ñ', y: 'ý', A: 'Å', E: 'É', I: 'Î', O: 'Ø', U: 'Ü', C: 'Ç', N: 'Ñ' };
 /** Pseudo-locale (07 §6.3): accented and about 35% longer, ICU structure untouched. */

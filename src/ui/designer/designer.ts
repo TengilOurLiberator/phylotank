@@ -8,6 +8,7 @@ import {
   BRAIN_TRAITS, decodeGenome, decodeQ, encodeGenome, GENOME_FLAG_LEVIATHAN, KIND, MODULE_RECORD, SYMMETRY, TRAITS,
   type DesignMeta, type TemplateId, type TraitSpec,
 } from '../../core/index.js';
+import { fieldLabel, groupLabel, traitLabel } from '../labels.js';
 import { h, mount, binomial } from '../dom.js';
 import { fmtDuration, fmtLength, fmtNum, getLocale, t, tk, type MsgKey } from '../i18n.js';
 import { drawBody, growBody, pickPart, type GrownBody } from './body.js';
@@ -45,7 +46,7 @@ function loci(): Locus[] {
 }
 const LOCI = loci();
 
-function prettyName(n: string): string { return n.toLowerCase().replace(/_/g, ' ').replace(/^g /, 'scale: ').replace(/^\w/, (c) => c.toUpperCase()); }
+function prettyName(n: string, table: TraitTable = 'T'): string { return traitLabel(n, table); }
 function showValue(spec: TraitSpec, v: number): string {
   switch (spec.name) {
     case 'ADULT_LENGTH': return fmtLength(v);
@@ -189,8 +190,8 @@ export class DesignerView {
 
   private groupsCol(): HTMLElement {
     const groups = GROUP_ORDER.filter((g) => LOCI.some((l) => l.group === g));
-    return h('nav', { class: 'groups', 'aria-label': 'Gene groups' }, ...groups.map((g) =>
-      h('button', { class: g === this.group ? 'on' : '', onclick: () => { this.group = g; this.render(); } }, g === 'Advanced' ? t('designer.group.Advanced') : g)));
+    return h('nav', { class: 'groups', 'aria-label': t('designer.geneGroups') }, ...groups.map((g) =>
+      h('button', { class: g === this.group ? 'on' : '', onclick: () => { this.group = g; this.render(); } }, groupLabel(g))));
   }
 
   private slidersCol(): HTMLElement {
@@ -211,7 +212,7 @@ export class DesignerView {
   private dietTriangle(): HTMLElement {
     const W = 240, H = 200;
     const A: [number, number] = [W / 2, 18], B: [number, number] = [20, H - 22], C: [number, number] = [W - 20, H - 22]; // plant, meat, detritus
-    const cv = h('canvas', { width: W, height: H, style: `width:${W}px;height:${H}px;cursor:crosshair;touch-action:none`, role: 'img', 'aria-label': 'Diet triangle: plant, meat, detritus' });
+    const cv = h('canvas', { width: W, height: H, style: `width:${W}px;height:${H}px;cursor:crosshair;touch-action:none`, role: 'img', 'aria-label': t('designer.dietTriangle') });
     const label = h('div', { class: 'dim', style: 'font-size:12px' });
     const draw = () => {
       const g = view(this.doc.genome);
@@ -225,7 +226,7 @@ export class DesignerView {
       c.fillText('plant', A[0], A[1] - 6); c.textAlign = 'left'; c.fillText('meat', B[0] - 8, B[1] + 16); c.textAlign = 'right'; c.fillText('detritus', C[0] + 8, C[1] + 16); c.textAlign = 'left';
       const px = e[0]! * A[0] + e[1]! * B[0] + e[2]! * C[0], py = e[0]! * A[1] + e[1]! * B[1] + e[2]! * C[1];
       c.fillStyle = '#e8c06a'; c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fill();
-      label.textContent = `plant ${fmtNum(e[0]!, 2)} · meat ${fmtNum(e[1]!, 2)} · detritus ${fmtNum(e[2]!, 2)}`;
+      label.textContent = t('designer.dietMix', { plant: fmtNum(e[0]!, 2), meat: fmtNum(e[1]!, 2), detritus: fmtNum(e[2]!, 2) });
     };
     const set = (ev: PointerEvent) => {
       const r = cv.getBoundingClientRect();
@@ -248,13 +249,13 @@ export class DesignerView {
     cv.addEventListener('pointerup', () => { dragging = false; this.history.seal(); this.render(); });
     draw();
     return h('div', { class: 'card', style: 'margin-top:10px;display:flex;gap:14px;align-items:center' }, cv,
-      h('div', { class: 'col' }, label, h('div', { class: 'faint', style: 'font-size:11px' }, 'Enzyme simplex (CONTRACT 9.3): the three always sum to 1. Drag the dot, or use the two sliders.')));
+      h('div', { class: 'col' }, label, h('div', { class: 'faint', style: 'font-size:11px' }, t('designer.dietNote'))));
   }
 
   private slider(l: Locus): HTMLElement {
     const v = getTrait(this.doc.genome, l.table, l.spec.idx);
-    const val = h('input', { type: 'text', value: showValue(l.spec, v), 'aria-label': `${prettyName(l.spec.name)} value`, style: 'width:92px;text-align:right;font-size:12px' });
-    const range = h('input', { type: 'range', min: 0, max: 1000, step: 1, value: String(Math.round(toX(l.spec, v) * 1000)), 'aria-label': prettyName(l.spec.name) });
+    const val = h('input', { type: 'text', value: showValue(l.spec, v), 'aria-label': `${prettyName(l.spec.name, l.table)}: ${t('designer.value')}`, style: 'width:92px;text-align:right;font-size:12px' });
+    const range = h('input', { type: 'range', min: 0, max: 1000, step: 1, value: String(Math.round(toX(l.spec, v) * 1000)), 'aria-label': prettyName(l.spec.name, l.table) });
     const key = `${l.table}${l.spec.idx}`;
     const owned = PARTS_OWNED.has(l.spec.name);
     range.addEventListener('input', (e) => {
@@ -280,17 +281,17 @@ export class DesignerView {
       this.render();
     });
     return h('div', { class: `slider${this.focusTrait === l.spec.name ? ' hl' : ''}`, title: `${l.spec.name} (${l.spec.min} to ${l.spec.max}, ${l.spec.scale})${owned ? ' · also editable in Parts' : ''}` },
-      h('label', null, prettyName(l.spec.name)), range, val);
+      h('label', null, prettyName(l.spec.name, l.table)), range, val);
   }
 
   private previewCol(): HTMLElement {
-    this.growthCanvas = h('canvas', { width: 380, height: 150, style: 'width:100%;height:150px;background:#02060a;border-radius:6px', role: 'img', 'aria-label': 'Growth preview' });
+    this.growthCanvas = h('canvas', { width: 380, height: 150, style: 'width:100%;height:150px;background:#02060a;border-radius:6px', role: 'img', 'aria-label': t('designer.growthPreview') });
     const scrub = h('input', { type: 'range', min: 0, max: 100, value: String(Math.round(this.age * 100)), 'aria-label': t('designer.growth') });
     scrub.addEventListener('input', () => { this.playing = false; this.setAge(Number(scrub.value) / 100); });
     this.ageLabel = h('span', { class: 'dim', style: 'font-size:12px;min-width:60px' }, t('designer.age', { a: fmtNum(this.age, 2) }));
     const play = h('button', { onclick: () => { this.playing = !this.playing; this.playStart = performance.now() - this.age * 6000; play.textContent = this.playing ? t('designer.stop') : t('designer.play'); } }, this.playing ? t('designer.stop') : t('designer.play'));
     const keys = h('div', { class: 'row' }, ...[0, 0.25, 0.5, 1].map((a) => h('button', { style: 'min-width:44px', onclick: () => { this.playing = false; scrub.value = String(a * 100); this.setAge(a); } }, String(a))));
-    this.tankCanvas = h('canvas', { width: 380, height: 160, style: 'width:100%;height:160px;background:#020a10;border-radius:6px', role: 'img', 'aria-label': 'Test tank' });
+    this.tankCanvas = h('canvas', { width: 380, height: 160, style: 'width:100%;height:160px;background:#020a10;border-radius:6px', role: 'img', 'aria-label': t('designer.testTank') });
     this.tankLabel = h('div', { class: 'dim', style: 'font-size:12px' });
     this.updateTankLabel();
     return h('div', { class: 'side' },
@@ -327,7 +328,7 @@ export class DesignerView {
       }, `+ ${tk(`part.${k}`)}`)));
   }
   private skeletonCol(): HTMLElement {
-    this.skeleton = h('canvas', { width: 720, height: 420, tabindex: 0, style: 'width:100%;height:100%;min-height:300px;background:#02060a;border-radius:6px;cursor:pointer', role: 'img', 'aria-label': 'Skeleton editor' });
+    this.skeleton = h('canvas', { width: 720, height: 420, tabindex: 0, style: 'width:100%;height:100%;min-height:300px;background:#02060a;border-radius:6px;cursor:pointer', role: 'img', 'aria-label': t('designer.skeleton') });
     this.skeleton.addEventListener('click', (e) => {
       if (!this.skeletonMap || !this.skeleton) return;
       const r = this.skeleton.getBoundingClientRect();
@@ -363,23 +364,23 @@ export class DesignerView {
     const lk = linksTo(this.doc.genome, m.innov)[0];
     side.append(
       h('div', null, h('strong', null, `${t('designer.selected')}: ${tk(`part.${m.kind}`)} R${m.innov}`), h('div', { class: 'dim' }, t('designer.copies', { n: copies }))),
-      field('length', 'length'), field('width', 'width'), field('taper', 'taper'), field('stiffness', 'stiffness'),
-      field('muscleFraction', 'muscle'), field('glow', 'glow'), field('hueOffset', 'hue'), field('armourCoverage', 'armour'),
+      field('length', fieldLabel('length')), field('width', fieldLabel('width')), field('taper', fieldLabel('taper')), field('stiffness', fieldLabel('stiffness')),
+      field('muscleFraction', fieldLabel('muscleFraction')), field('glow', fieldLabel('glow')), field('hueOffset', fieldLabel('hueOffset')), field('armourCoverage', fieldLabel('armourCoverage')),
     );
     if (lk) {
       const sym = h('select', { 'aria-label': t('designer.symmetry'), onchange: (e: Event) => { this.commit(setLinkField(this.doc.genome, lk.innov, 'symmetry', Number((e.target as HTMLSelectElement).value)), 'symmetry'); this.render(); } },
         ...[SYMMETRY.NONE, SYMMETRY.MIRROR, SYMMETRY.RADIAL].map((s) => h('option', { value: s, selected: lk.symmetry === s }, t((['designer.sym.none', 'designer.sym.mirror', 'designer.sym.radial'] as MsgKey[])[s]!))));
-      const rep = h('input', { type: 'number', min: 1, max: 16, value: String(lk.repeat), style: 'width:64px', 'aria-label': 'repeat',
+      const rep = h('input', { type: 'number', min: 1, max: 16, value: String(lk.repeat), style: 'width:64px', 'aria-label': fieldLabel('repeat'),
         onchange: (e: Event) => { this.commit(setLinkField(this.doc.genome, lk.innov, 'repeat', Number((e.target as HTMLInputElement).value)), 'repeat'); this.render(); } });
-      const pos = h('input', { type: 'range', min: 0, max: 255, value: String(lk.attachPos), 'aria-label': 'attach position' });
+      const pos = h('input', { type: 'range', min: 0, max: 255, value: String(lk.attachPos), 'aria-label': fieldLabel('attachPos') });
       pos.addEventListener('input', () => { this.commit(setLinkField(this.doc.genome, lk.innov, 'attachPos', Number(pos.value)), 'attachPos', `l${lk.innov}p`); this.liveRefresh(); });
-      const ang = h('input', { type: 'range', min: -128, max: 127, value: String(lk.attachAngle), 'aria-label': 'attach angle' });
+      const ang = h('input', { type: 'range', min: -128, max: 127, value: String(lk.attachAngle), 'aria-label': fieldLabel('attachAngle') });
       ang.addEventListener('input', () => { this.commit(setLinkField(this.doc.genome, lk.innov, 'attachAngle', Number(ang.value)), 'attachAngle', `l${lk.innov}a`); this.liveRefresh(); });
       for (const el of [pos, ang]) el.addEventListener('change', () => { this.history.seal(); this.renderHead(); this.renderFoot(); });
       side.append(h('div', { class: 'card col' },
-        h('div', { class: 'row' }, h('span', { class: 'dim' }, t('designer.symmetry')), sym, h('span', { class: 'dim' }, 'repeat'), rep),
-        h('div', { class: 'slider', style: 'grid-template-columns:110px 1fr' }, h('label', null, 'attach position'), pos),
-        h('div', { class: 'slider', style: 'grid-template-columns:110px 1fr' }, h('label', null, 'attach angle'), ang)));
+        h('div', { class: 'row' }, h('span', { class: 'dim' }, t('designer.symmetry')), sym, h('span', { class: 'dim' }, fieldLabel('repeat')), rep),
+        h('div', { class: 'slider', style: 'grid-template-columns:110px 1fr' }, h('label', null, fieldLabel('attachPos')), pos),
+        h('div', { class: 'slider', style: 'grid-template-columns:110px 1fr' }, h('label', null, fieldLabel('attachAngle')), ang)));
     }
     const isRoot = m.innov === view(this.doc.genome).rootModuleInnov;
     side.append(h('div', { class: 'row' },
@@ -423,7 +424,7 @@ export class DesignerView {
           h('span', { class: `sev ${i.severity}` }, t(`sev.${i.severity}` as MsgKey)), h('span', null, tk(`issue.${i.id}`)), h('span', { class: 'faint' }, i.id)))));
     const chips = h('div', { class: 'row', style: 'gap:4px;font-size:12px' }, h('span', { class: 'dim' }, t('designer.tradeoffs')),
       ...this.chips.map((c) => h('button', { class: 'ro-chip', onclick: () => { const l = LOCI.find((x) => x.spec.name === c.name && x.table === c.table); if (l) { this.mode = 'genes'; this.group = l.group; this.focusTrait = l.spec.name; this.render(); } } },
-        t('designer.tradeoff', { locus: prettyName(c.name), net: `${c.dNetPct >= 0 ? '+' : ''}${fmtNum(c.dNetPct, 0)}` }))));
+        t('designer.tradeoff', { locus: prettyName(c.name, c.table), net: `${c.dNetPct >= 0 ? '+' : ''}${fmtNum(c.dNetPct, 0)}` }))));
     energy.append(chips);
     mount(this.footEl, energy, issues);
   }

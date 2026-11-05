@@ -134,6 +134,13 @@ export interface WorldConfig {
   yearDays?: number;
   /** Phase-0 skeleton: number of passive motes to seed. */
   skeletonMotes?: number;
+  /** Habitat generator (04 §4.1, request E2); default 'basin'. */
+  habitat?: 'basin' | 'lagoon' | 'twinBasins' | 'open';
+  /**
+   * Balancing overrides for tuning and lab runs, by the ecosystem's parameter names
+   * (request EV1). Journalled in META with the rest of the config, so a run replays.
+   */
+  params?: Readonly<Record<string, number>>;
 }
 
 // ---------------- Events (CONTRACT 11) ----------------
