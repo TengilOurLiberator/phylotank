@@ -9,7 +9,7 @@
 import {
   KIND, LIFE, MOUTH_SUBTYPE, ORGAN, PI, type StepContext, type World,
 } from '../core/index.js';
-import { SC, sincos } from './sincos.js';
+import { SC, sincos, sincosRange } from './sincos.js';
 import { isPlate, segVolume } from './body.js';
 
 /** Ram damage threshold (J/m^3) and toughness (J/m^3), starting values. */
@@ -202,6 +202,20 @@ export function closestSegSeg(
   ax0: number, ay0: number, ax1: number, ay1: number, bx0: number, by0: number, bx1: number, by1: number,
   out: Float64Array,
 ): void {
+  const io = CSS_IO;
+  io[0] = ax0; io[1] = ay0; io[2] = ax1; io[3] = ay1; io[4] = bx0; io[5] = by0; io[6] = bx1; io[7] = by1;
+  closestSegSegBuf(io);
+  out[0] = io[0]!; out[1] = io[1]!; out[2] = io[2]!; out[3] = io[3]!;
+}
+const CSS_IO = new Float64Array(8);
+
+/**
+ * The same, with the eight end coordinates in `io[0..7]` and the result written to `io[0..3]`:
+ * the contact loop's form, since a call with double arguments boxes each one.
+ */
+export function closestSegSegBuf(io: Float64Array): void {
+  const ax0 = io[0]!; const ay0 = io[1]!; const ax1 = io[2]!; const ay1 = io[3]!;
+  const bx0 = io[4]!; const by0 = io[5]!; const bx1 = io[6]!; const by1 = io[7]!;
   const d1x = ax1 - ax0; const d1y = ay1 - ay0; const d2x = bx1 - bx0; const d2y = by1 - by0;
   const rx = ax0 - bx0; const ry = ay0 - by0;
   const a = d1x * d1x + d1y * d1y; const e = d2x * d2x + d2y * d2y; const f = d2x * rx + d2y * ry;
@@ -216,13 +230,14 @@ export function closestSegSeg(
       if (t < 0) { t = 0; s = clamp01(-cc / a); } else if (t > 1) { t = 1; s = clamp01((b - cc) / a); }
     }
   }
-  out[0] = ax0 + d1x * s; out[1] = ay0 + d1y * s; out[2] = bx0 + d2x * t; out[3] = by0 + d2y * t;
+  io[0] = ax0 + d1x * s; io[1] = ay0 + d1y * s; io[2] = bx0 + d2x * t; io[3] = by0 + d2y * t;
 }
 function clamp01(x: number): number { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 interface ContactState {
   hs?: SpatialHash;
   acc: Float64Array; // per segment: dx, dy, dvx, dvy, dw, count (fixed point / exact integers)
+  cs: Float64Array; // per segment cos, sin of the angle this tick
   biteArmed: Uint8Array;
   biteCooldown: Float32Array;
   bites: BiteRecord[];
@@ -237,7 +252,7 @@ export function contactState(world: World): ContactState {
   if (!s) {
     s = {
       acc: new Float64Array(world.seg.capacity * 6), biteArmed: new Uint8Array(world.seg.capacity),
-      biteCooldown: new Float32Array(world.cr.capacity), bites: [], terrainCheckedTick: -1, terrain: false,
+      biteCooldown: new Float32Array(world.cr.capacity), bites: [], cs: new Float64Array(0), terrainCheckedTick: -1, terrain: false,
     };
     states.set(world, s);
   }
@@ -250,7 +265,7 @@ export function drainBites(world: World): BiteRecord[] {
   return s.bites.splice(0, s.bites.length);
 }
 
-const cp = new Float64Array(4);
+const cp = new Float64Array(8);
 const FIX_V = 65536;
 
 export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: PhysicsOptions): { pairs: number; contacts: number; cells: number } {
@@ -267,6 +282,10 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
   let pairs = 0; let contacts = 0; let cells = 0;
   const anyLinks = linkState(world).links.length > 0;
   const lenOf = (slot: number): number => (c.length[slot]! > 0 ? c.length[slot]! : 0.01);
+  // segment axes once per tick, not once per candidate pair
+  if (st.cs.length < world.seg.highWater * 2) st.cs = new Float64Array(world.seg.capacity * 2);
+  const csx = st.cs;
+  sincosRange(sg.angle, 0, world.seg.highWater, csx);
   const visit = (i: number, j: number): void => {
     const oa = sg.owner[i]!; const ob = sg.owner[j]!;
     if (oa === ob) return; // self-collision off (02 §2.4.1)
@@ -274,10 +293,11 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     pairs++;
     const ra = sg.radius[i]!; const rb = sg.radius[j]!;
     const ha = 0.5 * sg.len[i]!; const hb = 0.5 * sg.len[j]!;
-    sincos(sg.angle[i]!); const ca = SC.c; const sa = SC.s; sincos(sg.angle[j]!); const cb = SC.c; const sb = SC.s;
+    const ca = csx[i * 2]!; const sa = csx[i * 2 + 1]!; const cb = csx[j * 2]!; const sb = csx[j * 2 + 1]!;
     const axc = sg.posX[i]!; const ayc = sg.posY[i]!; const bxc = sg.posX[j]!; const byc = sg.posY[j]!;
-    closestSegSeg(axc - ca * ha, ayc - sa * ha, axc + ca * ha, ayc + sa * ha,
-      bxc - cb * hb, byc - sb * hb, bxc + cb * hb, byc + sb * hb, cp);
+    cp[0] = axc - ca * ha; cp[1] = ayc - sa * ha; cp[2] = axc + ca * ha; cp[3] = ayc + sa * ha;
+    cp[4] = bxc - cb * hb; cp[5] = byc - sb * hb; cp[6] = bxc + cb * hb; cp[7] = byc + sb * hb;
+    closestSegSegBuf(cp);
     let nx = cp[0]! - cp[2]!; let ny = cp[1]! - cp[3]!;
     const dist = Math.sqrt(nx * nx + ny * ny);
     const depth = ra + rb - dist;
@@ -326,8 +346,25 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     const vcap = DEPEN_BL_PER_S * Math.min(lenOf(oa), lenOf(ob));
     const corr = depth > 0 ? Math.min(depth, vcap * dt) : 0;
     const wsum = 1 / ma + 1 / mb;
-    accum(acc, i, nx * corr * (1 / ma) / wsum, ny * corr * (1 / ma) / wsum, Px / ma, Py / ma, (pax * Py - pay * Px) / Ia);
-    accum(acc, j, -nx * corr * (1 / mb) / wsum, -ny * corr * (1 / mb) / wsum, -Px / mb, -Py / mb, -(pbx * Py - pby * Px) / Ib);
+    // fixed-point accumulation (accum, inlined: a call with double arguments boxes them)
+    {
+      const o = i * 6;
+      acc[o] = acc[o]! + Math.round(nx * corr * (1 / ma) / wsum * FIX_POS);
+      acc[o + 1] = acc[o + 1]! + Math.round(ny * corr * (1 / ma) / wsum * FIX_POS);
+      acc[o + 2] = acc[o + 2]! + Math.round(Px / ma * FIX_V);
+      acc[o + 3] = acc[o + 3]! + Math.round(Py / ma * FIX_V);
+      acc[o + 4] = acc[o + 4]! + Math.round((pax * Py - pay * Px) / Ia * FIX_V);
+      acc[o + 5] = acc[o + 5]! + 1;
+    }
+    {
+      const o = j * 6;
+      acc[o] = acc[o]! + Math.round(-nx * corr * (1 / mb) / wsum * FIX_POS);
+      acc[o + 1] = acc[o + 1]! + Math.round(-ny * corr * (1 / mb) / wsum * FIX_POS);
+      acc[o + 2] = acc[o + 2]! + Math.round(-Px / mb * FIX_V);
+      acc[o + 3] = acc[o + 3]! + Math.round(-Py / mb * FIX_V);
+      acc[o + 4] = acc[o + 4]! + Math.round(-(pbx * Py - pby * Px) / Ib * FIX_V);
+      acc[o + 5] = acc[o + 5]! + 1;
+    }
     const F = Jn / dt;
     sg.touch[i] = sg.touch[i]! + F; sg.touch[j] = sg.touch[j]! + F;
     const mx = 0.5 * (cp[0]! + cp[2]!); const my = 0.5 * (cp[1]! + cp[3]!);
@@ -371,15 +408,6 @@ function ram(sg: World['seg']['c'], i: number, j: number, E: number): void {
   sg.damage[i] = d > 1 ? 1 : d;
 }
 
-function accum(acc: Float64Array, i: number, dx: number, dy: number, dvx: number, dvy: number, dw: number): void {
-  const o = i * 6;
-  acc[o] = acc[o]! + Math.round(dx * FIX_POS);
-  acc[o + 1] = acc[o + 1]! + Math.round(dy * FIX_POS);
-  acc[o + 2] = acc[o + 2]! + Math.round(dvx * FIX_V);
-  acc[o + 3] = acc[o + 3]! + Math.round(dvy * FIX_V);
-  acc[o + 4] = acc[o + 4]! + Math.round(dw * FIX_V);
-  acc[o + 5] = acc[o + 5]! + 1;
-}
 
 /**
  * A mouth segment whose bite drive (cmd2, adapter until a BITE column exists) crosses 0.5
