@@ -10,6 +10,11 @@ import {
   KIND, LIFE, ORGAN, PI, type StepContext, type World,
 } from '../core/index.js';
 import { SC, sincos } from './sincos.js';
+import { isPlate, segVolume } from './body.js';
+
+/** Ram damage threshold (J/m^3) and toughness (J/m^3), starting values. */
+export const E_THR_RAM = 50;
+export const TOUGHNESS = 2e3;
 import { LINK, addLink, hasLink, linkState, ownsLink, tryGrab } from './links.js';
 
 /** Jaw-lock break force: the bite force of the mouth (02 §2.4.4). */
@@ -41,7 +46,11 @@ export interface SpatialHash {
   bucketOf: Int32Array;
 }
 
-function bound(sg: World['seg']['c'], i: number): number { return 0.5 * sg.len[i]! + sg.radius[i]!; }
+/** Bounding radius including the speculative margin |v| dt (02 §2.4.1). */
+function bound(sg: World['seg']['c'], i: number, dt: number): number {
+  const v = Math.sqrt(sg.velX[i]! * sg.velX[i]! + sg.velY[i]! * sg.velY[i]!) + Math.abs(sg.angVel[i]!) * 0.5 * sg.len[i]!;
+  return 0.5 * sg.len[i]! + sg.radius[i]! + 0.5 * v * dt;
+}
 
 export function levelFor(R: number): number {
   let l = 0;
@@ -58,7 +67,7 @@ function bucket(l: number, ix: number, iy: number, mask: number): number {
  * Items are scattered in ascending slot order, so each bucket lists its items by slot: the
  * order is (bucket, slot), a deterministic function of the state (CONTRACT 4.2 rule 4).
  */
-export function buildHash(world: World, hs?: SpatialHash): SpatialHash {
+export function buildHash(world: World, hs?: SpatialHash, dt = 1 / 30): SpatialHash {
   const c = world.cr.c;
   const sg = world.seg.c;
   let n = 0;
@@ -86,7 +95,7 @@ export function buildHash(world: World, hs?: SpatialHash): SpatialHash {
     const s0 = c.segStart[s]!;
     for (let k = 0; k < c.segCount[s]!; k++) {
       const i = s0 + k;
-      const l = levelFor(bound(sg, i));
+      const l = levelFor(bound(sg, i, dt));
       const cs = LEVEL_SIZE[l]!;
       const ix = Math.floor(sg.posX[i]! / cs); const iy = Math.floor(sg.posY[i]! / cs);
       hs.level[i] = l; hs.cx[i] = ix; hs.cy[i] = iy;
@@ -249,7 +258,7 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
   const c = world.cr.c;
   const sg = world.seg.c;
   const dt = opts.dt;
-  const hs = buildHash(world, st.hs);
+  const hs = buildHash(world, st.hs, dt);
   st.hs = hs;
   const acc = st.acc;
   for (let q = 0; q < hs.n; q++) { const i = hs.items[q]!; acc.fill(0, i * 6, i * 6 + 6); sg.touch[i] = 0; }
@@ -271,7 +280,12 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     let nx = cp[0]! - cp[2]!; let ny = cp[1]! - cp[3]!;
     const dist = Math.sqrt(nx * nx + ny * ny);
     const depth = ra + rb - dist;
-    if (depth <= 0) return;
+    // speculative contact: not touching yet, but closing faster than the gap allows in one tick
+    if (depth <= 0) {
+      const vrel = Math.sqrt((sg.velX[i]! - sg.velX[j]!) ** 2 + (sg.velY[i]! - sg.velY[j]!) ** 2)
+        + Math.abs(sg.angVel[i]!) * ha + Math.abs(sg.angVel[j]!) * hb;
+      if (-depth > vrel * dt) return;
+    }
     contacts++;
     if (dist > 1e-15) { nx /= dist; ny /= dist; } else { nx = 0; ny = -1; }
     // contact point arms from the centres
@@ -286,8 +300,9 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     const rvx = vax - vbx; const rvy = vay - vby;
     const vn = rvx * nx + rvy * ny;
     let Jn = 0; let Jt = 0; let tx = -ny; let ty = nx;
-    if (vn < 0) {
-      Jn = -vn / (wa + wb);
+    const gap = depth < 0 ? -depth : 0;
+    if (vn < -gap / dt) {
+      Jn = -(vn + gap / dt) / (wa + wb);
       const vt = rvx * tx + rvy * ty;
       const rta = pax * ty - pay * tx; const rtb = pbx * ty - pby * tx;
       const wta = 1 / ma + rta * rta / Ia; const wtb = 1 / mb + rtb * rtb / Ib;
@@ -297,11 +312,12 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
       const E = 0.5 * Jn * Jn * (wa + wb);
       wk.contactHeat[oa] = wk.contactHeat[oa]! + 0.5 * E;
       wk.contactHeat[ob] = wk.contactHeat[ob]! + 0.5 * E;
+      ram(sg, i, j, E); ram(sg, j, i, E);
     } else { tx = 0; ty = 0; }
     const Px = Jn * nx + Jt * tx; const Py = Jn * ny + Jt * ty;
     // depenetration, capped per tick
     const vcap = DEPEN_BL_PER_S * Math.min(lenOf(oa), lenOf(ob));
-    const corr = Math.min(depth, vcap * dt);
+    const corr = depth > 0 ? Math.min(depth, vcap * dt) : 0;
     const wsum = 1 / ma + 1 / mb;
     accum(acc, i, nx * corr * (1 / ma) / wsum, ny * corr * (1 / ma) / wsum, Px / ma, Py / ma, (pax * Py - pay * Px) / Ia);
     accum(acc, j, -nx * corr * (1 / mb) / wsum, -ny * corr * (1 / mb) / wsum, -Px / mb, -Py / mb, -(pbx * Py - pby * Px) / Ib);
@@ -310,7 +326,7 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
     const mx = 0.5 * (cp[0]! + cp[2]!); const my = 0.5 * (cp[1]! + cp[3]!);
     if (tryBite(world, ctx, st, i, j, depth) && !ownsLink(world, i)) addLink(world, LINK.JAW, i, j, mx, my, jawBreak(sg.radius[i]!));
     if (tryBite(world, ctx, st, j, i, depth) && !ownsLink(world, j)) addLink(world, LINK.JAW, j, i, mx, my, jawBreak(sg.radius[j]!));
-    tryGrab(world, i, j, mx, my); tryGrab(world, j, i, mx, my);
+    if (depth > 0) { tryGrab(world, i, j, mx, my); tryGrab(world, j, i, mx, my); }
   };
   for (let q = 0; q < hs.n; q++) cells += queryPairs(world, hs, hs.items[q]!, visit);
   // apply averaged corrections
@@ -331,6 +347,19 @@ export function stepContacts(world: World, ctx: StepContext, wk: Work, opts: Phy
   return { pairs, contacts, cells };
 }
 
+/**
+ * Ram damage (02 §2.4.6): half the impact energy above the threshold `E_THR_RAM * V` damages
+ * segment i, times 6 when the other part is a spike. Armour is not in the segment pool yet.
+ */
+function ram(sg: World['seg']['c'], i: number, j: number, E: number): void {
+  const V = segVolume(isPlate(sg.kind[i]!), sg.len[i]!, sg.radius[i]!, sg.span[i]!);
+  const ex = 0.5 * E - E_THR_RAM * V;
+  if (ex <= 0) return;
+  const spike = sg.kind[j] === KIND.SPIKE ? 6 : 1;
+  const d = sg.damage[i]! + spike * ex / (TOUGHNESS * V);
+  sg.damage[i] = d > 1 ? 1 : d;
+}
+
 function accum(acc: Float64Array, i: number, dx: number, dy: number, dvx: number, dvy: number, dw: number): void {
   const o = i * 6;
   acc[o] = acc[o]! + Math.round(dx * FIX_POS);
@@ -349,7 +378,7 @@ function tryBite(world: World, ctx: StepContext, st: ContactState, i: number, j:
   const sg = world.seg.c;
   const c = world.cr.c;
   if (sg.kind[i] !== KIND.MOUTH && (sg.organs[i]! & ORGAN.MOUTH) === 0) return false;
-  void depth;
+  if (depth <= 0) return false;
   const drive = sg.cmd2[i]!;
   if (st.biteArmed[i] === 0) { if (drive >= BITE_ON) st.biteArmed[i] = 1; else return false; }
   if (drive < BITE_OFF) { st.biteArmed[i] = 0; return false; }

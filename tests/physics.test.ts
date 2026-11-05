@@ -205,6 +205,22 @@ describe('physics: contacts and bites', () => {
     void touched;
   });
 
+  it('a fast ram onto a spike damages the rammed segment; a gentle touch does not', () => {
+    const run = (speed: number, xb: number): number => {
+      const tw = makeWorld();
+      const phys = createPhysics({ fluid: false, gravity: false });
+      const a = spawn(tw, phys.loadBody, makePhenotype([{ parent: -1, attachU: 0, restAngle: 0, length: 0.04, radius: 0.008 }]), 10, 5);
+      const spiky = makePhenotype([{ parent: -1, attachU: 0, restAngle: 0, length: 0.04, radius: 0.008, kind: KIND.SPIKE }]);
+      spawn(tw, phys.loadBody, spiky, xb, 5, 0);
+      tw.world.seg.c.velX[tw.world.cr.c.segStart[a]!] = speed;
+      for (let k = 0; k < 30; k++) { phys.step(tw.world, tw.ctx); nextTick(tw); }
+      return tw.world.seg.c.damage[tw.world.cr.c.segStart[a]!]!;
+    };
+    expect(run(0.01, 10.058)).toBe(0);
+    // 2 m/s covers 6.7 cm per tick: the speculative margin catches it before it tunnels
+    expect(run(2, 10.13)).toBeGreaterThan(0);
+  });
+
   it('a mouth with its bite drive on bites a touched body: event, damage and a bite record', () => {
     const tw = makeWorld();
     const pred = makePhenotype([
