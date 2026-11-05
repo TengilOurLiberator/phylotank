@@ -2,18 +2,25 @@
  * src/physics: rigid segment trees in XPBD, muscles, fluid drag, contacts, bites, grabs and
  * latches, active power, exploit watchdogs. CONTRACT 2, 5.1, 5.2, 7, 10.3. See README.md.
  *
- * Phase 0 implements only passive point drifters (creatures with no segments, the
- * skeleton's motes): implicit drag towards the local water velocity plus a weak seeded wander,
- * reflected at the tank walls. Everything else is a typed stub.
+ * Creatures with segments run the full-tier XPBD integrator (solver.ts); creatures without
+ * segments (the skeleton's motes) stay passive point drifters: implicit drag towards the local
+ * water velocity plus a weak seeded wander, reflected at the tank walls.
  */
 import {
-  DT, LIFE, NotImplementedError, RNG_STREAM, TAU, cos, sin, type Phenotype, type PhysicsModule, type StepContext,
+  DT, LIFE, RNG_STREAM, TAU, cos, sin, type Phenotype, type PhysicsModule, type StepContext,
   type World,
 } from '../core/index.js';
 import type { SegmentSpec } from './segment-spec.js';
+import { loadBody, restage } from './body.js';
+import { DEFAULT_OPTIONS, stepCreature, type PhysicsOptions } from './solver.js';
+import { stepContacts } from './contacts.js';
+import { workFor } from './work.js';
 
-export type { SegmentSpec };
+export type { SegmentSpec, PhysicsOptions };
 export { toSegmentSpecs } from './segment-spec.js';
+export { DEFAULT_OPTIONS, stepCreature, hill, tauAct, basalW } from './solver.js';
+export { massProps, dragCoeffs, segVolume, tissueDensity } from './body.js';
+export { workFor } from './work.js';
 
 /** Drag rate for passive drifters (1/s): a mote follows the water with a ~0.5 s lag. */
 export const DRIFTER_DRAG = 2;
@@ -77,16 +84,26 @@ function stepDrifters(world: World, ctx: StepContext): void {
   }
 }
 
-export const physics: PhysicsModule = {
-  loadBody(world: World, slot: number, ph: Phenotype) {
-    void world; void slot; void ph;
-    throw new NotImplementedError('physics.loadBody');
-  },
-  restage(world: World, slot: number, ph: Phenotype) {
-    void world; void slot; void ph;
-    throw new NotImplementedError('physics.restage');
-  },
-  step(world, ctx) {
-    stepDrifters(world, ctx);
-  },
-};
+/** Build a physics module with options (tests and benchmarks); `physics` is the default. */
+export function createPhysics(over: Partial<PhysicsOptions> = {}): PhysicsModule & { readonly opts: PhysicsOptions } {
+  const opts: PhysicsOptions = { ...DEFAULT_OPTIONS, ...over };
+  return {
+    opts,
+    loadBody(world: World, slot: number, ph: Phenotype) { loadBody(world, slot, ph); },
+    restage(world: World, slot: number, ph: Phenotype) { restage(world, slot, ph); },
+    step(world, ctx) {
+      stepDrifters(world, ctx);
+      const c = world.cr.c;
+      const wk = workFor(world);
+      const sampler = (x: number, y: number, out: Float64Array): void => sampleFlow(world, x, y, out);
+      for (let s = 0; s < world.cr.highWater; s++) {
+        const life = c.life[s];
+        if ((life !== LIFE.ALIVE && life !== LIFE.CARCASS) || c.segCount[s] === 0) continue;
+        stepCreature(world, s, wk, opts, sampler);
+      }
+      if (opts.contacts) stepContacts(world, ctx, wk, opts);
+    },
+  };
+}
+
+export const physics: PhysicsModule = createPhysics();
