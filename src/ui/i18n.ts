@@ -318,9 +318,33 @@ const SV: Record<MsgKey, string> = {
   'unit.days': '{v} d', 'unit.hours': '{v} h', 'unit.min': '{v} min', 'unit.s': '{v} s',
 };
 
-export const LOCALES = { en: EN as Record<MsgKey, string>, sv: SV } as const;
+const ACCENT: Record<string, string> = { a: 'á', e: 'é', i: 'í', o: 'ö', u: 'ü', c: 'ç', n: 'ñ', y: 'ý', A: 'Å', E: 'É', I: 'Î', O: 'Ø', U: 'Ü', C: 'Ç', N: 'Ñ' };
+/** Pseudo-locale (07 §6.3): accented and about 35% longer, ICU structure untouched. */
+export function pseudo(msg: string): string {
+  const r = pseudoBody(msg);
+  return `[${r.out}${'~'.repeat(Math.ceil(r.letters * 0.35))}]`;
+}
+function pseudoBody(msg: string): { out: string; letters: number } {
+  let out = '', letters = 0, i = 0;
+  while (i < msg.length) {
+    const c = msg[i]!;
+    if (c !== '{') { out += ACCENT[c] ?? c; if (/[A-Za-z]/.test(c)) letters++; i++; continue; }
+    const end = matchBrace(msg, i);
+    const body = msg.slice(i + 1, end);
+    const m = /^(\s*\w+\s*,\s*plural\s*,)(.*)$/s.exec(body);
+    if (m) {
+      const forms = parseForms(m[2]!);
+      out += `{${m[1]} ${Object.entries(forms).map(([k, v]) => { const b = pseudoBody(v); letters = Math.max(letters, b.letters); return `${k} {${b.out}}`; }).join(' ')}}`;
+    } else out += `{${body}}`;
+    i = end + 1;
+  }
+  return { out, letters };
+}
+const XX = Object.fromEntries(Object.entries(EN).map(([k, v]) => [k, pseudo(v)])) as Record<MsgKey, string>;
+
+export const LOCALES = { en: EN as Record<MsgKey, string>, sv: SV, xx: XX } as const;
 export type Locale = keyof typeof LOCALES;
-const BCP47: Record<Locale, string> = { en: 'en-GB', sv: 'sv-SE' };
+const BCP47: Record<Locale, string> = { en: 'en-GB', sv: 'sv-SE', xx: 'en-GB' };
 
 let current: Locale = 'en';
 export const localeChanged = new Emitter<Locale>();

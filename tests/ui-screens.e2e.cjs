@@ -157,20 +157,21 @@ function serve() {
     if (errors.length) failures.push(`god errors: ${errors.join(' | ')}`);
     await page.close();
 
-    // Swedish, small window
-    if (want('sv')) {
+    // Swedish and the pseudo-locale, small window (UX-T37: look for clipping)
+    for (const lang of ['sv', 'xx']) {
+      if (!want(lang) && only) continue;
       const p = await browser.newPage({ viewport: { width: 1280, height: 720 } });
       const errs = [];
       p.on('pageerror', (e) => errs.push(String(e)));
-      await p.goto(`${base}/god.html?lang=sv`);
+      await p.goto(`${base}/god.html?lang=${lang}`);
       await p.waitForTimeout(2000);
       await p.keyboard.press('p');
       await p.waitForTimeout(300);
-      await shot(p, 'god-sv');
+      await shot(p, `god-${lang}`);
       await p.keyboard.press('d');
       await p.waitForTimeout(600);
-      await shot(p, 'designer-sv');
-      if (errs.length) failures.push(`sv errors: ${errs.join(' | ')}`);
+      await shot(p, `designer-${lang}`);
+      if (errs.length) failures.push(`${lang} errors: ${errs.join(' | ')}`);
       await p.close();
     }
 

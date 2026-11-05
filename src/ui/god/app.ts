@@ -210,7 +210,7 @@ export class GodApp {
       h('div', { class: 'row pt-speed', role: 'group', 'aria-label': t('time.ff') }, ...speedBtns),
       unattended ? h('span', { class: 'warn', style: 'font-size:12px' }, t('time.overnightActive', { time: new Date(sp.until!.wallIso!).toLocaleTimeString(getLocale() === 'sv' ? 'sv-SE' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) }), ' ',
         h('button', { onclick: () => void this.client.setSpeed(1) }, t('time.overnightCancel')))
-        : h('button', { onclick: () => this.overnightDialog(), title: t('time.overnightTitle') }, `☾ ${t('time.overnight')}`),
+        : h('button', { class: 'ovn', onclick: () => this.overnightDialog(), title: `${t('time.overnightTitle')}`, 'aria-label': t('time.overnight') }, '☾ ', h('span', { class: 'lbl' }, t('time.overnight'))),
       this.achievedEl = h('span', { class: 'dim', style: 'font-size:12px' }, achievedText),
       h('span', { class: 'grow' }),
       status, lang);

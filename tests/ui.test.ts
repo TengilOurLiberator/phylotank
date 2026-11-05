@@ -29,6 +29,12 @@ describe('i18n (UX-T37)', () => {
     const vars = new Proxy({}, { get: () => 3 }) as Record<string, number>;
     for (const loc of ['en', 'sv'] as const) for (const k of en) expect(() => format(LOCALES[loc][k as keyof typeof LOCALES.en], vars, loc)).not.toThrow();
   });
+  it('the pseudo-locale keeps ICU structure and every message formats', () => {
+    expect(Object.keys(LOCALES.xx).length).toBe(Object.keys(LOCALES.en).length);
+    expect(format(LOCALES.xx['count.creatures'], { n: 2 }, 'xx')).toMatch(/^\[2 çréátürés~+\]$/);
+    expect(format(LOCALES.xx['caption.extinction'], { species: 'X' }, 'xx')).toContain('X');
+    for (const k of Object.keys(LOCALES.xx)) expect(() => format(LOCALES.xx[k as keyof typeof LOCALES.xx], { n: 1, s: 1 }, 'xx')).not.toThrow();
+  });
   it('plurals and Swedish numbers', () => {
     expect(format(LOCALES.en['count.creatures'], { n: 1 }, 'en')).toBe('1 creature');
     expect(format(LOCALES.en['count.creatures'], { n: 12345.6 }, 'en')).toBe('12,345.6 creatures');

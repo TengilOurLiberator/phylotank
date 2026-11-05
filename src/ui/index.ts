@@ -57,7 +57,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
   const profile = VIEW_PROFILES[mode];
   const q = new URLSearchParams(window.location.search);
   const lang = q.get('lang');
-  setLocale(lang === 'sv' || lang === 'en' ? lang : detectLocale(navigator));
+  setLocale(lang === 'sv' || lang === 'en' || lang === 'xx' ? lang : detectLocale(navigator));
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;display:block;background:#000';
   root.appendChild(canvas);

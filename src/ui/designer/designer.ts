@@ -400,7 +400,7 @@ export class DesignerView {
     if (!this.footEl) return;
     const b = this.budget;
     const max = Math.max(b.income.rich, b.costW) * 1.05;
-    const bar = (label: string, v: number, colour: string) => h('div', { class: 'ebar' }, h('span', { class: 'dim' }, label),
+    const bar = (label: string, v: number, colour: string) => h('div', { class: 'ebar' }, h('span', { class: 'dim', title: label }, label),
       h('div', { class: 'b' }, h('i', { style: `width:${Math.min(100, (v / max) * 100)}%;background:${colour}` })), h('span', { style: 'text-align:right;font-variant-numeric:tabular-nums' }, fmtW(v)));
     const costs: [string, number, string][] = [['basal', b.basalW, '#6fb7c9'], ['repair', b.repairW, '#5a8fa8'], ['muscle', b.muscleW, '#e8c06a'], ['brain', b.brainW, '#c59cf0'], ['organs', b.organW, '#8ee0a0'], ['glow', b.glowW, '#62d2e8'], ['repro', b.reproW, '#ef8c72']];
     const stack = h('div', { class: 'ebar' }, h('span', { class: 'dim' }, t('designer.costs')),
