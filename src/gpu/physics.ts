@@ -197,13 +197,16 @@ export class GpuPhysicsEngine {
       const s = pk.slots[q]!; const s0 = c.segStart[s]!; const n = c.segCount[s]!; const g0 = pk.base[q]!;
       const oo = q * CRO.STRIDE;
       const axm = cro32[oo + CRO.AX]! / Q16; const aym = cro32[oo + CRO.AY]! / Q16;
+      let wPos = 0;
       for (let k = 0; k < n; k++) {
         const i = s0 + k; const g = g0 + k;
         sg.posX[i] = axm + dyn[SDYN.OX * S + g]!; sg.posY[i] = aym + dyn[SDYN.OY * S + g]!;
         sg.angle[i] = dyn[SDYN.ANG * S + g]!; sg.velX[i] = dyn[SDYN.VX * S + g]!; sg.velY[i] = dyn[SDYN.VY * S + g]!;
         sg.angVel[i] = dyn[SDYN.W * S + g]!; sg.act[i] = dyn[SDYN.ACT * S + g]!; sg.work[i] = dyn[SDYN.WORK * S + g]!;
         wk.restPrev[i] = sg.restAngle[i]!; wk.netWork[i] = dyn[SDYN.NETWORK * S + g]!; wk.dragWork[i] = 0;
+        if (k > 0) wPos += sg.work[i]!;
       }
+      c.workJ[s] = c.workJ[s]! + wPos; // cumulative positive muscle work, as src/physics endCreature
       c.posX[s] = sg.posX[s0]!; c.posY[s] = sg.posY[s0]!;
       c.velX[s] = crof[oo + CRO.VX]!; c.velY[s] = crof[oo + CRO.VY]!;
       c.heading[s] = crof[oo + CRO.HEAD]!; c.angVel[s] = crof[oo + CRO.W]!;
