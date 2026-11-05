@@ -78,6 +78,7 @@ export function tickBrain(world: World, c: number, s: number, st: BrainStatic, t
   const synDw = p.synDw, synMeta = p.synMeta, osc = p.osc;
   const nIn = p.nIn[s]!, nNeu = p.nNeu[s]!;
   const bI = s * I, bN = s * N, bS = s * K * N;
+  const rowLen = st.rowLen;
   const plastic = st.plastic && synDw.length > 1;
   const fLow = p.fBand[s * 2]!, fHigh = p.fBand[s * 2 + 1]!;
   const F = fLow + (fHigh - fLow) * sigmoid(4 * oPrev[bN]!);
@@ -86,7 +87,9 @@ export function tickBrain(world: World, c: number, s: number, st: BrainStatic, t
   for (let i = 0; i < nNeu; i++) phasePrev[i] = phase[bN + i]!;
   for (let i = 0; i < nNeu; i++) {
     let sum = 0;
-    for (let k = 0; k < K; k++) {
+    // padding slots (w = 0) after the packed row are skipped; they add exactly zero
+    const kn = rowLen[i]!;
+    for (let k = 0; k < kn; k++) {
       const at = bS + k * N + i;
       const j = synSrc[at]!;
       let wv = synW[at]!;
@@ -146,7 +149,7 @@ function plasticity(world: World, c: number, s: number, st: BrainStatic, dtb: nu
   const R = st.rules;
   for (let i = 0; i < nNeu; i++) {
     const post = p.o[bN + i]!;
-    for (let k = 0; k < K; k++) {
+    for (let k = 0; k < st.rowLen[i]!; k++) {
       const at = bS + k * N + i;
       const meta = p.synMeta[at]!;
       if ((meta & 4) === 0) continue;

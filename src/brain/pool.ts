@@ -32,6 +32,8 @@ export interface BrainStatic {
   /** Per motor: destination code (see think.ts) and part. */
   outDest: Uint8Array;
   outPart: Int16Array;
+  /** Used synapse slots per neuron (rows are packed from k = 0; the rest is padding). */
+  rowLen: Uint8Array;
 }
 
 export interface BrainWorldState {
@@ -145,7 +147,7 @@ export function makeStatic(world: World, creature: number, ph: Phenotype, g: Gen
     tempOpt: traitValue(g, 'TEMP_OPTIMUM'), tempTol: traitValue(g, 'TEMP_TOLERANCE'),
     fatCapacity: traitValue(g, 'FAT_CAPACITY'), clutchCostQ: clutchCostQ(g, ph.adultLengthM || ph.lengthM),
     gutCapKg: Math.max(1e-15, ph.gutVolume * 1060),
-    outDest, outPart,
+    outDest, outPart, rowLen: Uint8Array.from(spec.src.map((r) => r.length)),
   };
 }
 

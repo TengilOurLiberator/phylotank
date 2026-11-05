@@ -188,7 +188,10 @@ export function developBrain(ph: Phenotype, g: Genome, opts: DevelopBrainOptions
   const chem = L.chemos.find((c) => c.channels.includes(0));
   const plantLevel = chem ? ix.input(IN.CHEMO_LEVEL, chem.part, chemSlot(L, chem, 0)) : -1;
   const plantRate = chem ? ix.input(IN.CHEMO_RATE, chem.part, chemSlot(L, chem, 0)) : -1;
-  syn(M(OUT.CPG_TURN), plantRate, -R.graze * 2 * gChem);
+  // a linear rate -> turn reflex only orbits a source (fixed point at 90 degrees); a small turning bias
+  // that the rate suppresses when the smell improves gives a biased walk that spirals in
+  syn(M(OUT.CPG_TURN), plantRate, -R.graze * 4 * gChem);
+  if (plantRate >= 0) syn(M(OUT.CPG_TURN), BIAS, R.graze * 0.4);
   const chemB = L.chemos.find((c) => c.channels.includes(1));
   const bloodLevel = chemB ? ix.input(IN.CHEMO_LEVEL, chemB.part, chemSlot(L, chemB, 1)) : -1;
   const chemP = L.chemos.find((c) => c.channels.includes(4));

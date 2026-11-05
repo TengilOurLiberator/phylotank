@@ -105,6 +105,7 @@ describe('CTRNN and oscillators (03 §3.14 tests 1, 2)', () => {
       for (let k = 0; k < K; k++) { p.synSrc[s * K * N + k * N + h] = L.nIn + h; p.synW[s * K * N + k * N + h] = 0; }
       p.synSrc[s * K * N + h] = 0; // BIAS
       p.synW[s * K * N + h] = 1;
+      brainState(world).statics[c]![s]!.rowLen[h] = 1;
       p.alpha[s * N + h] = 1 - exp(-DT / tau);
       p.theta[s * N + h] = 0;
       const ticks = Math.min(600, Math.round((3 * tau) / DT));

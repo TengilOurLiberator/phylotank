@@ -343,15 +343,27 @@ export function buildLayout(ph: Phenotype, g: Genome, tvIn?: BrainTraitValues): 
   if (tv.headHidden > 64) trims.push(`head hidden ${tv.headHidden} -> 64`);
   let L = build(ph, g, tv, ts);
   const fits = (): boolean => sizeClassOf(L.nNeurons, L.nIn) >= 0;
-  while (!fits() && ts.gangKeep > 0 && tv.hiddenPerSegment > 0) { ts.gangKeep--; L = build(ph, g, tv, ts); }
+  // Each stage keeps the largest count that fits, found by bisection (fitting is monotone in it).
+  const shrink = (get: () => number, set: (v: number) => void, lo: number): void => {
+    if (fits()) return;
+    let best = lo;
+    let a = lo, b = get() - 1;
+    while (a <= b) {
+      const mid = (a + b) >> 1;
+      set(mid); L = build(ph, g, tv, ts);
+      if (fits()) { best = mid; a = mid + 1; } else b = mid - 1;
+    }
+    set(best); L = build(ph, g, tv, ts);
+  };
+  if (tv.hiddenPerSegment > 0) shrink(() => ts.gangKeep, (v) => { ts.gangKeep = v; }, 0);
   if (ts.gangKeep < nSeg) trims.push(`ganglia kept on ${ts.gangKeep} of ${nSeg} segments`);
   while (!fits() && ts.eyeShift < 4 && L.eyes.some((e) => e.receptors > 1)) { ts.eyeShift++; L = build(ph, g, tv, ts); }
   if (ts.eyeShift > 0) trims.push(`eye receptors merged pairwise ${ts.eyeShift}x`);
-  while (!fits() && L.count.osc > 0) { ts.oscKeep = L.count.osc - 1; L = build(ph, g, tv, ts); }
+  if (!fits()) { ts.oscKeep = L.count.osc; shrink(() => ts.oscKeep, (v) => { ts.oscKeep = v; }, 0); }
   if (ts.oscKeep < ph.nParts) trims.push(`oscillators kept ${ts.oscKeep}`);
-  while (!fits() && ts.partInKeep > 0) { ts.partInKeep--; L = build(ph, g, tv, ts); }
+  shrink(() => ts.partInKeep, (v) => { ts.partInKeep = v; }, 0);
   if (ts.partInKeep < ph.nParts) trims.push(`part inputs kept on ${ts.partInKeep} parts`);
-  while (!fits() && ts.partOutKeep > 0) { ts.partOutKeep--; L = build(ph, g, tv, ts); }
+  shrink(() => ts.partOutKeep, (v) => { ts.partOutKeep = v; }, 0);
   if (ts.partOutKeep < ph.nParts) trims.push(`part outputs kept on ${ts.partOutKeep} parts`);
   L.trims = trims;
   return L;

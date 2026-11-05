@@ -105,6 +105,16 @@ function band(colour: number, b: number): number {
 }
 function clamp01(x: number): number { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
+const NB_CAP = 512;
+const nbBuf = new Int32Array(NB_CAP);
+let nbCount = 0;
+const nearBuf = new Int32Array(NB_CAP);
+let nearCount = 0;
+/** Gather the neighbours of one creature once; every eye and lateral organ filters this list. */
+function gather(g: Grid, x: number, y: number, r: number, self: number): void {
+  nbCount = 0;
+  forNear(g, x, y, r, (j) => { if (j !== self && nbCount < NB_CAP) nbBuf[nbCount++] = j; });
+}
 const depthBuf = new Float64Array(16);
 const objBuf = new Int32Array(16);
 const radBuf = new Float64Array(16);
@@ -197,6 +207,20 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     return [x, y, heading];
   };
 
+  nbCount = 0;
+  if (grid) {
+    let r = 4 * len + len;
+    for (const e of L.eyes) r = Math.max(r, Math.min(MAX_EYE_RANGE_M, e.rangeBL * len) + len);
+    if (L.eyes.length > 0 || r > 0) gather(grid, x, y, r, k);
+  }
+  // the lateral line only feels the near list (4 body lengths of an organ, so 5 of the centre)
+  nearCount = 0;
+  const near2 = 25 * len * len;
+  for (let q = 0; q < nbCount; q++) {
+    const j = nbBuf[q]!;
+    const dx = cr.posX[j]! - x, dy = cr.posY[j]! - y;
+    if (dx * dx + dy * dy <= near2 && nearCount < NB_CAP) nearBuf[nearCount++] = j;
+  }
   // eyes
   for (const e of L.eyes) {
     const [ex, ey] = partPos(e.part);
@@ -205,27 +229,32 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
     const axis = heading - mirror * e.mount;
     const range = Math.min(MAX_EYE_RANGE_M, e.rangeBL * len);
     const binW = e.fovRad / R;
+    const ax = cos(axis), ay = sin(axis);
     for (let r = 0; r < R; r++) { depthBuf[r] = Infinity; objBuf[r] = -1; }
-    if (grid) {
-      forNear(grid, ex, ey, range, (j) => {
-        if (j === k) return;
+    for (let q = 0; q < nbCount; q++) {
+      {
+        const j = nbBuf[q]!;
         const dx = cr.posX[j]! - ex, dy = cr.posY[j]! - ey;
         const d2 = dx * dx + dy * dy;
         const rad = 0.5 * cr.length[j]!;
-        if (d2 > (range + rad) * (range + rad) || d2 <= 0) return;
+        if (d2 > (range + rad) * (range + rad) || d2 <= 0) continue;
         const dist = Math.sqrt(d2);
-        const a = dist > rad ? atan(rad / dist) : PI / 2;
-        if (a < MIN_ANGLE) return;
-        const rel = wrapAngle(atan2(dy, dx) - axis);
+        const ratio = rad / dist;
+        // atan(x) = x (1 - x^2/3) within 2e-3 relative for x < 0.1
+        const a = dist <= rad ? PI / 2 : ratio < 0.1 ? ratio * (1 - (ratio * ratio) / 3) : atan(ratio);
+        if (a < MIN_ANGLE) continue;
         const half = e.fovRad / 2;
-        if (rel - a > half || rel + a < -half) return;
+        // cone pre-check with dot products before the atan2
+        if (half + a < PI && dx * ax + dy * ay < dist * cos(half + a)) continue;
+        const rel = wrapAngle(atan2(dy, dx) - axis);
+        if (rel - a > half || rel + a < -half) continue;
         let b0 = Math.floor((rel - a + half) / binW), b1 = Math.floor((rel + a + half) / binW);
         if (b0 < 0) b0 = 0;
         if (b1 > R - 1) b1 = R - 1;
         for (let b = b0; b <= b1; b++) {
           if (dist < depthBuf[b]! || (dist === depthBuf[b]! && j < objBuf[b]!)) { depthBuf[b] = dist; objBuf[b] = j; radBuf[b] = rad; }
         }
-      });
+      }
     }
     const kappa = 0.1 + world.fields.turb[ci]!;
     const r0 = Math.max(0.05, range / 2);
@@ -286,19 +315,19 @@ function senseOne(world: World, c: number, s: number, st: BrainStatic, tick: num
         const nxD = mirror * sin(pa), nyD = -mirror * cos(pa);
         let pD = 0, pV = 0;
         const rng = 4 * len;
-        if (grid) {
-          forNear(grid, px, py, rng, (j) => {
-            if (j === k) return;
+        for (let q = 0; q < nearCount; q++) {
+          {
+            const j = nearBuf[q]!;
             const dx = cr.posX[j]! - px, dy = cr.posY[j]! - py;
             const d2 = dx * dx + dy * dy;
-            if (d2 > rng * rng || d2 <= 0) return;
+            if (d2 > rng * rng || d2 <= 0) continue;
             const dvx = cr.velX[j]! - vx, dvy = cr.velY[j]! - vy;
             const m = cr.massKg[j]! * Math.sqrt(dvx * dvx + dvy * dvy);
             const dist = Math.sqrt(d2);
             const cosn = (nxD * dx + nyD * dy) / dist;
             const e2 = d2 + 1e-6 * len * len;
             if (cosn > 0) pD += (m * Math.sqrt(cosn)) / e2; else pV += (m * Math.sqrt(-cosn)) / e2;
-          });
+          }
         }
         const p0 = Math.max(1e-15, cr.massKg[k]! / len);
         const selfNoise = 0.1 * (Math.sqrt(vx * vx + vy * vy) / len);
