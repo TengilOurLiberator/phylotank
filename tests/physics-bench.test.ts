@@ -195,6 +195,7 @@ describe('physics spike: flagellum (B2) and low-Re convergence', () => {
       rows.push({ nSub: 4, iterations: 1, solver: `tree dt=1/${Math.round(1 / dtx)}`, U, errRef: (U - ref) / ref, errGH: (U - Math.abs(gh)) / Math.abs(gh) });
     }
     log('flagellum', { gamma, V, grayHancockU: gh, refU: ref, refOverGH: ref / gh, rows });
+    expect(Math.abs(rows[2]!.errRef)).toBeLessThan(0.03); // tree solver, n_sub 16
   });
 
   it.runIf(LONG)('T1 at low Re: Purcell displacement per cycle against n_sub', { timeout: 600_000 }, () => {
