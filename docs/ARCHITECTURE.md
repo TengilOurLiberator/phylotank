@@ -40,9 +40,9 @@ Phylotank is one TypeScript codebase that runs a deterministic, fixed-step simul
                                            |  the same CONTRACT 12 frames
                                            v
                     +------------------------------------------------------+
-                    |  views (web/*.html -> src/ui): wallpaper, screensaver,|
-                    |  tv, god. Renderer (src/render), camera director      |
-                    |  (src/director), ambience (src/audio)                 |
+                    |  views (web/*.html, src/ui): wallpaper, screensaver, |
+                    |  tv and god; renderer (src/render), camera director  |
+                    |  (src/director), ambience (src/audio)                |
                     +------------------------------------------------------+
 ```
 
@@ -145,7 +145,7 @@ Every link carries the binary frames of CONTRACT 12 (codecs in `src/core/protoco
 | view to sim | HELLO (view mode, capabilities, viewport, god token), VIEWPORT (at most 10 Hz, when the camera moves), ACK (2 Hz), COMMAND (god commands, CBOR), GENOME_REQ |
 | sim to view | WELCOME (tank, palette, species, scopes), BODY_ENTER and BODY_LEAVE (which creatures are drawn as bodies, with their genome keys), BODY_FRAME (10-byte quantised records per body), NEAR_POSE (joint angles for close-ups), DUST_FRAME (specks), GLOW_FIELD (the far haze), FIELDS (environment grids), ENV (day, year, light, surface), CENSUS (species counts, 1 Hz), EVENT (the event channel, CBOR), STATS and INSPECT (god scope), COMMAND_RESULT, GENOME |
 
-Slots in BODY and DUST frames are stable per client, so the renderer interpolates each slot between frames. A view renders 150 to 250 ms behind the newest frame. Bodies are not sent as shapes: a view fetches the genome by its key and regrows the body locally with the same `develop()` the sim uses.
+Slots in BODY and DUST frames are stable per client, so the renderer interpolates each slot between frames. A view renders 150 to 250 ms behind the newest frame. Bodies are not sent as shapes: a view fetches the genome by its key (GENOME_REQ) and regrows the body locally with the same `develop()` the sim uses. The dream-tank session answers GENOME_REQ today; the host does not yet, and nothing sends NEAR_POSE yet.
 
 ### 5.3 In the host
 
