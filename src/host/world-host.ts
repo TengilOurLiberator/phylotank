@@ -30,6 +30,8 @@ export interface HostWorldOptions {
   dir?: string;
   config: WorldConfig;
   retention?: Retention;
+  /** Load and replay only: write no snapshot and open no journal (CLI `replay`). */
+  readOnly?: boolean;
   /** Wall clock for snapshot metadata only. */
   wallIso?: () => string;
 }
@@ -78,6 +80,7 @@ export class HostWorld {
       }
     }
     if (!base) {
+      if (o.readOnly) throw new Error(`no readable snapshot in ${o.dir}`);
       report.created = true;
       const hw = new HostWorld(sim.create(o.config), store, report, wallIso);
       hw.save('auto');
@@ -88,7 +91,7 @@ export class HostWorld {
     for (const e of base.d.pending) hw.queue(e);
     hw.replay(base.info, base.d);
     // A clean base for the next crash: snapshot the recovered state, which also rotates the journal.
-    hw.save(report.replayedTicks > 0 || report.failed.length > 0 ? 'recovery' : 'auto');
+    if (!o.readOnly) hw.save(report.replayedTicks > 0 || report.failed.length > 0 ? 'recovery' : 'auto');
     return hw;
   }
 
