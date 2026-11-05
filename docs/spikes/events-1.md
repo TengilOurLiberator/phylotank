@@ -55,6 +55,8 @@ Records, migrations, blooms, outbreaks and new roles did not fire here, as expec
 | host `InterestStream`, whole tank as bodies, 8 s | 600 | 89.4 KB/s | 30.4 KB/s | 34.0% |
 | synthetic random walk (jittery headings, glow and bend changing every frame, slots leaving), 300 frames | 200 | | | under 75% (asserted) |
 
+After merging main (real modules in the product sim; the bandwidth tests pin the fallback modules) the same two runs gave 77.8 KB/s (35.0%, 3.55 B per body per frame) and 28.4 KB/s (31.7%). Through the running host with the real modules (`tests/events-host.test.ts`) the 1.1 view's frames were deltas and decoded cleanly.
+
 Per body per frame (1,498 bodies, 15 s, a scratch run with node zlib): keyframe 10.13 B, deflate-raw level 1 7.16 B; delta 3.59 B, deflated 2.32 B. 05 §5.3.4 estimated "about 3.5 B before zstd, about 2.5 B after". Slot classes in the 30 s run: 2,960 predicted, 648,670 residual, 0 full, 870 absent: the fallback brain changes heading by one to four 1.4-degree steps on most frames, so almost every body costs the mask byte, one byte of nibble position residuals and a heading byte. A still creature costs nothing but its two class bits (tested).
 
 Every delta stream in the tests decodes to exactly the records of the parallel 1.0 keyframe stream (host and dream-tank session included), so a 1.1 view sees the same tank as a 1.0 view.

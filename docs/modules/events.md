@@ -52,6 +52,10 @@ Every event carries `pos`, `size`, `novelty` (0 to 1) and `durationS` where they
 7. **Eggs are not here.** They need the birth commit and the ecology step (contract request EV4).
 8. **Protocol 1.1 is lossless and opt-in.** The delta decoder reproduces exactly the keyframe records, so a view never drifts; it is sent only to a view that says `caps.proto >= 0x0101`, so 1.0 views (every view in the tree today) see no change. Keyframes every 2 s, on a new client, on resync and whenever the encoder has no baseline. A slot that changes entity is sent FULL, so the decoder never needs BODY_LEAVE to stay right.
 
+## Tests
+
+`tests/events.test.ts` (15: every detector on a staged world, the corpse flood, the bloom sweep, determinism and the state hash on the real product sim, a twin-suite check, CPU cost on full Small and Default tanks, and the director's StoryBook reading the events), `tests/events-protocol.test.ts` (6: lossless round trip, 1.0 compatibility, dead reckoning, measured bandwidth, the host and dream-tank streams), `tests/events-host.test.ts` (1: caps.proto through the running host). Staged worlds use `createSim(fallbackModules())` (one capsule part per creature), so a test stages exactly the event it names. `tests/events-bench.ts` is the bench behind the spike.
+
 ## Not done
 
 - The director does not yet read `bloom`, `lineage` or the scoring fields (request EV5); unknown kinds are ignored by its StoryBook, so nothing breaks.
