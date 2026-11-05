@@ -17,7 +17,7 @@ No. Creatures swim because their fins push water, starve when they burn more tha
 From *phylogeny* (the tree of descent) and *tank*.
 
 **Is it finished?**
-No. It is at v0.1 "Glass tank", in progress. Many of its parts are built and tested separately and are being joined into one simulation now. The README and the user guide say exactly what works.
+No. It is at v0.1 "Glass tank", in progress. Its parts were built and tested separately and have only just been joined into one simulation, so the balance between species is still being tuned. The README and the user guide say exactly what works.
 
 **Was it written with AI?**
 Much of the initial code and documentation was written with an AI coding assistant; commits that it wrote carry a `Co-Authored-By` trailer that says so. Contributions from people are very welcome (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
@@ -40,7 +40,7 @@ The simulation runs in a Web Worker, and browsers do not start workers for files
 It is designed not to. The host has throttle states: it backs off when a game goes full screen, when another program is busy on the GPU, or on battery, and Lively pauses the wallpaper during full-screen apps. The Windows probes that detect these are part of the tray app and have not been tried on real hardware yet.
 
 **Does the tank keep living when my screen is off?**
-With the host running, yes: the world runs all the time at its normal speed and every view joins it where it is. A browser tab on its own (the dream tank) pauses when the tab is hidden, and today it starts afresh when you reload.
+With the host running, yes: the world runs all the time at its normal speed and every view joins it where it is. A browser tab on its own (the dream tank) runs only while the tab is open; it saves itself every 5 minutes and when you leave, and carries on from there next time.
 
 **Does it fast-forward while I am away?**
 Only if you ask. Speeds above 1x are leases that lapse when the god window closes. The one exception is the overnight lease ("run at max until ..."), which you start deliberately and which shows a banner while it runs. Phylotank never fast-forwards silently.
@@ -57,7 +57,7 @@ See the troubleshooting table in [INSTALL.md](INSTALL.md#troubleshooting).
 ## The tank and its creatures
 
 **Why do I only see glowing dots?**
-Two reasons. Creatures too small to draw at the current zoom are drawn as specks, which is how the tank looks from far away by design. And today the running tank uses simple stand-in creatures while the real bodies, physics and brains are being joined into it; zoomed in, they will resolve into full glowing bodies.
+Creatures too small to draw at the current zoom are drawn as specks, which is how the tank looks from far away by design: most creatures are a few millimetres to a few centimetres long in a tank 32 metres wide. When the camera is close enough to a creature, it resolves into a full glowing body, regrown in the view from its genome. In this early build the specks at the whole-tank zoom are fainter than they should be.
 
 **Can the population explode, or everything die?**
 It cannot explode: there is a fixed amount of matter in the tank, counted exactly, and every newborn is built from food its parent ate. As the tank fills, births get more expensive (a birth tax that hits tiny fast breeders hardest), and at the cap they wait. Everything dying is possible, and is meant to be: if it happens, the timeline and the ledger say why. The design adds safety valves (reseeding from a gene bank, a trickle of immigrants), which are logged and shown, never hidden.

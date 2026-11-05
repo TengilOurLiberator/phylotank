@@ -17,22 +17,22 @@ Phylotank is being built in the open and is **not ready for everyday use yet**. 
 
 **Works**
 
-- The tank runs in a browser tab with nothing installed: about 1,500 small creatures that feed on plankton, grow, bud, age and die, drawn as glowing specks in dark water with slow light shafts. Every gram of matter is accounted for, and the same seed always gives the same world.
+- The tank runs in a browser tab with nothing installed. It starts with about 350 creatures of five original species: Motefly microbes near the surface, Meadowlamp grazers on the shelf, Ashpicker scavengers on the floor, drifting Sievebell filter feeders and a few Hushmaw predators. Their bodies are grown from their genomes (segments, fins, mouths, eyes, light organs), they swim by real physics, their brains drive their muscles, and they feed, grow, breed with mutation, age and die in a habitat with currents, light, plankton and nutrient cycling. Every gram of matter is accounted for, the same seed always gives the same world, and the tank saves itself in the browser every 5 minutes and resumes when you come back.
 - A Node host that keeps one persistent world on your PC, saves it every 10 minutes, recovers exactly after a crash by replaying its journal, and streams the world to every view over a local WebSocket.
-- The god window, against a practice world that runs inside the page: speed controls with leases, casting the twelve core god powers with countdowns and hold-to-confirm, the inspector with a live brain view, population, species-tree, gene and diversity charts, timeline, bookmarks, rewind, English and Swedish.
+- The god window, against a practice world that runs inside the page: speed controls with leases, the twelve core god powers with countdowns and hold-to-confirm, the inspector with a live brain view, population, species-tree, food-web, gene and gene-drift charts, timeline, bookmarks, rewind, renaming species, world knobs with presets, a welcome tour, gamepad control, a high-contrast theme, English and Swedish.
 - The creature designer: gene sliders and a part editor over one genome, a growth strip, an energy budget estimate, validation that warns but never forbids.
+- The TV view's overlay for a remote or a gamepad.
 - Sharing creatures as `.ptkg` files, `PTK1.` strings, share links and QR codes, with a share page that makes no network requests.
 - Packaging: a Lively Wallpaper package, a Windows `.scr` screensaver and a tray app that supervises the host, built and tested in CI.
 
-**Built and tested, but not yet wired into the running tank**
+**Just joined, so expect rough edges**
 
-- Grown bodies (segments, fins, limbs, eyes, mouths, light organs) with real swimming physics, organ-based brains, mutation, crossover and automatic species; the full ecosystem (terrain, currents, light, oxygen, plankton and mats, disease, every god power's effect); the SDF body renderer with trails and bloom; the camera director; the generative ambience. Each works and is tested on its own; joining them into one sim is the current work. Until then the running tank uses simple one-capsule stand-in creatures.
+- The real genome, physics, brain and ecosystem modules were joined into one simulation on 5 November 2026. Balance (who survives, how fast things evolve) is still being tuned with long headless runs, the full simulation is much heavier than before and has not been measured on ordinary PCs, and at the whole-tank zoom the creatures are faint specks.
 
 **Not done yet**
 
-- The god window cannot yet change a world on a host (it watches only), and the screensaver's camera still drifts like the wallpaper's.
-- The browser tank does not save between reloads.
-- A test tank in the designer, the food-web chart, onboarding, TV controls and LAN pairing, the GPU backend.
+- The god window cannot yet change a world on a host (it watches only), and the screensaver's camera still drifts like the wallpaper's instead of following the director.
+- A test tank in the designer that runs the real physics, LAN pairing for the TV, the GPU backend.
 - Nothing has been tried yet on the target Windows PC, in Lively itself or on a real TV; those steps are marked unverified in [INSTALL.md](docs/INSTALL.md).
 
 The [user guide](docs/USER-GUIDE.md) marks every feature as working, partly working or planned.

@@ -61,11 +61,11 @@ Every directory under `src/` is a module with one owner and a README (`src/<modu
 | `src/physics` | `PhysicsModule`: bodies from the Phenotype, joints and muscles, drag and added mass, the exact tree joint solve, contacts, bites, grabs and latches, `powerW`, the exploit watchdog, swimmer cards | `segment-spec.ts`, `body.ts`, `solver.ts`, `tree.ts`, `contacts.ts`, `links.ts`, `watchdog.ts`, `card.ts` | core, genome |
 | `src/brain` | `BrainModule`: the brain layout from the grown body, direct and CPPN wiring, class pools, perception (`sense`), the CTRNN and oscillator tick (`think`), the inspector frame, behaviour templates | `layout.ts`, `develop.ts`, `cppn.ts`, `pool.ts`, `sense.ts`, `think.ts`, `inspect.ts`, `templates.ts` | core, genome |
 | `src/ecosystem` | `EcosystemModule`: terrain, flow, light, temperature, oxygen, scents, producers, nutrient cycling, metabolism, feeding, digestion, growth, reproduction requests, ageing, carcasses, disease, every god power's effect, nature mode, safety valves, metrics, the ledger and its audit | `terrain.ts`, `flow.ts`, `env.ts`, `transport.ts`, `producers.ts`, `metabolism.ts`, `disease.ts`, `god.ts`, `valves.ts`, `metrics.ts`, `ledger.ts` | core, genome |
-| `src/sim` | `SimCore`: world creation, the tick pipeline, the journal, the birth and death commit, slot allocation and compaction, view frames, the protocol session, the wall-clock pacer and speed leases, the worker entry and the view-side links; local fallback modules | `index.ts`, `commit.ts`, `requests.ts`, `state.ts`, `store.ts`, `species.ts`, `persist.ts`, `frames.ts`, `session.ts`, `pacer.ts`, `worker.ts`, `client.ts`, `runner.ts`, `detectors.ts`, `fallback/` | core, genome, physics, brain, ecosystem |
+| `src/sim` | `SimCore`: world creation, the tick pipeline, the journal, the birth and death commit, slot allocation and compaction, view frames, the protocol session, the wall-clock pacer and speed leases, the worker entry and the view-side links; local fallback modules | `index.ts`, `commit.ts`, `eco-commit.ts`, `requests.ts`, `state.ts`, `store.ts`, `species.ts`, `persist.ts`, `autosave.ts`, `frames.ts`, `session.ts`, `pacer.ts`, `worker.ts`, `client.ts`, `runner.ts`, `detectors.ts`, `fallback/` | core, genome, physics, brain, ecosystem |
 | `src/render` | `RendererModule` in WebGL2: frame decoding, five LOD tiers, SDF bodies, glow, trails, bloom, tonemapping, dither, the three-layer flash defence, per-mode profiles | `index.ts`, `gl.ts`, `shaders.ts`, `lod.ts`, `pose.ts`, `template.ts`, `archetypes.ts`, `colour.ts`, `safety.ts` | core, genome |
 | `src/director` | the camera director (StoryBook, scoring with exposure memory, shots, springs, van Wijk zoom paths, dips, caption text) and the idle drift | `director.ts`, `storybook.ts`, `exposure.ts`, `motion.ts`, `drift.ts`, `captions.ts`, `replay.ts` | core |
 | `src/audio` | generative Web Audio ambience and a deterministic offline renderer for tests | `composer.ts`, `theory.ts`, `webaudio.ts`, `offline.ts` | core |
-| `src/ui` | the view shell for every mode, captions, the god window, the designer, the library and sharing, localisation, the host-first link and an in-page mock sim | `index.ts`, `link.ts`, `mock-sim.ts`, `captions.ts`, `i18n.ts`, `god/`, `designer/` | core, genome, render, director, audio, `sim/client` only |
+| `src/ui` | the view shell for every mode, captions, the TV overlay, gamepad input, onboarding, species naming, slider labels, localisation, the god window (powers, knobs, charts, food web, inspector), the designer, the library and sharing, bodies regrown from genomes for the views, the host-first link and an in-page mock sim | `index.ts`, `link.ts`, `genomes.ts`, `mock-sim.ts`, `captions.ts`, `tv.ts`, `gamepad.ts`, `onboarding.ts`, `naming.ts`, `labels.ts`, `i18n.ts`, `god/`, `designer/` | core, genome, render, director, audio, `sim/client` only |
 | `src/host` | the Node host: HTTP and WebSocket server, security and pairing, per-client interest and streaming, god-command intake, the journal, `.ptk` persistence, recovery, migrations, throttle states, the governor, detectors, the CLI | `main.ts`, `index.ts`, `world-host.ts`, `snapshot.ts`, `store.ts`, `interest.ts`, `commands.ts`, `security.ts`, `throttle.ts`, `scheduler.ts`, `detectors.ts`, `summary.ts`, `gpu.ts` | core, genome, sim |
 | `web/` | the HTML entry pages and the bootstrap (`main.ts` reads the mode and calls `bootView`) | `index.html`, `wallpaper.html`, `screensaver.html`, `tv.html`, `god.html`, `main.ts` | ui, core |
 | `site/` | the public GitHub Pages site: landing page, embedded demo, creature share page | `index.html`, `share.html`, `src/`, `build.mjs` | core, genome, ui |
@@ -83,7 +83,7 @@ interface EcosystemModule { initWorld; flowAt; stepEcology; stepSlow; applyGodEv
 interface SimCore         { create; step; hash }
 ```
 
-`createSim(modules)` in `src/sim/index.ts` builds a `SimCore` from any set of these; a module left out is replaced by its stand-in in `src/sim/fallback/`, so modules can be swapped in one at a time.
+`createSim(modules)` in `src/sim/index.ts` builds a `SimCore` from any set of these. The product sim, `sim`, is `createSim(realModules())`: the real genome (with one innovation registry per world), physics, brain and ecosystem; the dream tank, the host and the tools all use it. A module left out of `createSim` is replaced by its stand-in in `src/sim/fallback/`; `fallbackSim` (all stand-ins) is kept for the sim's own pipeline tests.
 
 ## 3. World state
 
@@ -110,16 +110,17 @@ One tick is `DT = 1/30 s` of sim time on every machine. Throttling changes how m
 2b. actuate      sim: NaN outputs become 0; every output and command is clamped to [-1, 1]
 3. physics       physics.step: substeps (4, 8 or 16), joints, muscles, drag, contacts,
                  bites, grabs and latches; writes pose, velocities, powerW, work, touch
-4. ecology       if tick % 3 == 0 (10 Hz): ecosystem.stepEcology (feeding, digestion,
-                 metabolism, growth and restage, reproduction requests, ageing, deaths,
-                 field reactions and transport), then commitBirthsAndDeaths
+4. ecology       if tick % 3 == 0 (10 Hz): feed physics' bites to the ecosystem's exchange,
+                 ecosystem.stepEcology (feeding, digestion, metabolism, growth and restage,
+                 reproduction requests, ageing, deaths, field reactions and transport),
+                 then the birth and death commit (commitWithEcosystem)
 5. slow          if tick % 15 == 0 (2 Hz): ecosystem.stepSlow (flow modes, light, temperature)
 6. advance       tick += 1; a hash checkpoint every 256 ticks when enabled
 ```
 
 Notes that matter when you change any of it:
 
-- **Births and deaths are batched.** Requests made during ticks `t-2 .. t` are committed at the end of ecology tick `t`: deaths first (in entity-id order), then empty carcasses freed, then births in `(parentEntityId, tick, requestIndex)` order. Each birth runs the genome operators (keyed by the child's new entity id), `develop`, `physics.loadBody` and `brain.allocate`, and pays its cost from the parent's reproductive reserve. A birth that would overflow the agent cap or a pool is deferred, never dropped. Details: [modules/sim.md](modules/sim.md).
+- **Births and deaths are batched.** The ecosystem decides reproduction, starvation, ageing, predation and decay inside `stepEcology` and leaves its requests pending; at the end of the same ecology tick `src/sim/eco-commit.ts` frees the brains of the dead, frees fully decayed carcasses, regrows restaged bodies in slot order, then commits births in `(parentEntityId, requestIndex)` order. Each birth runs the genome operators (keyed by the child's new entity id), `develop`, `physics.loadBody`, `brain.allocate`, species assignment and the ecosystem's `loadCreature`, then moves the mass from the parent. A birth that would overflow the agent cap or a pool lapses and the parent asks again on the next ecology tick: deferred, never dropped. Bites recorded by physics are handed to the ecosystem's conserving exchange before each ecology tick. Details: [modules/sim.md](modules/sim.md) and the file's header.
 - **Governors** (adaptive decisions that change results, such as the brain rate) may decide only on ticks with `tick % 300 == 0`, from measurements taken before that tick, and are journalled. Replay applies the journalled decision and never re-measures.
 - **Detectors** (hunts, schools, giants, mass deaths and so on) run outside the step, in the host and in `src/sim/detectors.ts`. They read the world and never write it.
 - **Ecology staggering.** Inside `stepEcology` and `stepSlow` the ecosystem spreads its 2 Hz field work over three phases on different ticks, so no single tick carries it all ([modules/ecosystem.md](modules/ecosystem.md), decision 1).
@@ -189,6 +190,7 @@ Every conserved pool (dissolved nutrient, detritus, plankton, mats, sediment, cy
 - **Cadence.** Autosave every 10 minutes (6 kept), daily (7 kept), before every major power and every rewind (20 each, 7 days), on shutdown, and manual snapshots forever, within 10 GB.
 - **Recovery.** On start the host loads the newest snapshot that verifies, then replays every later journal file of the same epoch, checking each journalled state hash, and stops at the first mismatch. Replay is exact only for the same build, which the header's `simHash` records.
 - **Migrations.** `src/host/migrations.ts` holds a chain of schema migrations (empty at schema 1). Columns are matched by name, so adding a column is forward compatible.
+- **The dream tank** saves the world (with the sim's side state) to IndexedDB every 5 minutes and on `pagehide`, and resumes it on load (`src/sim/autosave.ts`, `src/sim/worker.ts`); a resumed world steps on bit for bit.
 - **Designs** are `.ptkg` containers (`src/core/ptkg.ts`): magic `PTK`, a CBOR `{meta, genome}` payload, CRC-32; or the same bytes as a `PTK1.` base64url string.
 
 ## 9. How to add a gene
@@ -223,12 +225,13 @@ A power is an id, a rule for when it is major, an effect in the ecosystem and a 
 
 ## 11. Where things stand
 
-The modules are built and tested separately; the integration that wires them into one running sim is under way.
+The modules were built separately in phase 1 and joined into one product sim on 5 November 2026 (`git log` has the details). What that means for contributors:
 
-- `createSim()` with no arguments, which the dream tank and the host use, still runs the local fallbacks in `src/sim/fallback/` for genome, physics, brain and the creature life cycle: one-capsule budding creatures with an exact ledger. The real `src/genome`, `src/physics`, `src/brain` and `src/ecosystem` modules plug in through `createSim({ genome, physics, brain, ecosystem })` (see [modules/sim.md](modules/sim.md)); `node tools/integration/run.mjs tools/integration/try.ts` runs a world with the real genome, physics and brain modules.
-- The golden one-hour hash belongs to the fallback modules and will be re-recorded when the real modules are swapped in.
-- The god window runs against its in-page practice world by default; against a host it watches only, until it sends the god token.
-- The screensaver and TV views do not yet feed events to the director.
-- The GPU backend is a spike result, not code: everything runs on the CPU reference backend.
+- **Balance is young.** Expect populations that crash or stall; long headless runs (`tools/evolab`, `--engine sim`) and the parameter overrides in `WorldConfig.params` are how it is being tuned.
+- **Speed.** The full sim is much heavier than the phase-1 stand-ins, and has been measured only on a loaded 4-core cloud container. The dream tank starts with about 350 founders under an agent cap of 1,200.
+- **Views.** Bodies are regrown in the view from genomes (`src/ui/genomes.ts`). The host does not yet answer GENOME_REQ or send NEAR_POSE, and nothing streams the terrain, so views do not draw rocks yet.
+- **God window.** It runs against its in-page practice world (`MockSimLink`) by default. Against a host it watches only, because it does not yet send the god token in HELLO; the dream-tank worker grants its page the god scope, but the god window does not run against the worker yet.
+- **Director.** The screensaver and TV views do not yet feed events to the director, so their camera drifts.
+- **GPU.** The GPU backend is a spike result, not code: everything runs on the CPU reference backend.
 
-Each module's README lists what it has done and what is left.
+Each module's README and `docs/modules/<module>.md` list what is done and what is left.

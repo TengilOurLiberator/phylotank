@@ -35,17 +35,20 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Epoch** | A counter that goes up by one every time the world is rewound. Commands sent before a rewind are refused, so you cannot act on a present that no longer exists. |
 | **Fingerprint** | A short code such as `3fa9-12c0-88e1-04bd` that identifies a creature design. Two designs with the same fingerprint are the same genome. |
 | **Founder, founder protection** | The first creatures of a release. Founder protection is meant to shield them for their first 10 sim minutes so that a fresh design gets a fair start (the flag exists; the shielding itself is planned). |
+| **Founding Waters** | The name of the first world the god window shows. |
 | **God, god window, god power** | You, the window from which you change the world, and the events you can cast (meteors, plagues, blooms and so on). |
 | **Golden (golden hash, golden image)** | A recorded "known good" result that a test compares against, such as the state hash after an hour of simulation or a rendered picture. |
 | **Host** | The program on your PC that owns the persistent world, runs it all the time, saves it and streams it to the views. |
 | **Idle drift** | The wallpaper's slow, unscripted camera, which wanders towards lively places. |
 | **Innate gait** | The swimming rhythm a design is born with, set by phase genes on its parts. The brain may keep, change or abandon it. |
 | **Journal** | The log of every outside input to a world (god commands, releases, governor decisions) stamped with the tick it applies to. Replaying a snapshot plus its journal gives back the same world. |
+| **Knobs, presets** | World settings in the god window (day length, temperatures, plankton growth, mutation rate and so on) and saved sets of them: Gentle, Harsh and Fast evolution. |
 | **Lease (speed lease)** | Permission to run faster than normal. It lapses when the god window closes, so the wallpaper returns to calm, unless you start an explicit "run at max until ..." overnight lease. |
 | **Leviathan** | A creature you release deliberately as a giant. It may grow beyond the size ceiling and brings its own endowment. |
 | **Library** | Your collection of designs and captured creatures. |
 | **LOD (level of detail)** | Drawing near creatures in full and far ones more simply. Phylotank has five tiers, from a density haze to full bodies. |
 | **Major power** | A god power with big consequences (meteor, plague, cull, ice age and others). It needs a deliberate hold to confirm, waits 3 seconds and takes a snapshot first, so you can undo it. |
+| **Mock sim (practice world)** | A small toy world that runs inside the god window's page, so the window can be tried with no host. It labels itself "mock sim". |
 | **Motefly** | The starter whip microbe, the smallest template, needed at the bottom of the zoom range. |
 | **Nature mode** | The tank casting its own mild weather (small cold snaps, heatwaves, current shifts, storms, blooms) while you are away. Never meteors or plagues. |
 | **Preset (Small, Default, Large)** | The three world sizes: 32 x 18 m, 64 x 36 m and 128 x 72 m, each with its own agent cap and food budget. |

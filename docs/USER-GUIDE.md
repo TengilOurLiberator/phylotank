@@ -34,18 +34,18 @@ Installing is covered in [INSTALL.md](INSTALL.md). Words you may not know are in
 
 | Feature | Status |
 |---|---|
-| The tank in a browser tab (the "dream tank", no install) | **Works now**: about 1,500 small budding creatures that feed on plankton, grow, breed and die, drawn as glowing specks in dark water with light shafts |
-| Full grown bodies (segments, fins, eyes, mouths, light organs) in the running tank | **Partly**: the body, physics and brain modules are built and tested, and the renderer draws grown bodies, but the running tank still uses simple one-capsule stand-ins until they are wired together |
+| The tank in a browser tab (the "dream tank", no install) | **Works now**: about 350 creatures of five species in the Basin habitat, with grown bodies, physics, brains, feeding, breeding with mutation and an exact matter ledger; saved in the browser and resumed on your next visit. Joined on 5 November 2026, so balance is still being tuned |
+| Grown bodies drawn up close (segments, fins, eyes, mouths, light organs, glow and trails) | **Works now** when you zoom in; at the whole-tank zoom creatures are faint specks |
 | Wallpaper through Lively Wallpaper | **Partly**: the package is built and checked in a headless browser; Lively itself is untested on real hardware |
 | Screensaver (`phylotank.scr`) with captions | **Partly**: built and tested in CI; the camera director is built and tested but the screensaver view still drifts like the wallpaper |
-| TV by casting a Chrome tab | **Works now** as a plain cast of `tv.html`; the TV overlay, remote and gamepad controls are **planned (v0.6)** |
+| TV by casting a Chrome tab | **Works now**, including the overlay for a remote or a gamepad; LAN pairing and the Android TV app are **planned (v0.6)** |
 | One persistent world on your PC (the host) | **Works now**: runs all the time, autosaves, recovers from a crash, streams to every view |
-| God window: speed, inspector, timeline, bookmarks, rewind | **Partly**: works against a built-in practice world in the page; against your host it can watch but not yet change the world |
-| God powers | **Partly**: the twelve core powers can be cast in the god window's practice world, and every power's effect is built and tested in the ecosystem module, which is not yet wired into the running tank |
-| Creature designer (gene sliders, part editor, growth strip, energy budget) | **Partly**: works with a sketch preview and a toy test tank |
+| God window: speed, inspector, charts, timeline, bookmarks, rewind, renaming, knobs, tour | **Partly**: works against a built-in practice world in the page; against your host it can watch but not yet change the world |
+| God powers | **Partly**: every power's effect is built into the simulation, and the twelve core powers can be cast in the god window's practice world, but the god window cannot yet cast them into the dream tank or your host |
+| Creature designer (gene sliders, part editor, growth strip, energy budget) | **Partly**: works, with real grown bodies; the test tank is still a toy model |
 | Sharing creatures (`.ptkg` files, `PTK1.` strings, links, QR codes, the share page) | **Works now** |
 | Generative ambient sound | **Partly**: built and tested; heard by default only in the TV view |
-| English and Swedish | **Works now** in the god window |
+| English and Swedish | **Works now** in the god window, including the designer's slider labels |
 | The public demo site and share page | **Works now** once the project's GitHub Pages site is switched on |
 
 ---
@@ -78,9 +78,9 @@ The host prints the address of each view and a private link for the god window. 
 The tank is a finite slice of ocean seen from the side, 16:9 like your screen. The default world is 32 m wide and 18 m deep in the browser, and 64 m by 36 m on a PC host later.
 
 - **Water and light.** Sunlight falls from the surface and fades with depth: red goes first, then green, until the deep is lit only by the creatures themselves. Slow light shafts move through the upper water. Day and night follow the sim clock (a sim day is 20 minutes, a sim year 20 days), and seasons move the light and temperature. **Works now**: the depth light, the light shafts and the day clock. The rocks, caves and floor arrive with the habitat (next item).
-- **The habitat.** The default "Basin" has a sunlit shelf with reefs, a slope riddled with caves, a dark abyssal plain and a trench with hydrothermal vents. **Partly**: the ecosystem module builds it, and it reaches the running tank when that module is wired in.
+- **The habitat.** The default "Basin" has a sunlit shelf with reefs, a slope riddled with caves, a dark abyssal plain and a trench with hydrothermal vents. **Works now** in the simulation; the views do not draw the rocks and caves yet, because the stream does not carry the terrain.
 - **Plankton and marine snow.** Plankton is a living field that grows where light and nutrients meet and blooms in spring; dead matter falls as slow marine snow. **Partly**: drifting marine snow is drawn, and plankton feeds the creatures today, but plankton itself is not yet drawn.
-- **Creatures.** From far away a creature is a glowing speck whose colour is its body's own glow. Zoom in and specks resolve into soft, translucent bodies with fins, eyes, mouths and light organs, trailing light as they swim; there is no sudden pop between the two. Every living creature glows at least a little (the free "baseline glow"), so the tank never goes dark, but bright displays cost energy and evolve. **Partly**: specks work now; full bodies are drawn by the renderer but the running tank still sends simple stand-in creatures.
+- **Creatures.** From far away a creature is a glowing speck whose colour is its body's own glow. Zoom in and specks resolve into soft, translucent bodies with fins, eyes, mouths and light organs, trailing light as they swim; there is no sudden pop between the two. Every living creature glows at least a little (the free "baseline glow"), so the tank never goes dark, but bright displays cost energy and evolve. **Works now**, with one caveat for this early build: at the whole-tank zoom the creatures are still faint.
 - **Scale.** The zoom spans about three orders of magnitude, from 0.5 mm microbes to giants of about 20 cm in the default world, and larger leviathans you release yourself. **Planned (v0.4)** for evolved giants.
 
 ---
@@ -111,7 +111,8 @@ The camera works on its own like a nature documentary crew. It watches for inter
 The documentary camera tuned for the sofa: larger captions (held 6 seconds, at least 25 seconds apart) and sound on.
 
 - Open: cast a Chrome tab showing `tv.html` to a Chromecast or Google TV (steps in [INSTALL.md](INSTALL.md#4-tv-cast-a-chrome-tab-to-google-tv)). Expect some banding in dark gradients, because casting compresses the picture as video.
-- Status: **Works now** as a cast tab. **Planned (v0.6)**: a codec-friendly cast mode, a remote and gamepad overlay that moves only the TV's camera and sound, LAN pairing so the TV can render the stream itself, and an optional Android TV app.
+- **Overlay**: press any button on the remote or a gamepad to bring up a card that controls only this TV's camera and sound: Director, Follow (the creature nearest the centre), Next event, Zoom in and out, Captions on or off, Sound 0 to 10. Arrows or the D-pad move between controls, Back (Escape or Backspace on a keyboard) closes it, and it hides itself after 8 seconds. On a gamepad the left stick pans and the right stick or triggers zoom.
+- Status: **Works now** as a cast tab with the overlay (the overlay acts on the PC tab you cast). **Planned (v0.6)**: a codec-friendly cast mode, LAN pairing so the TV can render the stream itself, and an optional Android TV app.
 
 ### 4.4 God window
 
@@ -121,15 +122,20 @@ The only view with controls, and the only one that may change the world.
 - **Map**: drag to pan, scroll to zoom, a minimap of the whole tank.
 - **Powers**: the god powers palette (section 6).
 - **Inspector**: click a creature (or press C for the one nearest the centre) to see its species, age, energy, diet and a live view of its brain: inputs on the left, outputs on the right, hidden neurons between, brightness showing activity. Click a neuron to trace it for 20 seconds. F follows the selected creature.
-- **Stats**: population by species over time (linear or log), the species tree, how a chosen gene is distributed over time, and diversity indices.
+- **Stats**: population by species over time (linear or log), the species tree, the food web (who eats whom, laid out by trophic level), a chosen gene's distribution now or as a drift heat map over time, and diversity indices. Each chart has a table view.
+- **Renaming**: give a species your own name from the inspector, the stats table or the map. Your names win over generated ones and pass to daughter species of the same genus.
+- **Knobs**: world settings (day and year length, light, temperatures, currents, plankton growth, recycling, metabolic cost, mutation rate, population cap, disease, disasters, autosave, view brightness and glow) with the presets Gentle, Harsh and Fast evolution. A knob the host does not support yet says so instead of pretending.
 - **Timeline**: births of new species, extinctions, giants, hunts, mass deaths and your own powers. N and Shift+N jump to the next and previous event.
 - **Bookmarks and rewind**: save a place and zoom to return to it; rewind the world to a snapshot (section 11).
 - **Designer** and **Library**: sections 9 and 10.
-- **Settings**: language (English, Swedish) and display options.
+- **Settings**: language (English, Swedish), a high-contrast theme, UI scale from 75% to 200%, a colour-blind-safe chart palette, and "Show the welcome and tour again".
+- **Welcome tour**: a short, skippable tour (inspect a creature, cast an algae bloom, open the designer) shown the first time the tank fills up. The "?" button in the top bar shows it again.
+
+Gamepad: A clicks, B cancels, X opens powers, Y the inspector, LB and RB switch panels, the sticks pan and zoom.
 
 Keyboard: Space pauses or resumes; 1, 2, 3 and 4 set 1x, 4x, 16x and max speed, 5 pauses; arrow keys pan; + and - zoom; M, P, D, L, S and T (or B) open the map, powers, designer, library, stats and bookmarks panels; I toggles the inspector; Esc cancels; Ctrl+, opens settings. Every action works without a pointer.
 
-Status: **Partly**. Opened on its own (`god.html` from a static server or the dev server), the god window runs a built-in practice world inside the page and labels it "mock sim"; everything above works against it. Opened from the host, it shows the real world and can watch, but it does not yet send the private god token, so the host refuses its commands. **Planned (v0.5)**: the food web chart, a gene-drift heat map, zooming into the species tree, onboarding, renaming species, the world-settings knobs.
+Status: **Partly**. Opened on its own (`god.html` from a static server or the dev server), the god window runs a built-in practice world inside the page and labels it "mock sim"; everything above works against it. Opened from the host, it shows the real world and can watch, but it does not yet send the private god token, so the host refuses its commands. **Planned (v0.5)**: zooming into the species tree, a pop-out for panels, the god window's remote for a cast TV tab.
 
 ### 4.5 Designer
 
@@ -139,16 +145,16 @@ Where you build a creature: section 9. It lives inside the god window (press D).
 
 ## 5. Life in the tank
 
-What follows is the design. The running tank today has one simple kind of budding creature eating plankton, growing, breeding and dying, with every gram of matter accounted for. The richer life described here arrives as the modules are wired together (**planned, v0.4 "Deep evolution"** for most of it).
+What follows is how the simulation works. All of it is built, and it has run as one simulation since 5 November 2026, so this is the part where Phylotank is youngest: the balance between species is still being tuned, and long evolution (giants, many species, arms races) is what milestone **v0.4 "Deep evolution"** is about.
 
 - **The food web.** Light grows plankton, plant creatures and mats on the rocks; vents feed mats by chemistry in the dark. Grazers crop them, predators hunt grazers, parasites drain hosts, scavengers eat carcasses and marine snow, and everything that dies becomes dissolved nutrient that feeds the plankton again. There is a fixed amount of matter in the tank, so populations are limited by food, light and each other, not by a script.
 - **Bodies that make sense.** A body is grown from a recipe in its DNA: segments, fins, limbs, mouths, eyes, smell organs, spikes, light organs, cilia, jets, gas bladders and glands. Swimming comes from physics: a fin only pushes if it is shaped and placed to push water, drag grows with size and bluntness, and a microbe in syrupy water needs a whip or cilia while a giant can glide. Badly built bodies swim badly, so selection keeps the plausible ones.
 - **Brains.** Every organ brings its own neurons: an eye brings light receptors, a joint a muscle and a sense of its angle, a segment a small ganglion and a rhythm generator for swimming. Built-in reflexes (swim, startle, graze, bite what tastes like food, avoid walls, flee, breed) let a newborn survive, and evolution tunes the wiring, the reflex strengths and twelve personality genes such as boldness, sociality and appetite.
 - **Reproduction.** Genes decide. A lineage may bud (copy itself with mutations), mate (mix two parents' genes), or anything between, and that choice is itself a gene, as is the mutation rate.
 - **Species.** When genomes drift far enough apart, a new species is recognised automatically, given a generated scientific name (such as *Pratilux tondens*) and an English and Swedish common name, and added to the species tree.
-- **Disease.** Pathogens with lock-and-key antigens coevolve with their hosts' immune keys, so outbreaks come and go. **Partly**: built in the ecosystem module.
+- **Disease.** Pathogens with lock-and-key antigens coevolve with their hosts' immune keys, so outbreaks come and go.
 - **Ageing.** Every creature ages and dies; living longer costs energy for repair, so no gene setting is free or immortal.
-- **Nature mode.** While you are away, the tank throws its own mild weather (small cold snaps, heatwaves, current shifts, storms and blooms, about one every 10 sim days), never meteors or plagues. **Partly**: built, not yet in the running tank.
+- **Nature mode.** While you are away, the tank throws its own mild weather (small cold snaps, heatwaves, current shifts, storms and blooms, about one every 10 sim days), never meteors or plagues.
 
 Things worth watching for: a predator's hunt and its prey's escape, a school turning together, a spring bloom and the grazer boom after it, a carcass drawing scavengers, a new species splitting off, a parasite wave, and the slow drift of a lineage's body shape over many generations.
 
@@ -189,7 +195,7 @@ The lead time gives every view time to get ready: the screensaver's camera arriv
 | Earthquake | Opens or collapses caves and sends a sediment slide down the slope | always | **Planned (v1.0)** in the god window; effect built |
 | Seasons | Pause the seasons, jump to one, or change the length of the year | no | **Planned (v1.0)** |
 
-"Partly" for the core twelve means: you can cast them in the god window's practice world, and their real effects are built and tested in the ecosystem module, but that module is not yet wired into the running tank, and the god window cannot yet command your host. Every power is reproducible: its seed is journalled, so replaying the world gives the same outcome.
+"Partly" for the core twelve means: their real effects are part of the simulation and tested, and you can cast them in the god window's practice world (a simpler toy world), but the god window cannot yet cast them into the dream tank or your host. For the rest, the effect is built but the god window has no button for it yet. Every power is reproducible: its seed is journalled, so replaying the world gives the same outcome.
 
 ---
 
@@ -221,7 +227,7 @@ Eight original starter designs, each with a matching set of instincts. They are 
 | **Motefly** | *Flagellux minima* | Stoftfluga | whip microbe | A 0.8 mm cell with a beating whip, an eyespot and a filter mouth, at the bottom of the zoom where water feels like syrup. A pure budder. |
 | **Blank** | *Nudisoma simplex* | Tom | none | One segment and default genes: a clean start for your own design. |
 
-Status: **Works now** as genomes (they grow, pass their tests and can be shared). In the running tank today, every creature is the Motefly stand-in.
+Status: **Works now**. Five of them (Motefly, Meadowlamp, Ashpicker, Sievebell and Hushmaw) found the dream tank; Tetherling, Deepcrown and Blank are in the library to release.
 
 ---
 
@@ -236,7 +242,7 @@ The designer edits one genome through two views, so they can never disagree. **P
 - **Warn, never forbid**: problems are listed and highlight the responsible slider or part, but the Release button is never disabled; with a serious problem it reads "Release anyway". Evolution decides.
 - **Undo and redo**: Ctrl+Z and Ctrl+Shift+Z.
 - **Test tank**: **partly**. Today it animates the grown body and reports speeds from the budget model, labelled "toy model". A test tank running the real physics and brain in the page is **planned (v0.5)**.
-- **Body preview**: **partly**. Drawn as a sketch of the body graph until the designer uses the real growth function.
+- **Body preview**: the real growth function, the same one the simulation uses, so what you see is what will swim.
 - **Release**: choose where and how many, and whether the founders get a short protection. "Release as leviathan" lets the design grow beyond the world's size ceiling and brings extra nutrients into the tank so the food web can carry it; it is a major action (hold to confirm, snapshot first). **Partly**: works in the practice world.
 
 ---
@@ -267,7 +273,7 @@ node dist/host.mjs replay    # load the newest snapshot, replay the journal and 
 
 **Rewind** goes back to a snapshot in place: the present is saved first as "before rewind", and the world's epoch goes up by one, so nothing is ever lost. "Open as a separate world" for what-if experiments is **planned (v0.5)**. In the god window, rewind and bookmarks **work now** against the practice world.
 
-**In the browser** (the dream tank): **planned (v0.1)**. An autosave to the browser's storage every 5 minutes, so a reload resumes the tank. Today a reload starts a fresh tank.
+**In the browser** (the dream tank, **works now**): the tank saves itself to the browser's storage every 5 minutes and when you leave the page, and resumes from there on your next visit. Clearing the site's data starts a fresh tank.
 
 ---
 
@@ -275,9 +281,10 @@ node dist/host.mjs replay    # load the newest snapshot, replay the journal and 
 
 - **Photosensitive safety** (**works now**): Phylotank is slow by design. Every glow pulse is clamped (at most once a second on the wallpaper, twice elsewhere, and slower still for saturated red), brightness changes are slew-limited, the whole-screen brightness can change only 10% per second on the wallpaper, and a runtime check dims the picture if anything flashes anyway. Every view aims to meet WCAG 2.3.1 (no more than three flashes in any second).
 - **Calm**: the wallpaper has no text and no sudden movement; disasters are shown with slow fades.
-- **Keyboard**: every god window action has a key (section 4.4), and the Release flow works keyboard only. Gamepad and remote input are **planned (v0.6)**.
-- **Languages**: English and Swedish (**works now** in the god window; generated slider labels stay English for now). The language follows your browser; `?lang=sv` or `?lang=en` in the address overrides it.
-- **Screen readers**: the share page and site are structured for them; the god window's live description is **planned (v1.0)**.
+- **Keyboard, gamepad, remote**: every god window action has a key (section 4.4) and the whole tour and Release flow work keyboard only; the god window and the TV overlay also work with a gamepad, and the TV overlay with a remote.
+- **Seeing the screen**: a high-contrast theme, UI scale up to 200% and a colour-blind-safe chart palette, in Settings. The god window is checked with the axe-core accessibility tester in both themes.
+- **Languages**: English and Swedish (**works now** in the god window, slider labels included). The language follows your browser; `?lang=sv` or `?lang=en` in the address overrides it.
+- **Screen readers**: the share page and site are structured for them, and the god window's "Describe view" reads out where you are and what is in view (for example "Viewing the twilight zone, 340 creatures, mostly ...").
 
 ---
 

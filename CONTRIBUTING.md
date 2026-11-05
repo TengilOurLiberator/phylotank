@@ -29,7 +29,7 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 **Original designs only.** Every creature, name, piece of art, sound and text in Phylotank must be your own work (or already in the public domain, with its source stated). Do not copy, trace or closely imitate creatures, names, art, music or text from existing games, films, books or other software (Spore, The Bibites and the rest). Prior art may inspire the genre and the algorithms, and the design documents cite it, but nothing is copied from it. A design that is plainly a known character with the serial numbers filed off will be declined, however good it is.
 
-**Dependencies** must be compatible with releasing Phylotank into the public domain: permissive licences (MIT, BSD, ISC, Apache-2.0, CC0, Unlicense) only, no GPL or other copyleft. Phylotank has very few runtime dependencies on purpose (`ws` for the host); please discuss a new one in an issue first.
+**Dependencies** must be compatible with releasing Phylotank into the public domain: permissive licences (MIT, BSD, ISC, Apache-2.0, CC0, Unlicense) only, no GPL or other copyleft. Phylotank has very few dependencies on purpose (at run time only `ws`, for the host; for development TypeScript, esbuild, vitest and axe-core); please discuss a new one in an issue first.
 
 ## 2. Set-up
 
@@ -106,6 +106,7 @@ Use `PT_FAST=1` for your inner loop; CI runs the full suite. On a busy machine t
 ```sh
 NODE_PATH="$(npm root -g)" npm run test:e2e          # bundle, load the dream tank and the host in headless Chromium, save tests/artifacts/smoke.png
 NODE_PATH="$(npm root -g)" node tests/ui-screens.e2e.cjs     # after a build: drive the god window, write tests/artifacts/ui-*.png
+NODE_PATH="$(npm root -g)" node tests/ui2-screens.e2e.cjs    # after a build: onboarding, TV overlay, gamepad, axe-core accessibility, the real host
 NODE_PATH="$(npm root -g)" node tests/e2e/brain-crossengine.cjs   # the brain gives the same hash in Node and Chromium
 NODE_PATH="$(npm root -g)" node tests/genome-chromium.cjs         # development and mutation are bit-identical in Node and Chromium
 ```
