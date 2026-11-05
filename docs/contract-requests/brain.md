@@ -60,6 +60,8 @@ rehydrate(world: World, slot: number, ph: Phenotype, g: Genome): void;
 
 Kinds `k` are the channel kind codes (globals 0..17 or 0..7, part kinds `64 + index`). Input lanes: eyes number receptors then lanes `r * (C + 1) + c` continuing across eyes on the same part; chemo lanes are `organOrdinalOnPart * 8 + channel`; lateral and touch lane 0 dorsal, 1 ventral. Global channels use `moduleInnov = rootModuleInnov` and `pathHash = 0`, so a global's module key equals its instance key.
 
+Because `src/genome` may import only `core`, its DSYN "add synapse" mutation cannot ask the brain for valid keys. Proposal: move `inputSlotCode`, `outputSlotCode` and the namespace constants above from `src/brain/layout.ts` into a new `src/core/brain-keys.ts`, so genome can mint module keys from its module list (for example `hash32(finInnov, 0, outputSlotCode(MUSCLE, 0))`). Until then the functions are exported from `src/brain/layout.ts`.
+
 A module-keyed DSYN source that names several instances resolves, for each destination instance, to the instance on the same part, else the one nearest in `u` (ties to the lower index). DSYN genes are applied sorted by `(src, dst)`, the codec's canonical order, so encoding and decoding never changes a brain.
 
 ## B5. Reserved CPPN node ids (6.7)
