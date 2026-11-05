@@ -34,7 +34,7 @@ Installing is covered in [INSTALL.md](INSTALL.md). Words you may not know are in
 
 | Feature | Status |
 |---|---|
-| The tank in a browser tab (the "dream tank", no install) | **Works now**: about 2,000 small budding creatures that feed on plankton, grow, breed and die, drawn as glowing specks in dark water with light shafts |
+| The tank in a browser tab (the "dream tank", no install) | **Works now**: about 1,500 small budding creatures that feed on plankton, grow, breed and die, drawn as glowing specks in dark water with light shafts |
 | Full grown bodies (segments, fins, eyes, mouths, light organs) in the running tank | **Partly**: the body, physics and brain modules are built and tested, and the renderer draws grown bodies, but the running tank still uses simple one-capsule stand-ins until they are wired together |
 | Wallpaper through Lively Wallpaper | **Partly**: the package is built and checked in a headless browser; Lively itself is untested on real hardware |
 | Screensaver (`phylotank.scr`) with captions | **Partly**: built and tested in CI; the camera director is built and tested but the screensaver view still drifts like the wallpaper |

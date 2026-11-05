@@ -17,7 +17,7 @@ Phylotank is being built in the open and is **not ready for everyday use yet**. 
 
 **Works**
 
-- The tank runs in a browser tab with nothing installed: about 2,000 small creatures that feed on plankton, grow, bud, age and die, drawn as glowing specks in dark water with slow light shafts. Every gram of matter is accounted for, and the same seed always gives the same world.
+- The tank runs in a browser tab with nothing installed: about 1,500 small creatures that feed on plankton, grow, bud, age and die, drawn as glowing specks in dark water with slow light shafts. Every gram of matter is accounted for, and the same seed always gives the same world.
 - A Node host that keeps one persistent world on your PC, saves it every 10 minutes, recovers exactly after a crash by replaying its journal, and streams the world to every view over a local WebSocket.
 - The god window, against a practice world that runs inside the page: speed controls with leases, casting the twelve core god powers with countdowns and hold-to-confirm, the inspector with a live brain view, population, species-tree, gene and diversity charts, timeline, bookmarks, rewind, English and Swedish.
 - The creature designer: gene sliders and a part editor over one genome, a growth strip, an energy budget estimate, validation that warns but never forbids.
