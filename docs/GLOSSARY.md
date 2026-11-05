@@ -34,7 +34,7 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Energy ledger, mass ledger** | Phylotank's bookkeeping. All matter in a world is counted in whole quanta of 1 nanogram, and energy is derived from that mass, so nothing appears or vanishes except through logged god powers. |
 | **Epoch** | A counter that goes up by one every time the world is rewound. Commands sent before a rewind are refused, so you cannot act on a present that no longer exists. |
 | **Fingerprint** | A short code such as `3fa9-12c0-88e1-04bd` that identifies a creature design. Two designs with the same fingerprint are the same genome. |
-| **Founder, founder protection** | The first creatures of a release. Founder protection shields them for their first sim minutes so that a fresh design gets a fair start. |
+| **Founder, founder protection** | The first creatures of a release. Founder protection is meant to shield them for their first 10 sim minutes so that a fresh design gets a fair start (the flag exists; the shielding itself is planned). |
 | **God, god window, god power** | You, the window from which you change the world, and the events you can cast (meteors, plagues, blooms and so on). |
 | **Golden (golden hash, golden image)** | A recorded "known good" result that a test compares against, such as the state hash after an hour of simulation or a rendered picture. |
 | **Host** | The program on your PC that owns the persistent world, runs it all the time, saves it and streams it to the views. |
@@ -78,6 +78,7 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Binomial** | A two-part scientific name such as *Pratilux tondens* (genus, then species). Phylotank generates original ones. |
 | **Bioluminescence** | Light made by living things. |
 | **Biomass** | The total mass of living things, of a species or of the whole tank. |
+| **Body plan, morphology** | The overall layout of a body (how many segments, which parts, what symmetry); body shape and structure in general. |
 | **Budding** | Asexual reproduction: growing an offspring from the parent's own body. The child is a copy, apart from mutations. |
 | **Carcass, carrion** | A dead body; eating dead bodies. |
 | **Carrying capacity** | The population an environment can support. In Phylotank it falls out of the finite nutrient mass. |
@@ -88,27 +89,38 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Crossover** | Mixing two parents' genomes when a child is made sexually. |
 | **Cyst** | A dormant, resistant stage (of plankton or a pathogen) resting in the sediment. |
 | **Damuth's law** | Population density falls as body mass to the power -0.75: big animals are rarer. |
-| **Detritus, marine snow** | Dead organic particles; their slow rain from the upper water. |
 | **Detritivore, scavenger** | An animal that eats detritus; one that eats carcasses. |
+| **Detritus, marine snow** | Dead organic particles; their slow rain from the upper water. |
 | **Diel vertical migration** | The daily rise of animals to feed at night and their descent to hide by day. |
 | **Disposable soma** | The idea that a long life must be paid for with body repair, so living longer costs energy. Phylotank charges exactly that. |
 | **DNA, genome, gene** | The heritable recipe of a creature; the whole of it; one entry in it. |
+| **Dorsal, ventral, snout, anteroposterior (AP) axis** | The back and the belly side; the front tip; the line from snout to tail. Phylotank's body frame runs `u` from snout (0) to tail tip (1) and `v` from ventral (-1) to dorsal (+1). |
 | **Drive** | A built-in motivation neuron: hunger, fear, libido, fatigue, aggression or sociality. |
+| **Egg, hatching, juvenile, maturity** | An offspring not yet born; its emergence; a young creature; the point (0 at birth to 1 as an adult) at which it is grown and may breed. |
 | **Enzyme (diet enzymes)** | In Phylotank, a creature's split of digestive effort between plants, meat and detritus, set by two genes and shown as the designer's diet triangle. |
 | **Exaptation** | A part evolved for one use taken over for another. |
 | **Excretion, faeces** | Getting rid of waste: dissolved waste goes back to the water as nutrient, unabsorbed food leaves as faeces that become detritus. |
 | **Extinction** | The death of the last member of a species. |
 | **Fisherian runaway** | Mate preference and a display amplifying each other over generations. |
 | **Food web, food chain, trophic level** | Who eats whom; a single line of it; position in it (producers 1, grazers 2, their predators 3). |
+| **Ganglion** | A small cluster of neurons, here one per body segment. |
+| **Gape** | How wide a mouth opens, which limits the size of prey it can take. |
+| **Gene bank, immigration, reseed, safety valve** | A store of past genomes; new arrivals drawn from it at a low rate; refilling a tank that lost too much; the logged measures that keep a world from dying out completely. |
 | **Generation** | One step of descent, from parent to child. |
+| **Genus, epithet** | The first and second parts of a scientific name: *Pratilux* is the genus and *tondens* the epithet. |
 | **Gompertz ageing** | A death risk that rises exponentially with age. In Phylotank its steepness is a gene (SENESCENCE). |
 | **Grazer, herbivore, predator, parasite, filter feeder** | An animal that crops plants or mats; one that eats plants; one that hunts other animals; one that lives on a host and drains it; one that sieves food from the water. |
+| **Hebbian learning, neuromodulator** | Synapses strengthening when the neurons on both sides are active together; a signal (here pleasure or pain) that switches such learning up or down. |
+| **Heritable, trait** | Passed from parent to child; one measurable property of a creature, such as adult length or glow hue. In Phylotank almost every trait is a gene. |
 | **Hermaphrodite** | An individual that can act as either parent. All sexual Phylotank creatures are, for now. |
+| **Holdfast** | The part a sessile creature uses to grip the rock. |
 | **Holling type II** | Feeding that rises with food density and then levels off, because handling food takes time. |
 | **Homology** | Shared descent of a gene or part in two organisms. |
 | **Hox genes** | Genes that give body regions their identity by position. Phylotank's regulatory genes are modelled on them. |
+| **Hybrid** | A child of parents from two different species. |
 | **Kleiber's law** | Resting metabolic rate scales as body mass to the power 0.75, so big animals burn less per kilogram. |
 | **Klinotaxis, tropotaxis** | Following a smell by sampling it over time; by comparing two sensors at once. |
+| **Larva** | The young, often very different-looking, stage of an animal. |
 | **Lateral line** | A fish's sense of water pressure and nearby movement. |
 | **Lenia** | A continuous cellular automaton that forms organism-like patterns; the inspiration for Phylotank's benthic mats. |
 | **Lineage, phylogeny, species tree** | A line of descent; the history of descent of individuals; the branching tree of species. |
@@ -118,13 +130,16 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Metamorphosis** | A big change of body form during growth, such as a larva becoming an adult. |
 | **Minimum viable population** | A population size below which chance extinction becomes likely. |
 | **Monod curve, Steele curve** | Growth that rises with nutrient and saturates; growth with light that saturates and then falls in too much light. |
+| **Mouth types (filter, jaws, rasp, proboscis, suction)** | Phylotank's five mouths: a comb that sieves the water; biting jaws; a scraper for mats and plants; a piercing tube that latches on and drains; a mouth that sucks food in. |
 | **Mutation, mutation rate** | A random change to a gene when a child is made; how often that happens. In Phylotank the rate is itself a gene. |
 | **Niche** | The role a species plays and the resources it uses. |
 | **Nutrient, nutrient cycle, remineralisation** | The dissolved matter producers grow from; its loop from water to plankton to animals to carcasses and back; the breakdown of dead matter back into dissolved nutrient. |
 | **Ontogeny** | The development of one individual from birth to adult. |
-| **Paralog** | A gene copy created by duplication within one genome. |
+| **Organ, appendage, segment, limb, tentacle, whip (flagellum)** | A body part with a job; a part that sticks out; one unit of a body repeated along its length; a jointed arm or leg; a flexible arm; a long beating tail that drives microbes. |
 | **Paradox of enrichment** | Adding food can destabilise predator-prey cycles until they crash. |
+| **Paralog** | A gene copy created by duplication within one genome. |
 | **Pathogen, strain, virulence, prevalence** | A disease agent; one variety of it; how much harm it does; the fraction of a population infected. |
+| **Phenotype, genotype** | What a creature is actually like (its grown body and behaviour); the genes it carries. Phylotank's `develop()` turns one into the other. |
 | **Pheromone, scent channel** | A chemical signal between animals of one species; one of the eight smells carried by the water in Phylotank (plant, blood, toxin, alarm and four pheromones). |
 | **Photic zone** | The sunlit upper layer of water where plants can grow. |
 | **Photophore** | A light-emitting organ. |
@@ -135,8 +150,8 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Post-zygotic isolation** | Hybrids that fail to develop or breed, which keeps species apart. |
 | **Proprioception** | The sense of one's own body position, such as joint angles. |
 | **Red Queen** | Hosts and parasites evolving continually just to keep pace with each other. |
-| **Refuge** | A place where prey can hide from predators, such as caves and reefs. |
 | **Reflex** | A built-in reaction, such as startle or bite on taste, wired in before any learning. |
+| **Refuge** | A place where prey can hide from predators, such as caves and reefs. |
 | **Reserve, repro reserve** | A creature's stored energy (fat); the part set aside for breeding. |
 | **Richness, evenness, Hill numbers** | The number of species; how evenly individuals are spread among them; a family of diversity measures that combine both. |
 | **Selection, natural selection** | Some variants leaving more offspring than others, so their genes spread. |
@@ -147,8 +162,10 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Speciation** | One species splitting into two. Phylotank detects it automatically when genomes drift apart. |
 | **Species** | In Phylotank, a cluster of genetically similar creatures. A new species is promoted only after it holds enough members for enough generations. |
 | **Specific dynamic action** | The extra energy burnt in digesting a meal. |
+| **Spore** | A tiny dormant particle that spreads a pathogen through the water. |
 | **Spring bloom** | The plankton boom when spring light meets nutrients mixed up over winter. |
 | **Super-individual** | One simulated agent standing for a cloud of identical small animals. Not used in v1. |
+| **Symmetry (mirror, radial)** | A body whose upper and lower halves match; one arranged around a centre like a jellyfish. |
 | **Taste** | Phylotank's contact sense of food value and toxins at the mouth. |
 | **Toxicity** | How poisonous a creature is to eat; a gene. |
 | **Virulence trade-off** | Harsher pathogens spread more but kill hosts sooner, so intermediate virulence often wins. |
@@ -163,20 +180,26 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Added mass** | Water that must be accelerated along with a body. It makes thin fins and large bodies sluggish to start and turn. |
 | **Anisotropic drag** | Water resisting sideways motion more than motion along a body, which is what lets a wriggle push a creature forwards. |
 | **Antagonistic muscle pair** | Two muscles that pull a joint in opposite directions. |
+| **Armour, shell, lipid** | Heavy protective tissue; a calcified shell, built from dissolved minerals; fat, which is lighter than water and makes a body float. |
 | **Arrhenius factor, Q10** | Rules for how rates rise with temperature. Q10 = 2 means a rate doubles for every 10 °C. |
 | **Buoyancy** | The upward push of water. In Phylotank it comes from lipid (fat), gas bladders and the lack of armour, not from a density gene. |
+| **C-start** | A fish's sudden escape bend, triggered by a startle reflex. |
 | **Capsule** | A cylinder with rounded ends: the shape of most body segments. |
 | **Cilia** | Tiny beating hairs that move very small creatures or the water around them. |
 | **Compliance, damping, stiffness, Young's modulus** | How much a joint gives under load; how quickly it stops wobbling; how hard it is to bend; the material constant behind stiffness. |
 | **Cost of transport** | The energy used to move a unit of body weight over a unit of distance. |
-| **C-start** | A fish's sudden escape bend, triggered by a startle reflex. |
 | **Drag (linear, quadratic, Stokes flow)** | Water resistance. Linear drag dominates for tiny, slow bodies (syrupy Stokes flow); quadratic drag dominates for big, fast ones. |
+| **Eyes (cup, lens, eyespot)** | A simple pit of light-sensitive cells; an eye with a lens that sees more sharply; the smallest light-sensing spot. |
+| **Fin (paddle, fringe, fluke), pectoral fin** | Fin shapes: a stiff blade, a soft frilled edge, a broad tail; a fin on the side of the body behind the head, often in a pair. |
 | **Fluke** | A broad tail fin. |
+| **Gland, ink** | An organ that stores and releases a substance (toxin, or a cloud of ink to escape behind). |
 | **Hill muscle model** | Muscle force falls as shortening speed rises. |
 | **Isometric cost** | The energy a muscle burns holding still against a load. |
+| **Jet, gas bladder** | An organ that squirts water to push the body along, like a jellyfish's bell; a gas-filled sac that adjusts buoyancy. |
 | **Joint, revolute joint, joint limit** | Where two segments meet; a hinge that turns in the plane; how far it can bend. |
 | **Kinetic energy** | The energy of motion. Phylotank's watchdog checks that no creature gains it from nothing. |
 | **Munk moment** | The torque that turns a moving elongated body broadside to the flow. |
+| **Plume, vortex** | The rising column of warm water above a vent; a swirl in the water. |
 | **Reynolds number (Re)** | The ratio of inertial to viscous forces. Low Re means syrupy swimming where coasting is impossible; high Re means gliding. Phylotank spans Re about 0.01 (microbes) to tens of thousands (giants). |
 | **Scallop theorem** | At low Re a stroke that runs the same backwards and forwards produces no net motion, so microbes need whips or cilia. |
 | **Span** | A part's depth out of the plane, in the 2.5D model. |
@@ -215,10 +238,12 @@ Every term in the Phylotank docs and code that is not ordinary computer science,
 | **Bloom (render)** | A soft halo around bright things. Not to be confused with an algae bloom. |
 | **Caption, lower third, title-safe** | Phylotank's documentary text; the band at the bottom of the frame where it sits; the inner area that TVs never crop. |
 | **Caustics** | The rippling bright patterns that light makes through a wavy surface. |
+| **Chroma, hue, lightness** | How colourful a colour is; which colour it is; how light or dark it is. |
 | **Dip to dark** | The director's slow fade through black between shots instead of a hard cut. |
 | **Dither, blue noise** | Adding very fine, even noise to an image so that gradients do not band. |
 | **Drone, pad, leitmotif** | A sustained low note; a soft sustained chord; a short tune tied to one character, here one per species. |
 | **Establishing shot, tracking shot, push-in, scale reveal** | A wide shot that shows where we are; following a subject; a slow move closer; a zoom out that shows how big something is. |
+| **Fresnel rim, specular highlight** | The brighter edge a translucent body shows where you see it at a glancing angle; the small bright reflection of a light source, such as the dot in an eye. |
 | **Lydian, Phrygian** | Musical modes: bright and open; dark and tense. Phylotank's ambience moves from one towards the other after a disaster. |
 | **OKLCH** | A colour space based on lightness, chroma (colourfulness) and hue that matches how people see colour. Creature colours are genes in it. |
 | **Photosensitive safety, WCAG 2.3.1** | Keeping flashes slow and gentle enough not to trigger photosensitive seizures; the web accessibility rule that defines it (no more than three flashes in any second). |
