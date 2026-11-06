@@ -13,7 +13,9 @@ import {
   decodeCborFrame, decodeViewport, encodeBodyLeave, encodeCborFrame, FRAME, GOVERNOR_EVERY, MAX_INBOUND_BYTES, readHeader,
   type CborValue, type CommandResult, type GodCommand, type SimEvent, type ViewMode, type WorldConfig,
 } from '../core/index.js';
-import { envFrameFor } from '../sim/index.js';
+import { envFrameFor, stateOf } from '../sim/index.js';
+import { encodeGenomeFrame } from '../sim/frames.js';
+import { ByteReader, HEADER_BYTES } from '../core/index.js';
 export { hostCore, useHostCore } from './core.js';
 import { DEFAULT_DREAM_CONFIG, welcomeFor } from '../sim/session.js';
 import { CommandError, HOST_EVENT_ID_BASE, planCast, RateLimit, validateCommand } from './commands.js';
@@ -569,6 +571,18 @@ export async function startHost(opts: HostOptions): Promise<RunningHost> {
               try { result = command(validateCommand(payload), c); } catch (e) { result = { id, ok: false, reason: e instanceof CommandError ? e.reason : 'bad-command' }; }
             }
             c.send(encodeCborFrame(FRAME.COMMAND_RESULT, hw.tick, result as unknown as CborValue));
+            break;
+          }
+          case FRAME.GENOME_REQ: {
+            // the view regrows bodies from genomes with develop(), as in the dream tank (CONTRACT 12)
+            const r = new ByteReader(bytes, HEADER_BYTES);
+            const n = Math.min(64, r.u16());
+            for (let i = 0; i < n; i++) {
+              const lo = r.u32(); const hi = r.u32();
+              const key = (BigInt(hi) << 32n) | BigInt(lo);
+              const e = stateOf(hw.world).store.byGenomeKey(key);
+              if (e) c.send(encodeGenomeFrame(hw.tick, key, e.bytes));
+            }
             break;
           }
           case FRAME.BYE: ws.close(1000, 'bye'); break;

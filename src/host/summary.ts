@@ -1,11 +1,13 @@
 /**
  * The 1 Hz whole-tank summary (CONTRACT 12 CENSUS and STATS, DESIGN R19, R32): per-species
- * counts, biomass and colour, a 64 x 36 RGBA heat map of where life is (the director's "lit,
- * lively places"), environment, and host statistics for the god window. Computed once per
+ * counts, biomass and colour, the sim's 64 x 36 RGBA census heat (visible life, emissive,
+ * activity, carcasses; the same channels the dream tank sends, so the director works in host
+ * views too), environment, and host statistics for the god window. Computed once per
  * second and shared by every client.
  */
 import { CENSUS_EVERY, encodeCborFrame, FRAME, LIFE, Q_MASS, type CborValue, type World } from '../core/index.js';
 import { dayPhase, ecosystem, yearPhase } from '../sim/index.js';
+import { censusPayload } from '../sim/frames.js';
 
 export const HEAT_W = 64;
 export const HEAT_H = 36;
@@ -25,9 +27,6 @@ export interface TankSummary {
 export function summarise(world: World): TankSummary {
   const c = world.cr.c;
   const bySpecies = new Map<number, SpeciesRow & { r: number; g: number; b: number }>();
-  const heat = new Float32Array(HEAT_W * HEAT_H * 4);
-  const sx = HEAT_W / world.preset.widthM;
-  const sy = HEAT_H / world.preset.heightM;
   let pop = 0;
   let biomassQ = 0;
   for (let s = 0; s < world.cr.highWater; s++) {
@@ -41,22 +40,8 @@ export function summarise(world: World): TankSummary {
     if (!row) { row = { id: sp, count: 0, biomassKg: 0, colour: col, r: 0, g: 0, b: 0 }; bySpecies.set(sp, row); }
     row.count++;
     row.biomassKg += q * Q_MASS;
-    const ix = Math.min(HEAT_W - 1, Math.max(0, Math.floor(c.posX[s]! * sx)));
-    const iy = Math.min(HEAT_H - 1, Math.max(0, Math.floor(c.posY[s]! * sy)));
-    const k = (iy * HEAT_W + ix) * 4;
-    const g = 0.25 + c.glow[s]!;
-    heat[k] = heat[k]! + ((col >>> 24) & 255) * g;
-    heat[k + 1] = heat[k + 1]! + ((col >>> 16) & 255) * g;
-    heat[k + 2] = heat[k + 2]! + ((col >>> 8) & 255) * g;
-    heat[k + 3] = heat[k + 3]! + 1;
   }
-  const heatBytes = new Uint8Array(HEAT_W * HEAT_H * 4);
-  for (let i = 0; i < HEAT_W * HEAT_H; i++) {
-    const n = heat[i * 4 + 3]!;
-    if (n === 0) continue;
-    for (let ch = 0; ch < 3; ch++) heatBytes[i * 4 + ch] = Math.min(255, Math.round(heat[i * 4 + ch]! / n));
-    heatBytes[i * 4 + 3] = Math.min(255, Math.round(32 * Math.log2(1 + n)));
-  }
+  const heatBytes = (censusPayload(world) as { heat: Uint8Array }).heat;
   let ledger: TankSummary['ledger'] = null;
   try { const a = ecosystem.audit(world); ledger = { ok: a.ok, totalQ: a.totalQ, expectedQ: a.expectedQ }; } catch { ledger = null; }
   const species = [...bySpecies.values()].sort((a, b) => b.count - a.count || a.id - b.id)

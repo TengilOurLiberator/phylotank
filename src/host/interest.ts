@@ -15,6 +15,7 @@ import {
   PROTOCOL_VERSION_1_1, quantRel, speedToByte, TAU, TICK_HZ, writeHeader, type BodyEnter, type BodyRecord, type DustFrame, type Rect, type Viewport,
   type World,
 } from '../core/index.js';
+import { stateOf } from '../sim/index.js';
 
 export const LOD = { BODY: 0, DUST: 1, GLOW: 2 } as const;
 export const BODY_MIN_PX = 4;
@@ -231,7 +232,7 @@ export class InterestStream {
       if (slot < 0) continue;
       const tissue = Math.max(1, c.qTissue[s]!);
       enter.push({
-        slot, id, genomeKey: BigInt(c.genome[s]!), species: c.species[s]!, log2Length: Math.log2(Math.max(1e-6, c.length[s]!)),
+        slot, id, genomeKey: c.genome[s]! !== 0xffffffff ? stateOf(world).store.key(c.genome[s]!) : 0n, species: c.species[s]!, log2Length: Math.log2(Math.max(1e-6, c.length[s]!)),
         maturity: Math.round(Math.min(1, Math.max(0, c.maturity[s]!)) * 255), energy: Math.min(255, Math.round((c.qReserve[s]! / tissue) * 255)),
         lod: LOD.BODY, flags: c.flags[s]! & 0xff,
       });

@@ -95,6 +95,7 @@ function serve() {
       const s = await p.evaluate(() => window.__phylotank);
       console.log('host stats', JSON.stringify(s));
       if (!s || s.link !== 'socket' || !(s.renderer.dustFrames >= 5)) failures.push(`host stream did not arrive: ${JSON.stringify(s)}`);
+      if (s && !(s.renderer.bodyFrames >= 1 && s.genomeTemplates >= 1)) failures.push(`host stream has no creature bodies: bodyFrames ${s.renderer.bodyFrames}, genomeTemplates ${s.genomeTemplates}`);
       if (errs.length) failures.push(`host page errors: ${errs.join(' | ')}`);
     } finally {
       host.kill();

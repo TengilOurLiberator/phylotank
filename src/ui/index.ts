@@ -212,7 +212,7 @@ export function bootView(mode: ViewMode, root: HTMLElement): ViewHandle {
       } catch { /* a malformed frame never breaks the view */ }
     });
     link.send(encodeCborFrame(FRAME.HELLO, 0, {
-      view: mode, caps: { maxBytesPerSec: 4_000_000, maxBodies: 0, maxDust: 8192, gpu: 'webgl2' },
+      view: mode, caps: { maxBytesPerSec: 4_000_000, maxBodies: 2_000, maxDust: 8192, gpu: 'webgl2' },
       viewport: [0, 0, 0, 0],
     }));
   }
