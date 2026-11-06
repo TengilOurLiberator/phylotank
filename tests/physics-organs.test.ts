@@ -156,14 +156,14 @@ describe('physics: parasite scraping', () => {
     const sg = tw.world.seg.c; const c = tw.world.cr.c;
     const hs = c.segStart[host]!; const ps = c.segStart[par]!;
     workFor(tw.world).subtype[ps] = MOUTH_SUBTYPE.PROBOSCIS;
-    sg.cmd2[ps] = 1;
+    sg.cmd3[ps * 2 + 1] = 1; // latch drive: cmd3 lane 1 (CONTRACT 5.2)
     addLink(tw.world, LINK.LATCH, ps, hs + 4, sg.posX[ps]!, sg.posY[ps]! + 0.002, 1e9);
     const itch0 = itch(tw.world, host);
     let offAt = -1; let relatched = false;
     for (let k = 0; k < 75; k++) {
       // the host rubs along the floor at hostSpeed; the parasite keeps its latch drive on
       for (let j = 0; j < 8; j++) { sg.velX[hs + j] = -hostSpeed; sg.velY[hs + j] = 0.05; }
-      sg.cmd2[ps] = 1;
+      sg.cmd3[ps * 2 + 1] = 1; // latch drive: cmd3 lane 1 (CONTRACT 5.2)
       phys.step(tw.world, tw.ctx); nextTick(tw);
       const on = linkState(tw.world).links.some((l) => l.type === LINK.LATCH);
       if (!on && offAt < 0) offAt = k;
